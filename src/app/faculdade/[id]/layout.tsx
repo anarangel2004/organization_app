@@ -1,32 +1,51 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useParams } from 'next/navigation';
 import { getProjectById, Project } from '@/lib/db';
 import { ArrowLeft, BookOpen, FileText, Calculator } from 'lucide-react';
 
-export default function CadeiraLayout({
-  children,
-  params: paramsPromise,
-}: {
-  children: React.ReactNode;
-  params: Promise<{ cadeiraId: string }>;
-}) {
-  const params = use(paramsPromise);
+export default function CadeiraLayout({ children }: { children: React.ReactNode }) {
+  const params = useParams();
+  const rawId = params?.cadeiraId;
+  const cadeiraId = Array.isArray(rawId) ? rawId[0] : (rawId as string);
+
   const pathname = usePathname();
   const [project, setProject] = useState<Project | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (params.cadeiraId) {
-      getProjectById(params.cadeiraId).then(setProject);
+    let isMounted = true;
+
+    async function loadData() {
+      if (!cadeiraId) {
+        if (isMounted) setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const data = await getProjectById(cadeiraId);
+        if (isMounted) setProject(data);
+      } catch (err) {
+        console.error('Erro ao carregar UC:', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
     }
-  }, [params.cadeiraId]);
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [cadeiraId]);
 
   const tabs = [
-    { name: 'Materiais', href: `/faculdade/${params.cadeiraId}/materiais`, icon: BookOpen },
-    { name: 'Notebook', href: `/faculdade/${params.cadeiraId}/notebook`, icon: FileText },
-    { name: 'Avaliação & Notas', href: `/faculdade/${params.cadeiraId}/avaliacao`, icon: Calculator },
+    { name: 'Materiais', href: `/faculdade/${cadeiraId}/materiais`, icon: BookOpen },
+    { name: 'Notebook', href: `/faculdade/${cadeiraId}/notebook`, icon: FileText },
+    { name: 'Avaliação & Notas', href: `/faculdade/${cadeiraId}/avaliacao`, icon: Calculator },
   ];
 
   return (
@@ -42,8 +61,17 @@ export default function CadeiraLayout({
           </Link>
           <div>
             <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full" style={{ backgroundColor: project?.color || '#3b82f6' }} />
-              <h1 className="text-xl font-bold text-slate-100">{project?.name || 'A carregar...'}</h1>
+              <span
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: project?.color || '#0ea5e9' }}
+              />
+              <h1 className="text-xl font-bold text-slate-100">
+                {loading
+                  ? 'A carregar...'
+                  : project
+                  ? project.name
+                  : `Unidade Curricular (${cadeiraId || 'N/A'})`}
+              </h1>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">Mestrado em Cibersegurança</p>
           </div>

@@ -48,7 +48,7 @@ export default function FaculdadePage() {
   async function loadProjects() {
     setLoading(true);
     try {
-      const data = await getProjects('academic');
+      const data = await (getProjects as (context?: string) => Promise<Project[]>)('academic');
       setProjects(data);
     } catch (err) {
       console.error('Erro ao carregar cadeiras:', err);
@@ -73,7 +73,7 @@ export default function FaculdadePage() {
       await createProject({
         name: name.trim(),
         color: selectedColor,
-        context: 'academic',
+        type: 'academic',
         evaluation_data: evaluationData,
       });
 
