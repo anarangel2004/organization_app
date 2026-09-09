@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
+import MinimalCalendar from '@/components/MinimalCalendar';
 import { 
   GraduationCap, 
   Briefcase, 
@@ -233,8 +234,16 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
+
+          
         </div>
       </div>
+      <main className="min-h-screen bg-[#ecebe6] p-6 flex justify-center items-center">
+      <div className="w-full max-w-6xl">
+        <MinimalCalendar />
+      </div>
+    </main>
     </div>
+    
   );
 }

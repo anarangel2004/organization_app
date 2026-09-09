@@ -29,6 +29,7 @@ export interface Task {
   title: string;
   completed: boolean;
   due_date?: string | null;
+  status?: 'pending' | 'done';
   project_id?: string | null;
   category?: 'academic' | 'work' | 'general' | string | null;
   context?: 'academic' | 'work' | 'general' | 'faculdade' | 'trabalho' | string | null;

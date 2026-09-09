@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { getProjectById, updateProject, Project, EvaluationData } from '@/lib/db';
-import { Calculator, Plus, Trash2, FileText, BookOpen } from 'lucide-react';
+import { Calculator, Plus, Trash2, FileText, BookOpen, Settings, Check, X } from 'lucide-react';
 
 export default function AvaliacaoPage() {
   const params = useParams();
@@ -13,7 +13,12 @@ export default function AvaliacaoPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Estado do Formulário
+  // Estado para Edição das Percentagens
+  const [isEditingWeights, setIsEditingWeights] = useState(false);
+  const [theoryWeightInput, setTheoryWeightInput] = useState<number>(50);
+  const [practicalWeightInput, setPracticalWeightInput] = useState<number>(50);
+
+  // Estado do Formulário de Elementos
   const [itemType, setItemType] = useState<'test' | 'project'>('test');
   const [itemName, setItemName] = useState('');
   const [itemWeight, setItemWeight] = useState<number>(50);
@@ -28,7 +33,13 @@ export default function AvaliacaoPage() {
       try {
         if (cadeiraId) {
           const data = await getProjectById(cadeiraId);
-          if (isMounted) setProject(data);
+          if (isMounted && data) {
+            setProject(data);
+            const tw = data.evaluation_data?.theory_weight ?? 50;
+            const pw = data.evaluation_data?.practical_weight ?? 50;
+            setTheoryWeightInput(tw);
+            setPracticalWeightInput(pw);
+          }
         }
       } catch (err) {
         console.error('Erro ao carregar avaliações:', err);
@@ -87,6 +98,32 @@ export default function AvaliacaoPage() {
   };
 
   const finalGrade = calculateFinalGrade();
+
+  // Guardar as novas percentagens da Cadeira
+  const handleSaveWeights = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+
+    const newTheory = Math.min(100, Math.max(0, Number(theoryWeightInput) || 0));
+    const newPractical = Math.min(100, Math.max(0, Number(practicalWeightInput) || 0));
+
+    const updatedData: EvaluationData = {
+      theory_weight: newTheory,
+      practical_weight: newPractical,
+      tests,
+      projects
+    };
+
+    if (project) {
+      try {
+        const updatedProject = await updateProject(project.id, { evaluation_data: updatedData });
+        setProject(updatedProject);
+      } catch {
+        setProject({ ...project, evaluation_data: updatedData });
+      }
+    }
+
+    setIsEditingWeights(false);
+  };
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,21 +222,96 @@ export default function AvaliacaoPage() {
 
   return (
     <div className="space-y-6">
-      {/* Resumo da Nota */}
-      <div className="bg-slate-900/40 p-4 border border-slate-800 rounded-xl flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <Calculator className="w-5 h-5 text-sky-400" />
-          <div>
-            <h2 className="text-sm font-bold text-slate-200">Cálculo de Média Estimada</h2>
-            <p className="text-xs text-slate-400">Insere as notas obtidas nos exames e trabalhos.</p>
+      {/* Resumo da Nota e Edição de Pesos */}
+      <div className="bg-slate-900/40 p-4 border border-slate-800 rounded-xl space-y-3">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Calculator className="w-5 h-5 text-sky-400" />
+            <div>
+              <h2 className="text-sm font-bold text-slate-200">Cálculo de Média Estimada</h2>
+              <p className="text-xs text-slate-400">Insere as notas obtidas nos exames e trabalhos.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => {
+                setTheoryWeightInput(evalData.theory_weight || 50);
+                setPracticalWeightInput(evalData.practical_weight || 50);
+                setIsEditingWeights(!isEditingWeights);
+              }}
+              className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1.5 font-medium bg-sky-500/10 border border-sky-500/20 px-2.5 py-1 rounded-lg transition-colors"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              {isEditingWeights ? 'Cancelar Edição' : 'Editar Pesos (%)'}
+            </button>
+
+            <div className="text-right border-l border-slate-800 pl-4">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block">Média Atual</span>
+              <span className={`text-xl font-extrabold ${finalGrade ? (Number(finalGrade) >= 9.5 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
+                {finalGrade ? `${finalGrade} / 20` : 'Sem Notas'}
+              </span>
+            </div>
           </div>
         </div>
-        <div className="text-right">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block">Média Atual</span>
-          <span className={`text-xl font-extrabold ${finalGrade ? (Number(finalGrade) >= 9.5 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-500'}`}>
-            {finalGrade ? `${finalGrade} / 20` : 'Sem Notas'}
-          </span>
-        </div>
+
+        {/* Form para Editar Percentagens (Teórica / Prática) */}
+        {isEditingWeights && (
+          <form onSubmit={handleSaveWeights} className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-4 bg-slate-950/50 p-3 rounded-lg">
+            <div className="flex items-center gap-4 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 font-medium">Teórica:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={theoryWeightInput}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setTheoryWeightInput(val);
+                    setPracticalWeightInput(100 - val);
+                  }}
+                  className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-slate-100 focus:outline-none focus:border-sky-500"
+                />
+                <span className="text-slate-400">%</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 font-medium">Prática:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={practicalWeightInput}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setPracticalWeightInput(val);
+                    setTheoryWeightInput(100 - val);
+                  }}
+                  className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-slate-100 focus:outline-none focus:border-emerald-500"
+                />
+                <span className="text-slate-400">%</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEditingWeights(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-200"
+                title="Cancelar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <button
+                type="submit"
+                className="flex items-center gap-1 bg-sky-600 hover:bg-sky-500 text-white text-xs px-3 py-1.5 rounded-lg font-medium transition-colors"
+              >
+                <Check className="w-3.5 h-3.5" /> Guardar Pesos
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -284,7 +396,7 @@ export default function AvaliacaoPage() {
         </div>
       </div>
 
-      {/* Formulário para Adicionar */}
+      {/* Formulário para Adicionar Elementos */}
       {!isAddingItem ? (
         <button
           onClick={() => setIsAddingItem(true)}
