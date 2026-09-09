@@ -3,8 +3,8 @@ import { redirect } from 'next/navigation';
 export default async function CadeiraIndexPage({
   params,
 }: {
-  params: Promise<{ cadeiraId: string }>;
+  params: Promise<{ id: string }>;
 }) {
-  const resolvedParams = await params;
-  redirect(`/faculdade/${resolvedParams.cadeiraId}/materiais`);
+  const { id } = await params;
+  redirect(`/faculdade/${id}/materiais`);
 }

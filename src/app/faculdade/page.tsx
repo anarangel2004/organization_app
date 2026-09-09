@@ -6,8 +6,7 @@ import { Plus, GraduationCap, Search, Layers, Loader2 } from 'lucide-react';
 import { Subject } from './types';
 import { SubjectCard } from './components/SubjectCard';
 import { AddSubjectModal } from './components/AddSubjectModal';
-import { LibraryModal } from './components/LibraryModal';
-import { supabase } from '@/lib/supabase'; // Ajusta o caminho se necessário
+import { supabase } from '@/lib/supabase';
 
 export default function FaculdadePage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -15,32 +14,47 @@ export default function FaculdadePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Estado para controlar a visibilidade do modal da Biblioteca e a disciplina selecionada
-  const [selectedLibrarySubject, setSelectedLibrarySubject] = useState<Subject | null>(null);
-
-  // 1. CARREGAR DISCIPLINAS DO SUPABASE
+  // 1. CARREGAR DISCIPLINAS E CONTAR FICHEIROS EXISTENTES
   const fetchSubjects = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('subjects').select('*');
 
-    if (error) {
-      console.error('Erro ao carregar disciplinas:', error.message);
-    } else if (data) {
-      // Mapear snake_case do Supabase para camelCase da app
-      const formattedSubjects: Subject[] = data.map((item) => ({
-        id: item.id,
-        name: item.name,
-        code: item.code,
-        color: item.color,
-        teacherTeorica: item.teacher_teorica,
-        teacherPratica: item.teacher_pratica,
-        evaluation: item.evaluation,
-        schedules: item.schedules,
-        filesCount: item.files_count,
-        nextEvaluation: item.next_evaluation,
-      }));
-      setSubjects(formattedSubjects);
+    // Carregar disciplinas
+    const { data: subjectsData, error: subjectsError } = await supabase
+      .from('subjects')
+      .select('*');
+
+    // Carregar a lista de ficheiros para a contagem
+    const { data: filesData } = await supabase
+      .from('subject_files')
+      .select('subject_id');
+
+    if (subjectsError) {
+      console.error('Erro ao carregar disciplinas:', subjectsError.message);
+      setLoading(false);
+      return;
     }
+
+    // Mapear número de ficheiros por id de disciplina
+    const fileCounts: Record<string, number> = {};
+    filesData?.forEach((file) => {
+      fileCounts[file.subject_id] = (fileCounts[file.subject_id] || 0) + 1;
+    });
+
+    // Formatar os dados
+    const formattedSubjects: Subject[] = (subjectsData || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      code: item.code,
+      color: item.color,
+      teacherTeorica: item.teacher_teorica,
+      teacherPratica: item.teacher_pratica,
+      evaluation: item.evaluation,
+      schedules: item.schedules,
+      filesCount: fileCounts[item.id] || 0,
+      nextEvaluation: item.next_evaluation,
+    }));
+
+    setSubjects(formattedSubjects);
     setLoading(false);
   };
 
@@ -50,9 +64,18 @@ export default function FaculdadePage() {
 
   // 2. GUARDAR NOVA DISCIPLINA NO SUPABASE
   const handleAddSubject = async (newSubject: Subject) => {
+    // Gera um slug limpo sem acentos para evitar problemas de URL
+    const cleanId =
+      newSubject.id ||
+      newSubject.name
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, '-');
+
     const { error } = await supabase.from('subjects').insert([
       {
-        id: newSubject.id || newSubject.name.toLowerCase().replace(/\s+/g, '-'),
+        id: cleanId,
         name: newSubject.name,
         code: newSubject.code,
         color: newSubject.color,
@@ -71,7 +94,7 @@ export default function FaculdadePage() {
       return;
     }
 
-    // Atualiza a lista no ecrã após guardar com sucesso
+    // Atualiza a lista no ecrã
     fetchSubjects();
   };
 
@@ -184,11 +207,7 @@ export default function FaculdadePage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredSubjects.map((subject) => (
-              <SubjectCard
-                key={subject.id}
-                subject={subject}
-                onOpenLibrary={(sub) => setSelectedLibrarySubject(sub)}
-              />
+              <SubjectCard key={subject.id} subject={subject} />
             ))}
           </div>
         )}
@@ -199,15 +218,6 @@ export default function FaculdadePage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onAddSubject={handleAddSubject}
-      />
-
-      {/* 5. MODAL DA BIBLIOTECA DE DOCUMENTOS */}
-      
-      <LibraryModal
-        isOpen={!!selectedLibrarySubject}
-        subject={selectedLibrarySubject}
-        onClose={() => setSelectedLibrarySubject(null)}
-        onFilesUpdated={fetchSubjects}
       />
     </div>
   );
