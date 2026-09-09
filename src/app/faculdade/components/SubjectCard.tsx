@@ -20,9 +20,10 @@ import { Subject } from '../types';
 
 interface SubjectCardProps {
   subject: Subject;
+  onOpenLibrary: (subject: Subject) => void;
 }
 
-export function SubjectCard({ subject }: SubjectCardProps) {
+export function SubjectCard({ subject, onOpenLibrary }: SubjectCardProps) {
   return (
     <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-all space-y-5">
       <div className="space-y-3">
@@ -50,7 +51,7 @@ export function SubjectCard({ subject }: SubjectCardProps) {
 
         {/* Lista de Horários */}
         <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-2.5 text-xs text-slate-700 space-y-2">
-          {subject.schedules.map((sched, idx) => (
+          {subject.schedules?.map((sched, idx) => (
             <div
               key={idx}
               className="flex items-center justify-between font-medium border-b border-slate-200/50 last:border-0 pb-1.5 last:pb-0 gap-2"
@@ -116,26 +117,28 @@ export function SubjectCard({ subject }: SubjectCardProps) {
         </div>
 
         {/* Resumo de Avaliação */}
-        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
-          <div className="flex items-center gap-1.5 font-mono font-medium text-slate-700">
-            <Percent className="w-3 h-3 text-slate-400" />
-            <span>T: {subject.evaluation.teoricaWeight}%</span>
-            <span className="text-slate-300">•</span>
-            <span>P: {subject.evaluation.praticaWeight}%</span>
-          </div>
+        {subject.evaluation && (
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-1.5 font-mono font-medium text-slate-700">
+              <Percent className="w-3 h-3 text-slate-400" />
+              <span>T: {subject.evaluation.teoricaWeight}%</span>
+              <span className="text-slate-300">•</span>
+              <span>P: {subject.evaluation.praticaWeight}%</span>
+            </div>
 
-          <div>
-            {subject.evaluation.requiresAttendance ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-800 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-md">
-                <CheckCircle2 className="w-3 h-3 text-amber-600" /> Frequência Obrigatória
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-md">
-                <XCircle className="w-3 h-3 text-emerald-600" /> Pode Faltar
-              </span>
-            )}
+            <div>
+              {subject.evaluation.requiresAttendance ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-800 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-md">
+                  <CheckCircle2 className="w-3 h-3 text-amber-600" /> Frequência Obrigatória
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-md">
+                  <XCircle className="w-3 h-3 text-emerald-600" /> Pode Faltar
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Os 3 Notebooks Fixos */}
@@ -177,15 +180,16 @@ export function SubjectCard({ subject }: SubjectCardProps) {
         </div>
       </div>
 
-      {/* Rodapé: Biblioteca de Documentos */}
+      {/* Rodapé: Biblioteca de Documentos (Gera Pop-up Modal) */}
       <div className="flex items-center justify-between pt-1 text-xs">
-        <Link
-          href={`/faculdade/${subject.id}/materiais`}
-          className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 transition-colors font-medium"
+        <button
+          type="button"
+          onClick={() => onOpenLibrary(subject)}
+          className="flex items-center gap-1.5 text-slate-600 hover:text-amber-800 transition-colors font-medium cursor-pointer"
         >
           <FolderOpen className="w-3.5 h-3.5 text-amber-600" />
-          <span>Biblioteca ({subject.filesCount})</span>
-        </Link>
+          <span>Biblioteca ({subject.filesCount || 0})</span>
+        </button>
 
         <Link
           href={`/faculdade/${subject.id}`}

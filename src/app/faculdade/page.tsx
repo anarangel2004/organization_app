@@ -1,97 +1,78 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Plus, GraduationCap, Search, Layers } from 'lucide-react';
+import { Plus, GraduationCap, Search, Layers, Loader2 } from 'lucide-react';
 import { Subject } from './types';
 import { SubjectCard } from './components/SubjectCard';
 import { AddSubjectModal } from './components/AddSubjectModal';
-
-// --- Dados Iniciais no próprio ficheiro (sem necessidade da pasta /data) ---
-const INITIAL_SUBJECTS: Subject[] = [
-  {
-    id: 'metodologia',
-    name: 'Metodologia e Investigação Visual',
-    code: 'MIV-2026',
-    color: 'bg-amber-400',
-    teacherTeorica: {
-      name: 'Prof. Vasconcelos',
-      email: 'vasconcelos@universidade.pt'
-    },
-    teacherPratica: {
-      name: 'Dra. Mariana Silva',
-      email: 'msilva@universidade.pt'
-    },
-    evaluation: {
-      teoricaWeight: 40,
-      praticaWeight: 60,
-      requiresAttendance: true
-    },
-    schedules: [
-      {
-        dayOfWeek: 'Terça-feira',
-        startTime: '14:00',
-        endTime: '17:00',
-        room: 'Sala 3.02',
-        type: 'Teórica'
-      },
-      {
-        dayOfWeek: 'Quinta-feira',
-        startTime: '10:00',
-        endTime: '12:00',
-        room: 'Sala 3.02',
-        type: 'Prática'
-      }
-    ],
-    filesCount: 8,
-    nextEvaluation: {
-      title: 'Entrega Proposta Tese',
-      date: '24 Out'
-    }
-  },
-  {
-    id: 'design-interacao',
-    name: 'Design de Interação e Apresentação',
-    code: 'DIA-2026',
-    color: 'bg-slate-900',
-    teacherTeorica: {
-      name: 'Dra. Sofia Martins',
-      email: 'smartins@universidade.pt'
-    },
-    teacherPratica: {
-      name: 'Dra. Sofia Martins',
-      email: 'smartins@universidade.pt'
-    },
-    evaluation: {
-      teoricaWeight: 30,
-      praticaWeight: 70,
-      requiresAttendance: false
-    },
-    schedules: [
-      {
-        dayOfWeek: 'Quarta-feira',
-        startTime: '09:30',
-        endTime: '12:30',
-        room: 'Lab Digital 1',
-        type: 'Teórico-Prática'
-      }
-    ],
-    filesCount: 14,
-    nextEvaluation: {
-      title: 'Apresentação Wireframes',
-      date: '12 Nov'
-    }
-  }
-];
+import { LibraryModal } from './components/LibraryModal';
+import { supabase } from '@/lib/supabase'; // Ajusta o caminho se necessário
 
 export default function FaculdadePage() {
-  // Estado das disciplinas
-  const [subjects, setSubjects] = useState<Subject[]>(INITIAL_SUBJECTS);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const handleAddSubject = (newSubject: Subject) => {
-    setSubjects((prev) => [...prev, newSubject]);
+  // Estado para controlar a visibilidade do modal da Biblioteca e a disciplina selecionada
+  const [selectedLibrarySubject, setSelectedLibrarySubject] = useState<Subject | null>(null);
+
+  // 1. CARREGAR DISCIPLINAS DO SUPABASE
+  const fetchSubjects = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from('subjects').select('*');
+
+    if (error) {
+      console.error('Erro ao carregar disciplinas:', error.message);
+    } else if (data) {
+      // Mapear snake_case do Supabase para camelCase da app
+      const formattedSubjects: Subject[] = data.map((item) => ({
+        id: item.id,
+        name: item.name,
+        code: item.code,
+        color: item.color,
+        teacherTeorica: item.teacher_teorica,
+        teacherPratica: item.teacher_pratica,
+        evaluation: item.evaluation,
+        schedules: item.schedules,
+        filesCount: item.files_count,
+        nextEvaluation: item.next_evaluation,
+      }));
+      setSubjects(formattedSubjects);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchSubjects();
+  }, []);
+
+  // 2. GUARDAR NOVA DISCIPLINA NO SUPABASE
+  const handleAddSubject = async (newSubject: Subject) => {
+    const { error } = await supabase.from('subjects').insert([
+      {
+        id: newSubject.id || newSubject.name.toLowerCase().replace(/\s+/g, '-'),
+        name: newSubject.name,
+        code: newSubject.code,
+        color: newSubject.color,
+        teacher_teorica: newSubject.teacherTeorica,
+        teacher_pratica: newSubject.teacherPratica,
+        evaluation: newSubject.evaluation,
+        schedules: newSubject.schedules,
+        files_count: newSubject.filesCount || 0,
+        next_evaluation: newSubject.nextEvaluation,
+      },
+    ]);
+
+    if (error) {
+      console.error('Erro ao guardar disciplina:', error.message);
+      alert('Erro ao guardar disciplina no banco de dados!');
+      return;
+    }
+
+    // Atualiza a lista no ecrã após guardar com sucesso
+    fetchSubjects();
   };
 
   const filteredSubjects = subjects.filter(
@@ -138,7 +119,7 @@ export default function FaculdadePage() {
             </div>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="bg-slate-900 hover:bg-black text-white text-xs px-3.5 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1.5"
+              className="bg-slate-900 hover:bg-black text-white text-xs px-3.5 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" /> Nova Disciplina
             </button>
@@ -191,18 +172,42 @@ export default function FaculdadePage() {
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredSubjects.map((subject) => (
-            <SubjectCard key={subject.id} subject={subject} />
-          ))}
-        </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-12 text-slate-400 gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-xs font-medium">A carregar disciplinas...</span>
+          </div>
+        ) : filteredSubjects.length === 0 ? (
+          <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-12 text-center text-slate-500 text-xs">
+            Nenhuma disciplina encontrada. Clica em <strong>"Nova Disciplina"</strong> para adicionar.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredSubjects.map((subject) => (
+              <SubjectCard
+                key={subject.id}
+                subject={subject}
+                onOpenLibrary={(sub) => setSelectedLibrarySubject(sub)}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* 4. MODAL */}
+      {/* 4. MODAL PARA ADICIONAR DISCIPLINA */}
       <AddSubjectModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onAddSubject={handleAddSubject}
+      />
+
+      {/* 5. MODAL DA BIBLIOTECA DE DOCUMENTOS */}
+      
+      <LibraryModal
+        isOpen={!!selectedLibrarySubject}
+        subject={selectedLibrarySubject}
+        onClose={() => setSelectedLibrarySubject(null)}
+        onFilesUpdated={fetchSubjects}
       />
     </div>
   );
