@@ -1,26 +1,25 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --font-display: var(--font-anton), sans-serif;
+  --font-sans: var(--font-hanken), sans-serif;
+  --font-mono: var(--font-space-mono), monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* Forçar a aplicação da classe font-display com a fonte Anton */
+.font-display {
+  font-family: var(--font-anton), 'Anton', sans-serif !important;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+.font-sans {
+  font-family: var(--font-hanken), 'Hanken Grotesk', sans-serif !important;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.font-mono {
+  font-family: var(--font-space-mono), 'Space Mono', monospace !important;
+}
+
+/* Design System: Cantos 100% retos */
+* {
+  border-radius: 0px !important;
 }
