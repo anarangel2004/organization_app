@@ -2,8 +2,19 @@
 
 import { useState, useEffect } from 'react';
 
+export interface SubjectData {
+  id?: string;
+  code: string;
+  name?: string;
+  ects?: number;
+  semester?: number;
+  degree_year?: number;
+  academic_year?: string;
+  regente?: { name: string; email?: string } | null;
+}
+
 interface SubjectHeaderProps {
-  code?: string;
+  subject?: SubjectData | null;
 }
 
 const NAV_ITEMS = [
@@ -13,12 +24,12 @@ const NAV_ITEMS = [
   { id: 'biblioteca', label: '04 BIBLIOTECA' },
 ];
 
-export function SubjectHeader({ code }: SubjectHeaderProps) {
+export function SubjectHeader({ subject }: SubjectHeaderProps) {
   const [activeSection, setActiveSection] = useState<string>('visao-geral');
 
   useEffect(() => {
     const updateActiveSection = () => {
-      const OFFSET = 220; // Distância do topo do ecrã para ativar a nova secção
+      const OFFSET = 220;
       let current = NAV_ITEMS[0].id;
 
       for (const item of NAV_ITEMS) {
@@ -34,12 +45,9 @@ export function SubjectHeader({ code }: SubjectHeaderProps) {
       setActiveSection(current);
     };
 
-    // 'true' para capturar o scroll em qualquer container da página
     window.addEventListener('scroll', updateActiveSection, true);
-    
     updateActiveSection();
 
-    // Verificação suplementar após carregamento dinâmico dos dados
     const interval = setInterval(updateActiveSection, 300);
     const timeout = setTimeout(() => clearInterval(interval), 3000);
 
@@ -61,13 +69,21 @@ export function SubjectHeader({ code }: SubjectHeaderProps) {
   return (
     <header className="sticky top-0 z-50 bg-[#FCF9F2]/95 backdrop-blur-md border-b border-[#D8D5CC]">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        {/* NOME / CÓDIGO DA CADEIRA */}
+        {/* NOME / CÓDIGO DA CADEIRA E ANO LETIVO */}
         <div className="font-mono text-xs font-bold tracking-widest text-[#111111] uppercase flex items-center gap-2">
           <span>FACULDADE</span>
           <span className="text-[#767571] font-normal">//</span>
           <span className="bg-[#111111] text-[#FCF9F2] px-2 py-0.5 rounded-sm">
-            {code || '---'}
+            {subject?.code || '---'}
           </span>
+          {subject?.academic_year && (
+            <>
+              <span className="text-[#767571] font-normal">//</span>
+              <span className="text-[#767571] font-normal">
+                {subject.academic_year}
+              </span>
+            </>
+          )}
         </div>
 
         {/* NAVEGAÇÃO DE SECÇÕES */}
@@ -94,7 +110,7 @@ export function SubjectHeader({ code }: SubjectHeaderProps) {
         <div>
           <button
             onClick={() => scrollToSection('horario')}
-            className="bg-[#111111] hover:bg-[#31312c] text-[#FCF9F2] font-mono text-[10px] font-bold tracking-[0.1em] px-4 py-2.5 uppercase transition-all active:scale-95 flex items-center gap-2"
+            className="bg-[#111111] hover:bg-[#31312c] text-[#FCF9F2] font-mono text-[10px] font-bold tracking-[0.1em] px-4 py-2.5 uppercase transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
           >
             <span>VER HORÁRIO</span>
             <span>&rarr;</span>

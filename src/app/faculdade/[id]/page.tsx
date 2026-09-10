@@ -20,6 +20,13 @@ function cleanSlug(text: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+function formatTeacher(teacher: any): string {
+  if (!teacher) return 'N/D';
+  if (typeof teacher === 'string') return teacher;
+  if (typeof teacher === 'object' && teacher.name) return teacher.name;
+  return 'N/D';
+}
+
 export default function SubjectDetailPage({
   params,
 }: {
@@ -74,14 +81,27 @@ export default function SubjectDetailPage({
 
           if (!Array.isArray(rawSchedules)) rawSchedules = [];
 
-          const parsedSchedules = rawSchedules.map((s: any, idx: number) => ({
-            id: String(s.id || idx + 1),
-            dayOfWeek: s.dayOfWeek || s.day_of_week || s.dia_semana || s.dia || 'Segunda-feira',
-            startTime: s.startTime || s.start_time || s.hora_inicio || '00:00',
-            endTime: s.endTime || s.end_time || s.hora_fim || '00:00',
-            room: s.room || s.sala || 'A definir',
-            type: s.type || s.tipo || 'Teórica',
-          }));
+          const parsedSchedules = rawSchedules.map((s: any, idx: number) => {
+            const detectedDay =
+              s.day ||
+              s.dayOfWeek ||
+              s.day_of_week ||
+              s.dia ||
+              s.dia_semana ||
+              s.weekday ||
+              s.day_name ||
+              'A definir';
+
+            return {
+              id: String(s.id || idx + 1),
+              day: detectedDay,
+              dayOfWeek: detectedDay,
+              startTime: s.startTime || s.start_time || s.hora_inicio || s.start || '00:00',
+              endTime: s.endTime || s.end_time || s.hora_fim || s.end || '00:00',
+              room: s.room || s.sala || 'A definir',
+              type: s.type || s.tipo || 'Teórica',
+            };
+          });
 
           const { data: deadlinesData } = await supabase.from('deadlines').select('*');
           const subId = String(found.id || '').toLowerCase();
@@ -96,9 +116,11 @@ export default function SubjectDetailPage({
             id: String(found.id),
             name: found.name || found.nome || 'Sem Nome',
             code: found.code || found.codigo || '---',
-            teacherTeorica: found.teacher_teorica || found.teacher || found.regente || 'N/D',
+            teacherTeorica: formatTeacher(
+              found.teacher_teorica || found.teacher || found.regente
+            ),
             ects: found.ects || found.creditos || 6,
-            academicYear: found.academic_year || found.ano_letivo || '2024/2025',
+            academicYear: found.academic_year || found.ano_letivo || '2025/2026',
             degreeYear: found.degree_year || found.ano || 1,
             semester: found.semester || found.semestre || 1,
             schedules: parsedSchedules,
@@ -122,7 +144,8 @@ export default function SubjectDetailPage({
 
   return (
     <div className="min-h-screen bg-[#FCF9F2] text-[#111111] font-sans selection:bg-[#111111] selection:text-[#FCF9F2]">
-      <SubjectHeader code={subject?.code} />
+      {/* ATUALIZADO: Passa o objeto `subject` completo para o Header */}
+      <SubjectHeader subject={subject} />
 
       <main className="max-w-7xl mx-auto px-6 pt-6 space-y-24">
         {/* SECÇÃO 01: VISÃO GERAL */}
@@ -138,7 +161,11 @@ export default function SubjectDetailPage({
 
         {/* SECÇÃO 03: HORÁRIO */}
         <div id="horario" className="scroll-mt-24">
-          <HorarioSection schedules={subject?.schedules} />
+          <HorarioSection 
+            subjectId={subject?.id} 
+            schedules={subject?.schedules} 
+            onRefresh={() => window.location.reload()} 
+  />
         </div>
 
         {/* SECÇÃO 04: BIBLIOTECA & PRAZOS */}
