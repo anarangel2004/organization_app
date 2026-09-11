@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { id: 'notebooks', label: '02 NOTEBOOKS' },
   { id: 'horario', label: '03 HORÁRIO' },
   { id: 'biblioteca', label: '04 BIBLIOTECA' },
+  { id: 'avaliacao', label: '05 AVALIAÇÃO' },
 ];
 
 export function SubjectHeader({ subject }: SubjectHeaderProps) {
@@ -29,6 +30,16 @@ export function SubjectHeader({ subject }: SubjectHeaderProps) {
 
   useEffect(() => {
     const updateActiveSection = () => {
+      // Deteção de fim de página (ativa a última secção mesmo sem espaço para subir mais)
+      const isBottom =
+        window.innerHeight + window.scrollY >=
+        document.documentElement.scrollHeight - 50;
+
+      if (isBottom) {
+        setActiveSection(NAV_ITEMS[NAV_ITEMS.length - 1].id);
+        return;
+      }
+
       const OFFSET = 220;
       let current = NAV_ITEMS[0].id;
 
@@ -48,13 +59,8 @@ export function SubjectHeader({ subject }: SubjectHeaderProps) {
     window.addEventListener('scroll', updateActiveSection, true);
     updateActiveSection();
 
-    const interval = setInterval(updateActiveSection, 300);
-    const timeout = setTimeout(() => clearInterval(interval), 3000);
-
     return () => {
       window.removeEventListener('scroll', updateActiveSection, true);
-      clearInterval(interval);
-      clearTimeout(timeout);
     };
   }, []);
 
@@ -69,7 +75,6 @@ export function SubjectHeader({ subject }: SubjectHeaderProps) {
   return (
     <header className="sticky top-0 z-50 bg-[#FCF9F2]/95 backdrop-blur-md border-b border-[#D8D5CC]">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        {/* NOME / CÓDIGO DA CADEIRA E ANO LETIVO */}
         <div className="font-mono text-xs font-bold tracking-widest text-[#111111] uppercase flex items-center gap-2">
           <span>FACULDADE</span>
           <span className="text-[#767571] font-normal">//</span>
@@ -86,7 +91,6 @@ export function SubjectHeader({ subject }: SubjectHeaderProps) {
           )}
         </div>
 
-        {/* NAVEGAÇÃO DE SECÇÕES */}
         <nav className="hidden md:flex items-center space-x-8 font-mono text-[11px] tracking-[0.08em] uppercase">
           {NAV_ITEMS.map((item) => {
             const isActive = activeSection === item.id;
@@ -106,7 +110,6 @@ export function SubjectHeader({ subject }: SubjectHeaderProps) {
           })}
         </nav>
 
-        {/* BOTÃO DE AÇÃO */}
         <div>
           <button
             onClick={() => scrollToSection('horario')}
