@@ -8,7 +8,7 @@ import { HeroSection } from './components/HeroSection';
 import { VisaoGeralSection } from './components/VisaoGeralSection';
 import { NotebooksSection } from './components/NotebooksSection';
 import { HorarioSection } from './components/HorarioSection';
-import { AvaliacaoSection } from './components/AvaliacaoSection';
+import { AvaliacaoSection } from './components/avaliacao/AvaliacaoSection';
 import { BibliotecaPrazosSection } from './components/BibliotecaPrazosSection';
 import { SubjectFooter } from './components/SubjectFooter';
 
