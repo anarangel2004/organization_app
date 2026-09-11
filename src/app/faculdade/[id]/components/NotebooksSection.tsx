@@ -1,6 +1,12 @@
 'use client';
 
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+
 export function NotebooksSection() {
+  const params = useParams();
+  const subjectId = params.id as string;
+
   return (
     <section id="notebooks" className="space-y-6 pt-12">
       <div className="border-b border-[#D8D5CC] pb-4 flex justify-between items-end">
@@ -22,7 +28,7 @@ export function NotebooksSection() {
         </div>
       </div>
 
-      {/* GREDO DE 3 CARTÕES */}
+      {/* GRELHA DE 3 CARTÕES */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* CARTÃO 1: TEÓRICAS */}
         <div className="border border-[#D8D5CC] p-6 bg-[#F6F3EC] flex flex-col justify-between space-y-6">
@@ -38,9 +44,12 @@ export function NotebooksSection() {
               <div className="bg-[#111111] h-full w-[60%]" />
             </div>
           </div>
-          <button className="w-full bg-[#111111] text-[#FCF9F2] hover:bg-[#31312c] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors">
+          <Link
+            href={`/faculdade/${subjectId}/notebook?tab=TEORICAS`}
+            className="w-full bg-[#111111] text-[#FCF9F2] hover:bg-[#31312c] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors text-center block"
+          >
             ABRIR TEÓRICAS &rarr;
-          </button>
+          </Link>
         </div>
 
         {/* CARTÃO 2: PRÁTICAS */}
@@ -61,9 +70,12 @@ export function NotebooksSection() {
               <div className="bg-[#111111] h-full w-[40%]" />
             </div>
           </div>
-          <button className="w-full border border-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] text-[#111111] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors">
+          <Link
+            href={`/faculdade/${subjectId}/notebook?tab=PRATICAS`}
+            className="w-full border border-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] text-[#111111] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors text-center block"
+          >
             ABRIR PRÁTICAS &rarr;
-          </button>
+          </Link>
         </div>
 
         {/* CARTÃO 3: TESTES */}
@@ -79,9 +91,12 @@ export function NotebooksSection() {
               Exames resolvidos e enunciados arquivados.
             </p>
           </div>
-          <button className="w-full border border-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] text-[#111111] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors">
+          <Link
+            href={`/faculdade/${subjectId}/notebook?tab=TESTES`}
+            className="w-full border border-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] text-[#111111] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors text-center block"
+          >
             ABRIR TESTES &rarr;
-          </button>
+          </Link>
         </div>
       </div>
     </section>
