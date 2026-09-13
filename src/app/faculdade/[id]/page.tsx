@@ -3,6 +3,7 @@
 import { useState, useEffect, use, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { SubjectData } from '@/types/subject';
+import { ChapterData } from './components/NotebooksSection';
 import { SubjectHeader } from './components/SubjectHeader';
 import { HeroSection } from './components/HeroSection';
 import { VisaoGeralSection } from './components/VisaoGeralSection';
@@ -11,6 +12,7 @@ import { HorarioSection } from './components/HorarioSection';
 import { AvaliacaoSection } from './components/avaliacao/AvaliacaoSection';
 import { BibliotecaPrazosSection } from './components/BibliotecaPrazosSection';
 import { SubjectFooter } from './components/SubjectFooter';
+
 
 function cleanSlug(text: string): string {
   return text
@@ -37,9 +39,10 @@ export default function SubjectDetailPage({
   const rawId = decodeURIComponent(resolvedParams.id || '');
 
   const [subject, setSubject] = useState<SubjectData | null>(null);
+  const [chapters, setChapters] = useState<ChapterData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Recarrega os dados da disciplina sem dar reload total na página
+  // Recarrega os dados da disciplina e capítulos sem dar reload total
   const fetchSubject = useCallback(async () => {
     if (!rawId) return;
 
@@ -104,14 +107,34 @@ export default function SubjectDetailPage({
           };
         });
 
-        const { data: deadlinesData } = await supabase.from('deadlines').select('*');
         const subId = String(found.id || '').toLowerCase();
         const subCode = String(found.code || found.codigo || '').toLowerCase();
 
+        // 1. CARREGAR DEADLINES
+        const { data: deadlinesData } = await supabase.from('deadlines').select('*');
         const subjectDeadlines = (deadlinesData || []).filter((d: any) => {
           const fk = String(d.subject_id ?? d.subject ?? '').toLowerCase();
           return fk === subId || fk === subCode;
         });
+
+        // 2. CARREGAR CAPÍTULOS DOS NOTEBOOKS
+        const { data: chaptersData } = await supabase.from('chapters').select('*');
+        const subjectChapters = (chaptersData || []).filter((c: any) => {
+          const fk = String(c.subject_id ?? c.subject ?? '').toLowerCase();
+          return fk === subId || fk === subCode;
+        });
+
+        // Dentro do fetchSubject no page.tsx:
+setChapters(
+  subjectChapters.map((c: any) => ({
+    id: String(c.id),
+    tab: (c.tab || c.type || 'TEORICAS').toUpperCase(),
+    updatedAt: c.updated_at || c.updatedAt,
+    hasContent: Boolean((c.content || '').replace(/<[^>]*>/g, '').trim()),
+    pdfUrl: c.pdf_url || c.pdfUrl,
+    isCompleted: Boolean(c.is_completed), // <-- Adicionado
+  }))
+);
 
         setSubject({
           id: String(found.id),
@@ -157,15 +180,15 @@ export default function SubjectDetailPage({
 
         {/* SECÇÃO 02: NOTEBOOKS */}
         <div id="notebooks" className="scroll-mt-24">
-          <NotebooksSection />
+          <NotebooksSection chapters={chapters} subjectId={subject?.id} />
         </div>
 
         {/* SECÇÃO 03: HORÁRIO */}
         <div id="horario" className="scroll-mt-24">
-          <HorarioSection 
-            subjectId={subject?.id} 
-            schedules={subject?.schedules} 
-            onRefresh={fetchSubject} 
+          <HorarioSection
+            subjectId={subject?.id}
+            schedules={subject?.schedules}
+            onRefresh={fetchSubject}
           />
         </div>
 
@@ -176,11 +199,11 @@ export default function SubjectDetailPage({
 
         {/* SECÇÃO 05: AVALIAÇÃO */}
         <div className="scroll-mt-24">
-  <AvaliacaoSection 
-    subjectId={subject?.id} 
-    onRefresh={fetchSubject} 
-  />
-</div>
+          <AvaliacaoSection
+            subjectId={subject?.id}
+            onRefresh={fetchSubject}
+          />
+        </div>
 
         <SubjectFooter subjectName={subject?.name} />
       </main>

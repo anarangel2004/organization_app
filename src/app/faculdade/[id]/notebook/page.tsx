@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, use, Suspense } from 'react';
+import { useState, useEffect, use, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { createClient } from '@/lib/supabase'; // Ajusta o caminho para o teu cliente Supabase
+import { createClient } from '@/lib/supabase';
 
 import { Chapter, NotebookTab, PaperStyle } from './components/types';
 import { NotebookHeader } from './components/NotebookHeader';
@@ -11,8 +11,11 @@ import { NotebookToolbar } from './components/NotebookToolbar';
 import { NotebookEditor } from './components/editor/NotebookEditor';
 import { NotebookSplitView } from './components/NotebookSplitView';
 
+export type SyncStatus = 'synced' | 'saving' | 'error';
+
 function NotebookContent({ subjectId }: { subjectId: string }) {
   const supabase = createClient();
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get('tab') as NotebookTab) || 'TEORICAS';
 
@@ -25,52 +28,64 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [isSplitViewOpen, setIsSplitViewOpen] = useState<boolean>(false);
   const [splitViewWidth, setSplitViewWidth] = useState<number>(420);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [, setIsLoading] = useState<boolean>(true);
 
-  // 1. CARREGAR CAPÍTULOS DO SUPABASE (COM DESENHOS INCLUÍDOS)
-  useEffect(() => {
-    async function fetchChapters() {
-      setIsLoading(true);
-      const { data, error } = await supabase
-        .from('chapters')
-        .select('*')
-        .eq('subject_id', subjectId)
-        .order('created_at', { ascending: true });
+  // 1. CARREGAR CAPÍTULOS DO SUPABASE
+  const fetchChapters = useCallback(async () => {
+    setIsLoading(true);
+    const { data, error } = await supabase
+      .from('chapters')
+      .select('*')
+      .eq('subject_id', subjectId)
+      .order('created_at', { ascending: true });
 
-      if (!error && data) {
-        const mappedChapters: Chapter[] = data.map((item) => ({
-          id: item.id,
-          subjectId: item.subject_id,
-          number: item.number,
-          title: item.title,
-          category: item.category as NotebookTab,
-          content: item.content || '',
-          drawingData: item.drawing_data || item.drawing || '', // CORRIGIDO: Mapeia o desenho do Supabase
-          pdfUrl: item.pdf_url,
-          pdfName: item.pdf_name,
-          createdAt: item.created_at,
-          updatedAt: new Date(item.updated_at).toLocaleTimeString('pt-PT', {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-        }));
+    if (!error && data) {
+      const mappedChapters: Chapter[] = data.map((item) => ({
+        id: item.id,
+        subjectId: item.subject_id,
+        number: item.number,
+        title: item.title,
+        category: item.category as NotebookTab,
+        content: item.content || '',
+        drawingData: item.drawing_data || item.drawing || '',
+        pdfUrl: item.pdf_url,
+        pdfName: item.pdf_name,
+        isCompleted: Boolean(item.is_completed),
+        createdAt: item.created_at,
+        updatedAt: new Date(item.updated_at).toLocaleTimeString('pt-PT', {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      }));
 
-        setChapters(mappedChapters);
+      setChapters(mappedChapters);
 
-        const firstInTab = mappedChapters.find((c) => c.category === initialTab);
-        if (firstInTab) {
-          setSelectedChapterId(firstInTab.id);
+      setSelectedChapterId((prevId) => {
+        if (prevId && mappedChapters.some((c) => c.id === prevId)) {
+          return prevId;
         }
-      }
-      setIsLoading(false);
+        const firstInTab = mappedChapters.find((c) => c.category === initialTab);
+        return firstInTab ? firstInTab.id : '';
+      });
     }
+    setIsLoading(false);
+  }, [subjectId, initialTab, supabase]);
 
+  useEffect(() => {
     fetchChapters();
-  }, [subjectId, initialTab]);
+  }, [fetchChapters]);
 
   // 2. CRIAR NOVO CAPÍTULO NO SUPABASE
-  const handleAddChapter = async (title: string) => {
-    if (!title || !title.trim()) return;
+  const handleAddChapter = async (title?: string) => {
+    let cleanTitle = typeof title === 'string' ? title : '';
+
+    if (!cleanTitle) {
+      const userPrompt = prompt('Nome do novo capítulo:', 'NOVO CAPÍTULO');
+      if (userPrompt === null) return;
+      cleanTitle = userPrompt;
+    }
+
+    const finalTitle = cleanTitle.trim() || 'NOVO CAPÍTULO';
 
     const categoryChapters = chapters.filter((c) => c.category === activeTab);
     const nextNumber = String(categoryChapters.length + 1).padStart(2, '0');
@@ -84,10 +99,11 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
       id: tempId,
       subjectId,
       number: nextNumber,
-      title: title.toUpperCase(),
+      title: finalTitle.toUpperCase(),
       category: activeTab,
       content: '',
       drawingData: '',
+      isCompleted: false,
       updatedAt: nowFormatted,
       createdAt: new Date().toISOString(),
     };
@@ -102,10 +118,11 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
           {
             subject_id: subjectId,
             number: nextNumber,
-            title: title.toUpperCase(),
+            title: finalTitle.toUpperCase(),
             category: activeTab,
             content: '',
             drawing_data: '',
+            is_completed: false,
           },
         ])
         .select()
@@ -133,37 +150,30 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const handleUpdateContent = async (newContent: string) => {
     if (!selectedChapterId) return;
 
-    const nowFormatted = new Date().toLocaleTimeString('pt-PT', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    setSyncStatus('saving');
 
-    setChapters((prev) =>
-      prev.map((c) =>
-        c.id === selectedChapterId
-          ? { ...c, content: newContent, updatedAt: nowFormatted }
-          : c
-      )
-    );
-
-    await supabase
+    const { error } = await supabase
       .from('chapters')
       .update({ content: newContent, updated_at: new Date().toISOString() })
       .eq('id', selectedChapterId);
+
+    if (error) {
+      setSyncStatus('error');
+    } else {
+      setSyncStatus('synced');
+    }
   };
 
-  // 4. ATUALIZAR DESENHO NO SUPABASE (CORRIGIDO)
+  // 4. ATUALIZAR DESENHO NO SUPABASE
   const handleUpdateDrawing = async (drawingData: string) => {
     if (!selectedChapterId) return;
 
-    // Actualiza o estado da lista de capítulos na UI
     setChapters((prev) =>
       prev.map((c) =>
         c.id === selectedChapterId ? { ...c, drawingData } : c
       )
     );
 
-    // Guarda diretamente na coluna 'drawing_data' da tabela 'chapters'
     await supabase
       .from('chapters')
       .update({
@@ -287,35 +297,40 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
   return (
     <div className="flex flex-col h-screen bg-[#F6F4EE] text-[#111111] font-sans antialiased overflow-hidden">
-      <NotebookHeader
-        subjectId={subjectId}
-        activeTab={activeTab}
-        onTabChange={handleTabChange}
-      />
+      {/* 1. HEADER */}
+      <div className="no-print">
+        <NotebookHeader
+          subjectId={subjectId}
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          activeChapterId={activeChapter?.id}
+          isCompleted={activeChapter?.isCompleted}
+          onChapterUpdate={fetchChapters}
+          syncStatus={syncStatus}
+        />
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* ÍNDICE ESQUERDO */}
+        {/* 2. BARRA LATERAL / ÍNDICE */}
         {isSidebarOpen && (
-          <NotebookSidebar
-            chapters={filteredChapters}
-            selectedChapterId={selectedChapterId}
-            onSelectChapter={setSelectedChapterId}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            activeTab={activeTab}
-            onAddChapter={handleAddChapter}
-            onDeleteChapter={handleDeleteChapter}
-          />
+          <aside className="no-print">
+            <NotebookSidebar
+              chapters={filteredChapters}
+              selectedChapterId={selectedChapterId}
+              onSelectChapter={setSelectedChapterId}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              activeTab={activeTab}
+              onAddChapter={handleAddChapter}
+              onDeleteChapter={handleDeleteChapter}
+            />
+          </aside>
         )}
 
-        {/* ÁREA CENTRAL E SPLIT VIEW */}
-        {isLoading ? (
-          <div className="flex-1 flex items-center justify-center font-mono text-xs uppercase bg-[#FAF8F3]">
-            A carregar dados do Supabase...
-          </div>
-        ) : activeChapter ? (
-          <>
-            <div className="flex-1 flex flex-col min-w-0">
+        {/* 3. ÁREA CENTRAL DO EDITOR */}
+        {activeChapter && (
+          <div className="flex-1 flex flex-col min-w-0 printable-editor">
+            <div className="no-print">
               <NotebookToolbar
                 paperStyle={paperStyle}
                 onPaperStyleChange={setPaperStyle}
@@ -324,43 +339,31 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
                 isSidebarOpen={isSidebarOpen}
                 onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
               />
-
-              <NotebookEditor
-                chapter={activeChapter}
-                paperStyle={paperStyle}
-                activeTab={activeTab}
-                onUpdateDrawing={handleUpdateDrawing}
-                onUpdateContent={handleUpdateContent}
-                onUpdateTitle={handleUpdateTitle}
-              />
             </div>
 
-            {isSplitViewOpen && (
-              <NotebookSplitView
-                chapter={activeChapter}
-                subjectId={subjectId}
-                width={splitViewWidth}
-                onWidthChange={setSplitViewWidth}
-                onClose={() => setIsSplitViewOpen(false)}
-                onPdfUpload={handlePdfUpload}
-                onPdfRemove={handlePdfRemove}
-              />
-            )}
-          </>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center bg-[#FAF8F3] p-8 border-r border-[#D8D5CC]">
-            <div className="border border-[#D8D5CC] bg-[#EBE8DF] p-8 max-w-md w-full space-y-3 text-center font-mono">
-              <div className="w-8 h-8 bg-[#111111] text-[#FCF9F2] flex items-center justify-center font-bold mx-auto text-sm">
-                !
-              </div>
-              <span className="font-bold text-xs text-[#111111] uppercase block tracking-wider">
-                SEM CAPÍTULOS EM {activeTab}
-              </span>
-              <p className="text-[10px] text-[#767571] uppercase leading-relaxed">
-                Ainda não existe nenhum capítulo nesta secção. Utilize o botão{' '}
-                <strong className="text-[#111111]">+ NOVO CAPÍTULO</strong> no índice para criar o primeiro.
-              </p>
-            </div>
+            <NotebookEditor
+              chapter={activeChapter}
+              paperStyle={paperStyle}
+              activeTab={activeTab}
+              onUpdateDrawing={handleUpdateDrawing}
+              onUpdateContent={handleUpdateContent}
+              onUpdateTitle={handleUpdateTitle}
+            />
+          </div>
+        )}
+
+        {/* 4. SPLIT VIEW DE PDF */}
+        {isSplitViewOpen && (
+          <div className="no-print">
+            <NotebookSplitView
+              chapter={activeChapter}
+              subjectId={subjectId}
+              width={splitViewWidth}
+              onWidthChange={setSplitViewWidth}
+              onClose={() => setIsSplitViewOpen(false)}
+              onPdfUpload={handlePdfUpload}
+              onPdfRemove={handlePdfRemove}
+            />
           </div>
         )}
       </div>

@@ -6,7 +6,6 @@
   --font-mono: var(--font-space-mono), monospace;
 }
 
-/* Forçar a aplicação da classe font-display com a fonte Anton */
 .font-display {
   font-family: var(--font-anton), 'Anton', sans-serif !important;
 }
@@ -19,7 +18,68 @@
   font-family: var(--font-space-mono), 'Space Mono', monospace !important;
 }
 
-/* Design System: Cantos 100% retos */
+/* Cantos 100% retos */
 * {
   border-radius: 0px !important;
+}
+
+/* Estilização subtil para links dentro do editor */
+[contenteditable] a,
+main a[href*="page="],
+main a[href^="#"] {
+  color: inherit !important; /* Mantém a cor natural do texto */
+  text-decoration: none !important;
+  border-bottom: 1px dashed #767571 !important; /* Sublinhado pontilhado discreto */
+  cursor: pointer !important;
+  transition: border-color 0.2s, opacity 0.2s;
+}
+
+[contenteditable] a:hover,
+main a[href*="page="]:hover,
+main a[href^="#"]:hover {
+  border-bottom-color: #111111 !important;
+  opacity: 0.75;
+}
+
+/* ===================================================
+   CONFIGURAÇÃO DE IMPRESSÃO / EXPORTAÇÃO DE PDF
+   =================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 15mm 12mm;
+  }
+
+  header,
+  nav,
+  aside,
+  .no-print {
+    display: none !important;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html, body, #__next, main, div {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .printable-editor, .paper-lines {
+    background-color: transparent !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  p, h1, h2, h3, blockquote, img, canvas {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }

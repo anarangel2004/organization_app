@@ -67,41 +67,63 @@ export function NotebookEditor({
 
   const applyHeading = (tag: string) => execFormat('formatBlock', `<${tag}>`);
 
-  const applyFontSize = (sizePx: string) => {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    const range = selection.getRangeAt(0);
-    const span = document.createElement('span');
-    span.style.fontSize = sizePx;
-    span.appendChild(range.extractContents());
-    range.insertNode(span);
-  };
-
   const chapterIndexStr = chapter?.number
     ? String(chapter.number).padStart(2, '0')
     : '00';
 
-  return (
-    <main className="flex-1 flex flex-col bg-[#FAF8F3] overflow-y-auto border-r border-[#D8D5CC] relative">
-      <EditorToolbar
-        chapterIndexStr={chapterIndexStr}
-        category={chapter?.category}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        activeTool={activeTool}
-        setActiveTool={setActiveTool}
-        penColor={penColor}
-        setPenColor={setPenColor}
-        penSize={penSize}
-        setPenSize={setPenSize}
-        eraserType={eraserType}
-        setEraserType={setEraserType}
-        execFormat={execFormat}
-        applyHeading={applyHeading}
-        applyFontSize={applyFontSize}
-      />
+  const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    const link = target.closest('a');
 
-      <div className="flex-1 p-8 md:p-12 max-w-4xl mx-auto w-full space-y-4">
+    if (link) {
+      const href = link.getAttribute('href');
+
+      if (href && href.includes('page=')) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const pageMatch = href.match(/page=(\d+)/);
+        const pageNumber = pageMatch ? pageMatch[1] : null;
+
+        if (pageNumber) {
+          const pdfIframe = document.querySelector('iframe') as HTMLIFrameElement;
+          
+          if (pdfIframe) {
+            const cleanSrc = pdfIframe.src.split('#')[0];
+            pdfIframe.src = `${cleanSrc}#page=${pageNumber}`;
+          } else {
+            alert('Visualizador de PDF não foi encontrado no ecrã.');
+          }
+        }
+      }
+    }
+  };
+
+  return (
+    <main className="flex-1 flex flex-col bg-[#FAF8F3] overflow-y-auto border-r border-[#D8D5CC] relative print:bg-white print:border-none print:overflow-visible print:block print:p-0">
+      {/* BARRA DE FERRAMENTAS COM ALTERNADOR DE MODO EDIT/REVIEW */}
+      <div className="no-print">
+        <EditorToolbar
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          activeTool={activeTool}
+          setActiveTool={setActiveTool}
+          penColor={penColor}
+          setPenColor={setPenColor}
+          penSize={penSize}
+          setPenSize={setPenSize}
+          eraserType={eraserType}
+          setEraserType={setEraserType}
+          execFormat={execFormat}
+          applyHeading={applyHeading}
+        />
+      </div>
+
+      {/* ÁREA DO CONTEÚDO */}
+      <div 
+        onClick={handleEditorClick}
+        className="flex-1 p-8 md:p-12 max-w-4xl mx-auto w-full space-y-4 print:p-0 print:m-0 print:max-w-full print:w-full"
+      >
         {chapter ? (
           <>
             <ChapterTitle
@@ -133,7 +155,7 @@ export function NotebookEditor({
             />
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center py-24 text-center font-mono space-y-4">
+          <div className="flex-1 flex flex-col items-center justify-center py-24 text-center font-mono space-y-4 no-print">
             <div className="border border-[#D8D5CC] bg-[#EBE8DF] p-8 max-w-md w-full space-y-3">
               <div className="w-8 h-8 bg-[#111111] text-[#FCF9F2] flex items-center justify-center font-bold mx-auto text-sm">
                 !

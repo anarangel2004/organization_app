@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { PaperStyle } from '../types';
 
 type ActiveTool = 'TEXT' | 'PEN' | 'HIGHLIGHTER' | 'ERASER';
@@ -61,6 +61,12 @@ export function DrawingCanvas({
   const currentStrokeRef = useRef<Stroke | null>(null);
   const isDrawingRef = useRef(false);
   const loadedChapterIdRef = useRef<string | null>(null);
+
+  const [hoveredLink, setHoveredLink] = useState<{
+    text: string;
+    top: number;
+    left: number;
+  } | null>(null);
 
   const drawStroke = (ctx: CanvasRenderingContext2D, stroke: Stroke) => {
     const pts = stroke.points;
@@ -196,6 +202,72 @@ export function DrawingCanvas({
     onUpdateContent?.(editorRef.current.innerHTML);
   };
 
+  const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    const link = target.closest('a');
+
+    if (link) {
+      const href = link.getAttribute('href');
+
+      if (href && (href.startsWith('#page=') || href.includes('page='))) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const pageMatch = href.match(/page=(\d+)/);
+        const pageNumber = pageMatch ? pageMatch[1] : null;
+
+        if (pageNumber) {
+          window.dispatchEvent(
+            new CustomEvent('pdf:navigate', { detail: { page: Number(pageNumber) } })
+          );
+
+          const pdfIframe = document.querySelector('iframe') as HTMLIFrameElement;
+          if (pdfIframe) {
+            const cleanSrc = pdfIframe.src.split('#')[0];
+            const targetUrl = `${cleanSrc}#page=${pageNumber}`;
+
+            pdfIframe.src = 'about:blank';
+            setTimeout(() => {
+              pdfIframe.src = targetUrl;
+            }, 10);
+          }
+        }
+      }
+    }
+  };
+
+  const handleEditorMouseOver = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    const link = target.closest('a');
+
+    if (link && containerRef.current) {
+      const href = link.getAttribute('href') || '';
+      let label = href;
+
+      const pageMatch = href.match(/page=(\d+)/);
+      if (pageMatch) {
+        label = `PÁGINA ${pageMatch[1]} DO PDF`;
+      } else if (href.startsWith('#')) {
+        label = `SECÇÃO ${href.replace('#', '').toUpperCase()}`;
+      }
+
+      const linkRect = link.getBoundingClientRect();
+      const containerRect = containerRef.current.getBoundingClientRect();
+
+      setHoveredLink({
+        text: label,
+        top: linkRect.top - containerRect.top - 28,
+        left: Math.max(0, linkRect.left - containerRect.left),
+      });
+    } else {
+      setHoveredLink(null);
+    }
+  };
+
+  const handleEditorMouseLeave = () => {
+    setHoveredLink(null);
+  };
+
   const checkObjectErase = (x: number, y: number) => {
     const thresholdSq = 12 * 12;
     const originalCount = strokesRef.current.length;
@@ -281,7 +353,16 @@ export function DrawingCanvas({
 
   return (
     <div ref={containerRef} className="relative min-h-[640px] w-full">
-      {/* GRELHA / PAUTADO */}
+      {hoveredLink && (
+        <div
+          style={{ top: `${hoveredLink.top}px`, left: `${hoveredLink.left}px` }}
+          className="absolute z-30 pointer-events-none bg-[#111111] text-[#FCF9F2] font-mono text-[10px] font-bold px-2 py-1 shadow-md flex items-center gap-1.5 border border-[#D8D5CC] animate-in fade-in duration-100"
+        >
+          <span className="text-[#E2DFD6]">🔗</span>
+          <span>{hoveredLink.text}</span>
+        </div>
+      )}
+
       <div
         className={`absolute inset-0 pointer-events-none z-0 ${
           paperStyle === 'PAUTADO'
@@ -292,20 +373,22 @@ export function DrawingCanvas({
         }`}
       />
 
-     {/* ÁREA DE TEXTO */}
-<div
-  ref={editorRef}
-  contentEditable={viewMode === 'EDIT'}
-  suppressContentEditableWarning
-  onInput={handleInput}
-  className="relative z-10 w-full min-h-[640px] font-sans text-base text-[#111111] bg-transparent focus:outline-none 
-    [&>h1]:text-2xl [&>h1]:font-black [&>h1]:uppercase [&>h1]:tracking-tight [&>h1]:leading-[32px] [&>h1]:m-0 [&>h1]:p-0
-    [&>h2]:text-lg [&>h2]:font-bold [&>h2]:font-mono [&>h2]:uppercase [&>h2]:tracking-wider [&>h2]:leading-[32px] [&>h2]:m-0 [&>h2]:p-0
-    [&>p]:leading-[32px] [&>p]:m-0 [&>p]:p-0
-    [&>ul]:list-disc [&>ul]:pl-5 [&>ul]:leading-[32px]"
-/>
+      <div
+        ref={editorRef}
+        contentEditable={viewMode === 'EDIT'}
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onClick={handleEditorClick}
+        onMouseOver={handleEditorMouseOver}
+        onMouseLeave={handleEditorMouseLeave}
+        className="relative z-10 w-full min-h-[640px] font-sans text-base text-[#111111] bg-transparent focus:outline-none 
+          [&_h2]:text-[26px] [&_h2]:font-black [&_h2]:leading-[32px] [&_h2]:m-0 [&_h2]:p-0 [&_h2]:tracking-tight
+          [&_h3]:text-[20px] [&_h3]:font-bold [&_h3]:leading-[32px] [&_h3]:m-0 [&_h3]:p-0
+          [&_p]:text-[16px] [&_p]:font-normal [&_p]:leading-[32px] [&_p]:m-0 [&_p]:p-0
+          [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:leading-[32px]
+          [&_a]:text-[#1D4ED8] [&_a]:underline [&_a]:decoration-1 [&_a]:underline-offset-2 [&_a]:font-medium [&_a]:cursor-pointer hover:[&_a]:bg-[#1D4ED8]/10 hover:[&_a]:text-[#1E40AF]"
+      />
 
-      {/* CANVAS DE DESENHO */}
       <canvas
         ref={canvasRef}
         onPointerDown={startDrawing}

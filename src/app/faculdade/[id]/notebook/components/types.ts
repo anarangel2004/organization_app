@@ -11,6 +11,10 @@ export interface Chapter {
   drawingData?: string; // Desenho do Apple Pencil guardado
   pdfUrl?: string;
   pdfName?: string;
+  isCompleted?: boolean; // <-- Adicionado
   createdAt?: string;
   updatedAt?: string;
 }
+
+// Alias para garantir compatibilidade caso algum componente use ChapterData
+export type ChapterData = Chapter;
