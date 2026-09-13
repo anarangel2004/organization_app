@@ -1,0 +1,323 @@
+'use client';
+
+import { useEffect, useRef, useCallback } from 'react';
+import { PaperStyle } from '../types';
+
+type ActiveTool = 'TEXT' | 'PEN' | 'HIGHLIGHTER' | 'ERASER';
+type EraserType = 'SMALL' | 'LARGE' | 'OBJECT';
+
+interface Stroke {
+  id: string;
+  tool: 'PEN' | 'HIGHLIGHTER' | 'ERASER';
+  color: string;
+  size: number;
+  points: { x: number; y: number }[];
+}
+
+interface DrawingCanvasProps {
+  paperStyle: PaperStyle;
+  viewMode: 'EDIT' | 'PREVIEW';
+  activeTool: ActiveTool;
+  penColor: string;
+  penSize: number;
+  eraserType: EraserType;
+  chapterId: string;
+  chapterContent?: string;
+  drawingDataRaw?: string;
+  onUpdateContent?: (content: string) => void;
+  onUpdateDrawing?: (drawingData: string) => void;
+}
+
+function distToSegmentSq(
+  p: { x: number; y: number },
+  v: { x: number; y: number },
+  w: { x: number; y: number }
+) {
+  const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
+  if (l2 === 0) return (p.x - v.x) ** 2 + (p.y - v.y) ** 2;
+  let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return (p.x - (v.x + t * (w.x - v.x))) ** 2 + (p.y - (v.y + t * (w.y - v.y))) ** 2;
+}
+
+export function DrawingCanvas({
+  paperStyle,
+  viewMode,
+  activeTool,
+  penColor,
+  penSize,
+  eraserType,
+  chapterId,
+  chapterContent,
+  drawingDataRaw,
+  onUpdateContent,
+  onUpdateDrawing,
+}: DrawingCanvasProps) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const strokesRef = useRef<Stroke[]>([]);
+  const currentStrokeRef = useRef<Stroke | null>(null);
+  const isDrawingRef = useRef(false);
+  const loadedChapterIdRef = useRef<string | null>(null);
+
+  const drawStroke = (ctx: CanvasRenderingContext2D, stroke: Stroke) => {
+    const pts = stroke.points;
+    if (pts.length === 0) return;
+
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (stroke.tool === 'ERASER') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+      ctx.fillStyle = 'rgba(0,0,0,1)';
+      ctx.lineWidth = stroke.size;
+    } else if (stroke.tool === 'HIGHLIGHTER') {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = 'rgba(255, 230, 0, 0.35)';
+      ctx.fillStyle = 'rgba(255, 230, 0, 0.35)';
+      ctx.lineWidth = stroke.size * 3;
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = stroke.color;
+      ctx.fillStyle = stroke.color;
+      ctx.lineWidth = stroke.size;
+    }
+
+    if (pts.length === 1) {
+      ctx.beginPath();
+      ctx.arc(pts[0].x, pts[0].y, ctx.lineWidth / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (pts.length === 2) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      ctx.lineTo(pts[1].x, pts[1].y);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      ctx.lineTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+
+      for (let i = 1; i < pts.length - 1; i++) {
+        const midX = (pts[i].x + pts[i + 1].x) / 2;
+        const midY = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+      }
+
+      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  };
+
+  const redrawCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const container = containerRef.current;
+    const rect = container?.getBoundingClientRect();
+    const width = rect?.width || 800;
+    const height = Math.max(rect?.height || 640, 640);
+
+    ctx.clearRect(0, 0, width, height);
+
+    strokesRef.current.forEach((stroke) => drawStroke(ctx, stroke));
+    if (currentStrokeRef.current) drawStroke(ctx, currentStrokeRef.current);
+  }, []);
+
+  const setupCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    const rect = container.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const width = rect.width;
+    const height = Math.max(rect.height, 640);
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+      ctx.imageSmoothingEnabled = true;
+    }
+
+    redrawCanvas();
+  }, [redrawCanvas]);
+
+  const saveDrawingToCloud = useCallback(() => {
+    const jsonStr = JSON.stringify(strokesRef.current);
+    onUpdateDrawing?.(jsonStr);
+  }, [onUpdateDrawing]);
+
+  useEffect(() => {
+    if (loadedChapterIdRef.current !== chapterId) {
+      loadedChapterIdRef.current = chapterId;
+
+      if (editorRef.current && editorRef.current.innerHTML !== (chapterContent || '')) {
+        editorRef.current.innerHTML = chapterContent || '';
+      }
+
+      if (drawingDataRaw) {
+        try {
+          const parsed = JSON.parse(drawingDataRaw);
+          strokesRef.current = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          strokesRef.current = [];
+        }
+      } else {
+        strokesRef.current = [];
+      }
+
+      setupCanvas();
+    }
+  }, [chapterId, chapterContent, drawingDataRaw, setupCanvas]);
+
+  useEffect(() => {
+    window.addEventListener('resize', setupCanvas);
+    return () => window.removeEventListener('resize', setupCanvas);
+  }, [setupCanvas]);
+
+  const handleInput = () => {
+    if (!editorRef.current) return;
+    onUpdateContent?.(editorRef.current.innerHTML);
+  };
+
+  const checkObjectErase = (x: number, y: number) => {
+    const thresholdSq = 12 * 12;
+    const originalCount = strokesRef.current.length;
+
+    strokesRef.current = strokesRef.current.filter((stroke) => {
+      if (stroke.tool === 'ERASER') return true;
+      for (let i = 0; i < stroke.points.length - 1; i++) {
+        if (distToSegmentSq({ x, y }, stroke.points[i], stroke.points[i + 1]) < thresholdSq) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (strokesRef.current.length !== originalCount) {
+      redrawCanvas();
+      saveDrawingToCloud();
+    }
+  };
+
+  const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (viewMode === 'PREVIEW' || activeTool === 'TEXT') return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    isDrawingRef.current = true;
+
+    if (activeTool === 'ERASER' && eraserType === 'OBJECT') {
+      checkObjectErase(x, y);
+      return;
+    }
+
+    currentStrokeRef.current = {
+      id: Date.now().toString(),
+      tool: activeTool === 'ERASER' ? 'ERASER' : activeTool === 'HIGHLIGHTER' ? 'HIGHLIGHTER' : 'PEN',
+      color: penColor,
+      size: activeTool === 'ERASER' ? (eraserType === 'LARGE' ? 24 : 8) : penSize,
+      points: [{ x, y }],
+    };
+
+    redrawCanvas();
+  };
+
+  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current || viewMode === 'PREVIEW' || activeTool === 'TEXT') return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+
+    const events = (e.nativeEvent as any).getCoalescedEvents
+      ? (e.nativeEvent as any).getCoalescedEvents()
+      : [e];
+
+    for (const ev of events) {
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+
+      if (activeTool === 'ERASER' && eraserType === 'OBJECT') {
+        checkObjectErase(x, y);
+      } else if (currentStrokeRef.current) {
+        currentStrokeRef.current.points.push({ x, y });
+        redrawCanvas();
+      }
+    }
+  };
+
+  const stopDrawing = () => {
+    if (!isDrawingRef.current) return;
+    isDrawingRef.current = false;
+
+    if (currentStrokeRef.current && currentStrokeRef.current.points.length > 0) {
+      strokesRef.current.push(currentStrokeRef.current);
+    }
+    currentStrokeRef.current = null;
+    redrawCanvas();
+    saveDrawingToCloud();
+  };
+
+  return (
+    <div ref={containerRef} className="relative min-h-[640px] w-full">
+      {/* GRELHA / PAUTADO */}
+      <div
+        className={`absolute inset-0 pointer-events-none z-0 ${
+          paperStyle === 'PAUTADO'
+            ? 'bg-[linear-gradient(to_bottom,#E5E2D9_1px,transparent_1px)] bg-[size:100%_32px] bg-local'
+            : paperStyle === 'QUADRICULA'
+            ? 'bg-[linear-gradient(to_right,#E5E2D9_1px,transparent_1px),linear-gradient(to_bottom,#E5E2D9_1px,transparent_1px)] bg-[size:32px_32px] bg-local'
+            : ''
+        }`}
+      />
+
+      {/* ÁREA DE TEXTO */}
+      <div
+        ref={editorRef}
+        contentEditable={viewMode === 'EDIT'}
+        suppressContentEditableWarning
+        onInput={handleInput}
+        className="relative z-10 w-full min-h-[640px] font-serif text-base text-[#111111] bg-transparent focus:outline-none 
+          [&>h1]:text-xl [&>h1]:font-black [&>h1]:font-mono [&>h1]:leading-[32px] [&>h1]:m-0 [&>h1]:p-0
+          [&>h2]:text-base [&>h2]:font-bold [&>h2]:font-mono [&>h2]:text-[#666560] [&>h2]:leading-[32px] [&>h2]:m-0 [&>h2]:p-0
+          [&>p]:leading-[32px] [&>p]:m-0 [&>p]:p-0
+          [&>ul]:list-disc [&>ul]:pl-5 [&>ul]:leading-[32px]"
+      />
+
+      {/* CANVAS DE DESENHO */}
+      <canvas
+        ref={canvasRef}
+        onPointerDown={startDrawing}
+        onPointerMove={draw}
+        onPointerUp={stopDrawing}
+        onPointerLeave={stopDrawing}
+        className={`absolute inset-0 z-20 touch-none ${
+          viewMode === 'EDIT' && activeTool !== 'TEXT'
+            ? 'pointer-events-auto cursor-crosshair'
+            : 'pointer-events-none'
+        }`}
+      />
+    </div>
+  );
+}

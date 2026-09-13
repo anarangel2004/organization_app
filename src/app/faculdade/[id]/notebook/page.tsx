@@ -1,40 +1,279 @@
 'use client';
 
-import { useState, use, Suspense } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, use, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { createClient } from '@/lib/supabase'; // Ajusta o caminho para o teu cliente Supabase
 
-export type NotebookTab = 'TEORICAS' | 'PRATICAS' | 'TESTES';
-export type PaperStyle = 'PAUTADO' | 'QUADRICULA' | 'LISO';
-
-export interface Chapter {
-  id: string;
-  number: string;
-  title: string;
-  date: string;
-  pagesCount: number;
-  category: NotebookTab;
-}
-
-const INITIAL_CHAPTERS: Chapter[] = [
-  { id: '1', number: '01', title: 'Cifra de Feistel & Redes SPN', date: 'HOJE, 10:42', pagesCount: 14, category: 'TEORICAS' },
-  { id: '2', number: '02', title: 'Criptografia Assimétrica & RSA', date: '24 OUT', pagesCount: 14, category: 'TEORICAS' },
-  { id: '3', number: '03', title: 'Protocolos & TLS / SSL', date: '19 OUT', pagesCount: 9, category: 'TEORICAS' },
-  { id: '4', number: '01', title: 'Guião 1 - Cifras Clássicas e Python', date: '12 OUT', pagesCount: 5, category: 'PRATICAS' },
-  { id: '5', number: '01', title: 'Preparação para o Teste 1', date: '05 OUT', pagesCount: 8, category: 'TESTES' },
-];
+import { Chapter, NotebookTab, PaperStyle } from './components/types';
+import { NotebookHeader } from './components/NotebookHeader';
+import { NotebookSidebar } from './components/NotebookSidebar';
+import { NotebookToolbar } from './components/NotebookToolbar';
+import { NotebookEditor } from './components/editor/NotebookEditor';
+import { NotebookSplitView } from './components/NotebookSplitView';
 
 function NotebookContent({ subjectId }: { subjectId: string }) {
+  const supabase = createClient();
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get('tab') as NotebookTab) || 'TEORICAS';
 
+  const [chapters, setChapters] = useState<Chapter[]>([]);
   const [activeTab, setActiveTab] = useState<NotebookTab>(initialTab);
-  const [selectedChapterId, setSelectedChapterId] = useState<string>('1');
+  const [selectedChapterId, setSelectedChapterId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [paperStyle, setPaperStyle] = useState<PaperStyle>('PAUTADO');
-  const [isSplitViewOpen, setIsSplitViewOpen] = useState<boolean>(true);
 
-  const filteredChapters = INITIAL_CHAPTERS.filter((chap) => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [isSplitViewOpen, setIsSplitViewOpen] = useState<boolean>(false);
+  const [splitViewWidth, setSplitViewWidth] = useState<number>(420);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // 1. CARREGAR CAPÍTULOS DO SUPABASE (COM DESENHOS INCLUÍDOS)
+  useEffect(() => {
+    async function fetchChapters() {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('chapters')
+        .select('*')
+        .eq('subject_id', subjectId)
+        .order('created_at', { ascending: true });
+
+      if (!error && data) {
+        const mappedChapters: Chapter[] = data.map((item) => ({
+          id: item.id,
+          subjectId: item.subject_id,
+          number: item.number,
+          title: item.title,
+          category: item.category as NotebookTab,
+          content: item.content || '',
+          drawingData: item.drawing_data || item.drawing || '', // CORRIGIDO: Mapeia o desenho do Supabase
+          pdfUrl: item.pdf_url,
+          pdfName: item.pdf_name,
+          createdAt: item.created_at,
+          updatedAt: new Date(item.updated_at).toLocaleTimeString('pt-PT', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        }));
+
+        setChapters(mappedChapters);
+
+        const firstInTab = mappedChapters.find((c) => c.category === initialTab);
+        if (firstInTab) {
+          setSelectedChapterId(firstInTab.id);
+        }
+      }
+      setIsLoading(false);
+    }
+
+    fetchChapters();
+  }, [subjectId, initialTab]);
+
+  // 2. CRIAR NOVO CAPÍTULO NO SUPABASE
+  const handleAddChapter = async (title: string) => {
+    if (!title || !title.trim()) return;
+
+    const categoryChapters = chapters.filter((c) => c.category === activeTab);
+    const nextNumber = String(categoryChapters.length + 1).padStart(2, '0');
+    const tempId = `temp-${Date.now()}`;
+    const nowFormatted = new Date().toLocaleTimeString('pt-PT', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const tempChapter: Chapter = {
+      id: tempId,
+      subjectId,
+      number: nextNumber,
+      title: title.toUpperCase(),
+      category: activeTab,
+      content: '',
+      drawingData: '',
+      updatedAt: nowFormatted,
+      createdAt: new Date().toISOString(),
+    };
+
+    setChapters((prev) => [...prev, tempChapter]);
+    setSelectedChapterId(tempId);
+
+    try {
+      const { data, error } = await supabase
+        .from('chapters')
+        .insert([
+          {
+            subject_id: subjectId,
+            number: nextNumber,
+            title: title.toUpperCase(),
+            category: activeTab,
+            content: '',
+            drawing_data: '',
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Erro ao guardar capítulo no Supabase:', error);
+        alert(`Não foi possível guardar no Supabase: ${error.message}`);
+        setChapters((prev) => prev.filter((c) => c.id !== tempId));
+        return;
+      }
+
+      if (data) {
+        setChapters((prev) =>
+          prev.map((c) => (c.id === tempId ? { ...c, id: data.id } : c))
+        );
+        setSelectedChapterId(data.id);
+      }
+    } catch (err) {
+      console.error('Erro de ligação ao Supabase:', err);
+    }
+  };
+
+  // 3. ATUALIZAR TEXTO NO SUPABASE
+  const handleUpdateContent = async (newContent: string) => {
+    if (!selectedChapterId) return;
+
+    const nowFormatted = new Date().toLocaleTimeString('pt-PT', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    setChapters((prev) =>
+      prev.map((c) =>
+        c.id === selectedChapterId
+          ? { ...c, content: newContent, updatedAt: nowFormatted }
+          : c
+      )
+    );
+
+    await supabase
+      .from('chapters')
+      .update({ content: newContent, updated_at: new Date().toISOString() })
+      .eq('id', selectedChapterId);
+  };
+
+  // 4. ATUALIZAR DESENHO NO SUPABASE (CORRIGIDO)
+  const handleUpdateDrawing = async (drawingData: string) => {
+    if (!selectedChapterId) return;
+
+    // Actualiza o estado da lista de capítulos na UI
+    setChapters((prev) =>
+      prev.map((c) =>
+        c.id === selectedChapterId ? { ...c, drawingData } : c
+      )
+    );
+
+    // Guarda diretamente na coluna 'drawing_data' da tabela 'chapters'
+    await supabase
+      .from('chapters')
+      .update({
+        drawing_data: drawingData,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', selectedChapterId);
+  };
+
+  // 5. UPLOAD DE PDF PARA O SUPABASE STORAGE
+  const handlePdfUpload = async (file: File) => {
+    if (!selectedChapterId) return;
+
+    const fileExt = file.name.split('.').pop();
+    const filePath = `${subjectId}/${selectedChapterId}-${Date.now()}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('notebook-pdfs')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      console.error('Erro ao fazer upload do PDF:', uploadError.message);
+      return;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('notebook-pdfs')
+      .getPublicUrl(filePath);
+
+    const publicUrl = urlData.publicUrl;
+    const fileName = file.name.toUpperCase();
+
+    const { error: dbError } = await supabase
+      .from('chapters')
+      .update({ pdf_url: publicUrl, pdf_name: fileName })
+      .eq('id', selectedChapterId);
+
+    if (!dbError) {
+      setChapters((prev) =>
+        prev.map((c) =>
+          c.id === selectedChapterId
+            ? { ...c, pdfName: fileName, pdfUrl: publicUrl }
+            : c
+        )
+      );
+    }
+  };
+
+  // 6. REMOVER PDF
+  const handlePdfRemove = async () => {
+    if (!selectedChapterId) return;
+
+    const { error } = await supabase
+      .from('chapters')
+      .update({ pdf_url: null, pdf_name: null })
+      .eq('id', selectedChapterId);
+
+    if (!error) {
+      setChapters((prev) =>
+        prev.map((c) =>
+          c.id === selectedChapterId
+            ? { ...c, pdfName: undefined, pdfUrl: undefined }
+            : c
+        )
+      );
+    }
+  };
+
+  // 7. APAGAR CAPÍTULO NO SUPABASE
+  const handleDeleteChapter = async (id: string) => {
+    const { error } = await supabase.from('chapters').delete().eq('id', id);
+
+    if (!error) {
+      setChapters((prev) => {
+        const updated = prev.filter((c) => c.id !== id);
+        if (selectedChapterId === id) {
+          const nextInTab = updated.find((c) => c.category === activeTab);
+          setSelectedChapterId(nextInTab ? nextInTab.id : '');
+        }
+        return updated;
+      });
+    }
+  };
+
+  const handleTabChange = (newTab: NotebookTab) => {
+    setActiveTab(newTab);
+    const tabChapters = chapters.filter((c) => c.category === newTab);
+    if (tabChapters.length > 0) {
+      setSelectedChapterId(tabChapters[0].id);
+    } else {
+      setSelectedChapterId('');
+    }
+  };
+
+  const handleUpdateTitle = async (newTitle: string) => {
+    if (!selectedChapterId) return;
+
+    setChapters((prev) =>
+      prev.map((c) =>
+        c.id === selectedChapterId ? { ...c, title: newTitle } : c
+      )
+    );
+
+    await supabase
+      .from('chapters')
+      .update({ title: newTitle, updated_at: new Date().toISOString() })
+      .eq('id', selectedChapterId);
+  };
+
+  const filteredChapters = chapters.filter((chap) => {
     const matchesTab = chap.category === activeTab;
     const matchesSearch =
       chap.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -42,231 +281,87 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     return matchesTab && matchesSearch;
   });
 
-  const activeChapter =
-    INITIAL_CHAPTERS.find((c) => c.id === selectedChapterId) || filteredChapters[0];
+  const activeChapter = chapters.find(
+    (c) => c.id === selectedChapterId && c.category === activeTab
+  );
 
   return (
     <div className="flex flex-col h-screen bg-[#F6F4EE] text-[#111111] font-sans antialiased overflow-hidden">
-      {/* 1. TOPBAR */}
-      <header className="h-12 border-b border-[#D8D5CC] bg-[#F6F4EE] px-4 flex items-center justify-between text-[11px] font-mono shrink-0">
-        <div className="flex items-center gap-3 font-bold">
-          <Link
-            href={`/faculdade/${subjectId}`}
-            className="hover:opacity-70 transition-opacity uppercase text-[#767571] flex items-center gap-1"
-          >
-            ← VOLTAR
-          </Link>
-          <span className="text-[#D8D5CC]">|</span>
-          <span className="text-[#767571] uppercase">FACULDADE</span>
-          <span className="text-[#D8D5CC]">//</span>
-          <span className="text-[#767571] uppercase">CADERNO</span>
-          <span className="text-[#D8D5CC]">//</span>
+      <NotebookHeader
+        subjectId={subjectId}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+      />
 
-          <div className="flex items-center gap-1 bg-[#EBE8DF] p-0.5 border border-[#D8D5CC]">
-            {(['TEORICAS', 'PRATICAS', 'TESTES'] as NotebookTab[]).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-2.5 py-1 text-[10px] uppercase font-bold tracking-wider transition-colors cursor-pointer ${
-                  activeTab === tab
-                    ? 'bg-[#111111] text-[#FCF9F2]'
-                    : 'text-[#767571] hover:text-[#111111]'
-                }`}
-              >
-                {tab === 'TEORICAS' ? 'TEÓRICAS' : tab === 'PRATICAS' ? 'PRÁTICAS' : 'TESTES'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4 text-[10px]">
-          <div className="hidden sm:flex items-center gap-2 text-[#767571]">
-            <span className="w-2 h-2 bg-green-600 inline-block"></span>
-            <span>IPAD PRO VINCULADO</span>
-            <span>·</span>
-            <span>100% SINCRONIZADO</span>
-          </div>
-
-          <button className="bg-[#EBE8DF] hover:bg-[#111111] hover:text-[#FCF9F2] px-3 py-1.5 border border-[#D8D5CC] font-bold uppercase transition-colors cursor-pointer">
-            EXPORTAR PDF
-          </button>
-        </div>
-      </header>
-
-      {/* 2. ÁREA PRINCIPAL */}
       <div className="flex flex-1 overflow-hidden">
         {/* ÍNDICE ESQUERDO */}
-        <aside className="w-72 border-r border-[#D8D5CC] flex flex-col bg-[#F6F4EE] shrink-0">
-          <div className="p-4 border-b border-[#D8D5CC] space-y-3">
-            <h2 className="font-mono text-[10px] font-bold tracking-widest text-[#767571] uppercase">
-              ÍNDICE DE CAPÍTULOS
-            </h2>
-            <input
-              type="text"
-              placeholder="Q PESQUISAR NO NOTEBOOK..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#EBE8DF] border border-[#D8D5CC] p-2 text-[10px] font-mono focus:outline-none focus:border-[#111111] placeholder-[#A1A09A]"
-            />
-          </div>
+        {isSidebarOpen && (
+          <NotebookSidebar
+            chapters={filteredChapters}
+            selectedChapterId={selectedChapterId}
+            onSelectChapter={setSelectedChapterId}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            activeTab={activeTab}
+            onAddChapter={handleAddChapter}
+            onDeleteChapter={handleDeleteChapter}
+          />
+        )}
 
-          <div className="flex-1 overflow-y-auto divide-y divide-[#EBE8DF]">
-            {filteredChapters.length === 0 ? (
-              <div className="p-4 font-mono text-[10px] text-[#767571] uppercase">
-                Sem capítulos registados em {activeTab.toLowerCase()}.
-              </div>
-            ) : (
-              filteredChapters.map((chap) => {
-                const isSelected = activeChapter?.id === chap.id;
-                return (
-                  <button
-                    key={chap.id}
-                    onClick={() => setSelectedChapterId(chap.id)}
-                    className={`w-full p-4 text-left font-mono transition-colors block cursor-pointer ${
-                      isSelected
-                        ? 'bg-[#EBE8DF] border-l-4 border-l-[#111111]'
-                        : 'hover:bg-[#EBE8DF]/50'
-                    }`}
-                  >
-                    <div className="text-[11px] font-bold text-[#111111] line-clamp-1">
-                      {chap.number} - {chap.title}
-                    </div>
-                    <div className="flex justify-between items-center text-[9px] text-[#767571] mt-2">
-                      <span>{chap.date}</span>
-                      {isSelected ? (
-                        <span className="font-bold text-[#111111] uppercase">[ ATIVO ]</span>
-                      ) : (
-                        <span>{chap.pagesCount} PÁG</span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })
+        {/* ÁREA CENTRAL E SPLIT VIEW */}
+        {isLoading ? (
+          <div className="flex-1 flex items-center justify-center font-mono text-xs uppercase bg-[#FAF8F3]">
+            A carregar dados do Supabase...
+          </div>
+        ) : activeChapter ? (
+          <>
+            <div className="flex-1 flex flex-col min-w-0">
+              <NotebookToolbar
+                paperStyle={paperStyle}
+                onPaperStyleChange={setPaperStyle}
+                isSplitViewOpen={isSplitViewOpen}
+                onToggleSplitView={() => setIsSplitViewOpen(!isSplitViewOpen)}
+                isSidebarOpen={isSidebarOpen}
+                onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+              />
+
+              <NotebookEditor
+                chapter={activeChapter}
+                paperStyle={paperStyle}
+                activeTab={activeTab}
+                onUpdateDrawing={handleUpdateDrawing}
+                onUpdateContent={handleUpdateContent}
+                onUpdateTitle={handleUpdateTitle}
+              />
+            </div>
+
+            {isSplitViewOpen && (
+              <NotebookSplitView
+                chapter={activeChapter}
+                subjectId={subjectId}
+                width={splitViewWidth}
+                onWidthChange={setSplitViewWidth}
+                onClose={() => setIsSplitViewOpen(false)}
+                onPdfUpload={handlePdfUpload}
+                onPdfRemove={handlePdfRemove}
+              />
             )}
-          </div>
-
-          <div className="p-3 border-t border-[#D8D5CC]">
-            <button className="w-full bg-[#111111] text-[#FCF9F2] py-2.5 px-4 font-mono text-[10px] font-bold tracking-wider hover:bg-[#31312C] transition-colors uppercase cursor-pointer">
-              + NOVO CAPÍTULO
-            </button>
-          </div>
-        </aside>
-
-        {/* EDITOR CENTRAL */}
-        <main className="flex-1 flex flex-col bg-[#FAF8F3] overflow-y-auto border-r border-[#D8D5CC]">
-          <div className="h-10 border-b border-[#D8D5CC] bg-[#F6F4EE] px-4 flex items-center justify-between text-[10px] font-mono shrink-0">
-            <div className="flex items-center gap-3">
-              <button className="flex items-center gap-1 font-bold hover:text-[#767571]">
-                <span>T</span> TEXTO
-              </button>
-              <span className="text-[#D8D5CC]">|</span>
-              <button className="hover:text-[#767571]">TRAÇO 0.5MM</button>
-              <span className="text-[#D8D5CC]">|</span>
-
-              <div className="flex items-center gap-2">
-                <span className="text-[#767571]">PÁGINA:</span>
-                {(['PAUTADO', 'QUADRICULA', 'LISO'] as PaperStyle[]).map((style) => (
-                  <button
-                    key={style}
-                    onClick={() => setPaperStyle(style)}
-                    className={`px-1.5 py-0.5 font-bold uppercase cursor-pointer ${
-                      paperStyle === style
-                        ? 'bg-[#111111] text-[#FCF9F2]'
-                        : 'text-[#767571] hover:text-[#111111]'
-                    }`}
-                  >
-                    {style}
-                  </button>
-                ))}
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center bg-[#FAF8F3] p-8 border-r border-[#D8D5CC]">
+            <div className="border border-[#D8D5CC] bg-[#EBE8DF] p-8 max-w-md w-full space-y-3 text-center font-mono">
+              <div className="w-8 h-8 bg-[#111111] text-[#FCF9F2] flex items-center justify-center font-bold mx-auto text-sm">
+                !
               </div>
+              <span className="font-bold text-xs text-[#111111] uppercase block tracking-wider">
+                SEM CAPÍTULOS EM {activeTab}
+              </span>
+              <p className="text-[10px] text-[#767571] uppercase leading-relaxed">
+                Ainda não existe nenhum capítulo nesta secção. Utilize o botão{' '}
+                <strong className="text-[#111111]">+ NOVO CAPÍTULO</strong> no índice para criar o primeiro.
+              </p>
             </div>
-
-            <button
-              onClick={() => setIsSplitViewOpen(!isSplitViewOpen)}
-              className="font-bold border border-[#D8D5CC] px-2 py-0.5 hover:bg-[#111111] hover:text-[#FCF9F2] transition-colors cursor-pointer"
-            >
-              SPLIT VIEW {isSplitViewOpen ? '(ATIVO)' : '(INATIVO)'}
-            </button>
           </div>
-
-          <div
-            className={`flex-1 p-8 md:p-12 max-w-4xl mx-auto w-full space-y-6 ${
-              paperStyle === 'PAUTADO'
-                ? 'bg-[linear-gradient(to_bottom,#E5E2D9_1px,transparent_1px)] bg-[size:100%_28px]'
-                : ''
-            }`}
-          >
-            {activeChapter ? (
-              <>
-                <div className="font-mono text-[9px] font-bold text-[#767571] tracking-wider uppercase">
-                  CAPÍTULO {activeChapter.number} // {activeTab}
-                </div>
-
-                <h1 className="font-mono text-2xl md:text-3xl font-extrabold uppercase text-[#111111] tracking-tight">
-                  {activeChapter.title}
-                </h1>
-
-                <div className="font-mono text-[9px] text-[#A1A09A] border-b border-[#D8D5CC] pb-3 uppercase">
-                  ÚLTIMA EDIÇÃO: {activeChapter.date} · SINCRONIZADO IPAD PRO
-                </div>
-
-                <div className="space-y-4 text-xs md:text-sm text-[#111111] leading-relaxed font-serif">
-                  <p>
-                    A arquitetura de Feistel resolve de modo elegante a questão fundamental das cifras simétricas de bloco: como construir uma permutação invertível sem obrigar a função interna F(R, K) a ser matematicamente bijetiva.
-                  </p>
-
-                  <div className="bg-[#EBE8DF]/80 border-l-2 border-[#111111] p-3 font-mono text-[11px] space-y-1 my-4">
-                    <p className="text-[#767571]">// Relações recursivas por ronda (i = 1 ... n):</p>
-                    <p className="font-bold">L_i = R_&#123;i-1&#125;</p>
-                    <p className="font-bold">R_i = L_&#123;i-1&#125; ⊕ F(R_&#123;i-1&#125;, K_i)</p>
-                  </div>
-
-                  <div className="bg-[#FFF4F4] border border-[#FFD0D0] p-3 font-mono text-[10px] text-[#D32F2F] font-bold my-4">
-                    Atenção: min. 3 rondas p/ difusão total. Teorema Luby-Rackoff exige 4 rondas!
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="font-mono text-xs text-[#767571] uppercase">
-                Selecione um capítulo no índice.
-              </div>
-            )}
-          </div>
-        </main>
-
-        {/* SPLIT VIEW DIREITO */}
-        {isSplitViewOpen && (
-          <aside className="w-96 border-l border-[#D8D5CC] bg-[#EBE8DF] flex flex-col shrink-0">
-            <div className="h-10 border-b border-[#D8D5CC] px-3 flex items-center justify-between font-mono text-[10px] font-bold bg-[#F6F4EE]">
-              <span className="truncate max-w-[180px]">SLIDES_AULA03_FEISTEL.PDF</span>
-              <div className="flex items-center gap-2">
-                <span>14 / 46</span>
-                <button className="hover:text-[#767571] px-1">‹</button>
-                <button className="hover:text-[#767571] px-1">›</button>
-                <button
-                  onClick={() => setIsSplitViewOpen(false)}
-                  className="hover:text-red-600 ml-2 cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 p-4 overflow-y-auto flex items-center justify-center">
-              <div className="bg-white border border-[#D8D5CC] shadow-sm w-full aspect-[4/3] p-4 flex flex-col justify-between font-mono text-[10px]">
-                <div className="text-[8px] text-[#767571] uppercase">
-                  ENGENHARIA INFORMÁTICA · SLIDE 14
-                </div>
-                <div className="space-y-2">
-                  <div className="font-bold text-xs uppercase">PROPRIEDADE DE REVERSIBILIDADE</div>
-                  <p className="text-[9px] text-[#31312C] leading-snug">
-                    Dado que o bloco esquerdo L_i = R_&#123;i-1&#125;, a recuperação da metade L_&#123;i-1&#125; depende unicamente da operação XOR.
-                  </p>
-                </div>
-                <div className="text-[8px] text-[#A1A09A] uppercase">PROF. DR. V. ALMEIDA · TEÓRICA 03</div>
-              </div>
-            </div>
-          </aside>
         )}
       </div>
     </div>
@@ -281,7 +376,13 @@ export default function SubjectNotebookPage({
   const { id: subjectId } = use(params);
 
   return (
-    <Suspense fallback={<div className="p-8 font-mono text-xs uppercase">CARREGANDO NOTEBOOK...</div>}>
+    <Suspense
+      fallback={
+        <div className="p-8 font-mono text-xs uppercase">
+          CARREGANDO NOTEBOOK...
+        </div>
+      }
+    >
       <NotebookContent subjectId={subjectId} />
     </Suspense>
   );
