@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { SubjectData } from '@/types';
 import { ChapterData } from './components/NotebooksSection';
 import { SubjectHeader } from './components/SubjectHeader';
+import { PrazosSection } from './components/PrazosSection';
 import { HeroSection } from './components/HeroSection';
 import { VisaoGeralSection } from './components/VisaoGeralSection';
 import { NotebooksSection } from './components/NotebooksSection';
@@ -31,14 +32,24 @@ function formatTeacher(teacher: any): string {
 
 function calculateDaysRemaining(dueDateStr?: string): number {
   if (!dueDateStr) return 0;
-  const target = new Date(dueDateStr);
+
+  const cleanDateStr = dueDateStr.split('T')[0];
+  const parts = cleanDateStr.split('-');
+
+  let target: Date;
+  if (parts.length === 3) {
+    const [year, month, day] = parts.map(Number);
+    target = new Date(year, month - 1, day);
+  } else {
+    target = new Date(dueDateStr);
+  }
+
   const today = new Date();
   target.setHours(0, 0, 0, 0);
   today.setHours(0, 0, 0, 0);
 
   const diffTime = target.getTime() - today.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return diffDays > 0 ? diffDays : 0;
+  return Math.round(diffTime / (1000 * 60 * 60 * 24));
 }
 
 export default function SubjectDetailPage({
@@ -53,11 +64,12 @@ export default function SubjectDetailPage({
   const [chapters, setChapters] = useState<ChapterData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Recarrega os dados da disciplina e capítulos sem dar reload total
   const fetchSubject = useCallback(async () => {
     if (!rawId) return;
 
     try {
+      setLoading(true);
+
       const { data: dbSubjects, error } = await supabase
         .from('subjects')
         .select('*');
@@ -71,8 +83,8 @@ export default function SubjectDetailPage({
 
       const found = dbSubjects.find((s: any) => {
         const sId = cleanSlug(String(s.id || ''));
-        const sCode = cleanSlug(String(s.code || s.codigo || ''));
-        const sName = cleanSlug(String(s.name || s.nome || ''));
+        const sCode = cleanSlug(String(s.code || ''));
+        const sName = cleanSlug(String(s.name || ''));
 
         return (
           sId === searchTarget ||
@@ -84,8 +96,22 @@ export default function SubjectDetailPage({
       });
 
       if (found) {
-        let rawSchedules = found.schedules || found.horarios || found.schedule || [];
+        const subId = String(found.id);
 
+        // 1. CARREGAR AVALIAÇÕES / PRAZOS REAIS (Tabela 'assessments')
+        const { data: assessmentsData } = await supabase
+          .from('assessments')
+          .select('*')
+          .eq('subject_id', subId);
+
+        // 2. CARREGAR CAPÍTULOS (Tabela 'chapters')
+        const { data: chaptersData } = await supabase
+          .from('chapters')
+          .select('*')
+          .eq('subject_id', subId);
+
+        // Parse dos Horários
+        let rawSchedules = found.schedules || [];
         if (typeof rawSchedules === 'string') {
           try {
             rawSchedules = JSON.parse(rawSchedules);
@@ -93,83 +119,54 @@ export default function SubjectDetailPage({
             rawSchedules = [];
           }
         }
-
         if (!Array.isArray(rawSchedules)) rawSchedules = [];
 
-        const parsedSchedules = rawSchedules.map((s: any, idx: number) => {
-          const detectedDay =
-            s.day ||
-            s.dayOfWeek ||
-            s.day_of_week ||
-            s.dia ||
-            s.dia_semana ||
-            s.weekday ||
-            s.day_name ||
-            'A definir';
+        const parsedSchedules = rawSchedules.map((s: any, idx: number) => ({
+          id: String(s.id || idx + 1),
+          day: s.day || s.dayOfWeek || 'A definir',
+          dayOfWeek: s.day || s.dayOfWeek || 'A definir',
+          startTime: s.startTime || s.start_time || '00:00',
+          endTime: s.endTime || s.end_time || '00:00',
+          room: s.room || s.sala || 'A definir',
+          type: s.type || s.tipo || 'Teórica',
+        }));
 
-          return {
-            id: String(s.id || idx + 1),
-            day: detectedDay,
-            dayOfWeek: detectedDay,
-            startTime: s.startTime || s.start_time || s.hora_inicio || s.start || '00:00',
-            endTime: s.endTime || s.end_time || s.hora_fim || s.end || '00:00',
-            room: s.room || s.sala || 'A definir',
-            type: s.type || s.tipo || 'Teórica',
-          };
-        });
-
-        const subId = String(found.id || '').toLowerCase();
-        const subCode = String(found.code || found.codigo || '').toLowerCase();
-
-        // 1. CARREGAR DEADLINES
-        const { data: deadlinesData } = await supabase.from('deadlines').select('*');
-        const subjectDeadlines = (deadlinesData || []).filter((d: any) => {
-          const fk = String(d.subject_id ?? d.subject ?? '').toLowerCase();
-          return fk === subId || fk === subCode;
-        });
-
-        // 2. CARREGAR CAPÍTULOS DOS NOTEBOOKS
-        const { data: chaptersData } = await supabase.from('chapters').select('*');
-        const subjectChapters = (chaptersData || []).filter((c: any) => {
-          const fk = String(c.subject_id ?? c.subject ?? '').toLowerCase();
-          return fk === subId || fk === subCode;
-        });
-
+        // Mapeamento dos Capítulos
         setChapters(
-          subjectChapters.map((c: any) => ({
+          (chaptersData || []).map((c: any) => ({
             id: String(c.id),
-            tab: (c.tab || c.type || 'TEORICAS').toUpperCase(),
-            updatedAt: c.updated_at || c.updatedAt,
+            tab: (c.category || 'TEORICAS').toUpperCase(),
+            updatedAt: c.updated_at,
             hasContent: Boolean((c.content || '').replace(/<[^>]*>/g, '').trim()),
-            pdfUrl: c.pdf_url || c.pdfUrl,
+            pdfUrl: c.pdf_url,
             isCompleted: Boolean(c.is_completed),
           }))
         );
 
+        // Mapeamento da Disciplina + Avaliações filtradas como Prazos
         setSubject({
-          id: String(found.id),
-          name: found.name || found.nome || 'Sem Nome',
-          code: found.code || found.codigo || '---',
-          teacherTeorica: formatTeacher(
-            found.teacher_teorica || found.teacher || found.regente
-          ),
-          ects: found.ects || found.creditos || 6,
-          academicYear: found.academic_year || found.ano_letivo || '2025/2026',
-          degreeYear: found.degree_year || found.ano || 1,
-          semester: found.semester || found.semestre || 1,
+          id: subId,
+          name: found.name || 'Sem Nome',
+          code: found.code || '---',
+          teacherTeorica: formatTeacher(found.teacher_teorica || found.regente),
+          ects: found.ects || 6,
+          academicYear: found.academic_year || '2025/2026',
+          degreeYear: found.degree_year || 1,
+          semester: found.semester || 1,
           schedules: parsedSchedules,
-          // Dentro do setSubject(...) no page.tsx:
-deadlines: subjectDeadlines.map((d: any) => {
-  const rawDate = d.date || d.due_date || d.data;
-  return {
-    id: String(d.id),
-    title: d.title || d.titulo || 'PRAZO',
-    date: rawDate || new Date().toISOString(), // <-- Propriedade obrigatória adicionada
-    daysRemaining: d.days_remaining ?? calculateDaysRemaining(rawDate),
-    location: d.location || d.local || 'SUBMISSÃO VIA PORTAL ACADÉMICO',
-    isCritical: Boolean(d.is_critical ?? d.isCritical ?? d.critico),
-  };
-}),
+          deadlines: (assessmentsData || [])
+            .filter((a: any) => a.due_date)
+            .map((a: any) => {
+              const daysLeft = calculateDaysRemaining(a.due_date);
+              return {
+                id: String(a.id),
+                title: a.title || 'AVALIAÇÃO',
+                date: a.due_date,
+                daysRemaining: daysLeft,
+                location: `AVALIAÇÃO ${a.category || 'GERAL'}`,
+                isCritical: daysLeft >= 0 && daysLeft <= 7,
+              };
+            }),
         });
       }
     } catch (err) {
@@ -187,14 +184,11 @@ deadlines: subjectDeadlines.map((d: any) => {
     <div className="min-h-screen bg-[#FCF9F2] text-[#111111] font-sans selection:bg-[#111111] selection:text-[#FCF9F2]">
       <SubjectHeader subject={subject} />
 
-      <main className="max-w-7xl mx-auto px-6 pt-6 space-y-24">
-        {/* SECÇÃO 01: VISÃO GERAL */}
-        <div id="visao-geral" className="space-y-16 scroll-mt-24">
-          <HeroSection
-            subject={subject}
-            loading={loading}
-            deadlines={subject?.deadlines}
-          />
+      <main className="max-w-7xl mx-auto px-6 pt-6 space-y-16">
+        {/* SECÇÃO 01: VISÃO GERAL (PRAZOS NO TOPO + HERO) */}
+        <div id="visao-geral" className="space-y-8 scroll-mt-24">
+          <PrazosSection deadlines={subject?.deadlines} />
+          <HeroSection subject={subject} loading={loading} />
           <VisaoGeralSection subject={subject} />
         </div>
 
