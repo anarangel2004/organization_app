@@ -292,15 +292,15 @@ export function DrawingCanvas({
         }`}
       />
 
-      {/* ÁREA DE TEXTO */}
+     {/* ÁREA DE TEXTO */}
 <div
   ref={editorRef}
   contentEditable={viewMode === 'EDIT'}
   suppressContentEditableWarning
   onInput={handleInput}
-  className="relative z-10 w-full min-h-[640px] font-serif text-base text-[#111111] bg-transparent focus:outline-none 
-    [&>h1]:text-2xl [&>h1]:font-bold [&>h1]:font-serif [&>h1]:tracking-tight [&>h1]:leading-[32px] [&>h1]:m-0 [&>h1]:p-0
-    [&>h2]:text-lg [&>h2]:font-semibold [&>h2]:font-serif [&>h2]:italic [&>h2]:leading-[32px] [&>h2]:m-0 [&>h2]:p-0
+  className="relative z-10 w-full min-h-[640px] font-sans text-base text-[#111111] bg-transparent focus:outline-none 
+    [&>h1]:text-2xl [&>h1]:font-black [&>h1]:uppercase [&>h1]:tracking-tight [&>h1]:leading-[32px] [&>h1]:m-0 [&>h1]:p-0
+    [&>h2]:text-lg [&>h2]:font-bold [&>h2]:font-mono [&>h2]:uppercase [&>h2]:tracking-wider [&>h2]:leading-[32px] [&>h2]:m-0 [&>h2]:p-0
     [&>p]:leading-[32px] [&>p]:m-0 [&>p]:p-0
     [&>ul]:list-disc [&>ul]:pl-5 [&>ul]:leading-[32px]"
 />

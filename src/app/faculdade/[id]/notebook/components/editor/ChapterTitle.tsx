@@ -24,10 +24,19 @@ export function ChapterTitle({
   updatedAtFormatted,
 }: ChapterTitleProps) {
   return (
-    <div className="border-b border-[#D8D5CC] pb-3 mb-4 space-y-1">
-      <div className="flex items-baseline gap-3">
-        {/* NÚMERO COM LINING-NUMS E TRACKING-TIGHT IDENTICO AO TÍTULO */}
-        <span className="font-serif lining-nums text-3xl md:text-4xl font-bold text-[#111111] shrink-0 select-none tracking-tight">
+    <div className="border-b border-[#D8D5CC] pb-4 mb-6 space-y-2">
+      {/* LINHA TÉCNICA SUPERIOR */}
+      <div className="flex items-center justify-between font-mono text-[10px] md:text-xs text-[#767571] tracking-widest uppercase select-none">
+        <span className="flex items-center gap-2">
+          <span className="inline-block w-2 h-2 bg-[#111111]" />
+          CAPÍTULO {chapterIndexStr} // CADERNO ACADÉMICO
+        </span>
+        <span>ÚLTIMA EDIÇÃO: {updatedAtFormatted}</span>
+      </div>
+
+      {/* TÍTULO PRINCIPAL E NÚMERO COM A MESMA FONTE E TAMANHO */}
+      <div className="flex items-baseline gap-4 pt-1">
+        <span className="font-sans font-black text-4xl md:text-5xl tracking-tight text-[#111111] leading-none shrink-0 select-none">
           {chapterIndexStr}
         </span>
 
@@ -45,7 +54,7 @@ export function ChapterTitle({
               }}
               onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
               autoFocus
-              className="w-full font-serif lining-nums text-3xl md:text-4xl font-bold text-[#111111] tracking-tight bg-transparent border-none p-0 focus:outline-none focus:ring-0"
+              className="w-full font-sans font-black text-4xl md:text-5xl uppercase tracking-tight text-[#111111] bg-transparent border-none p-0 focus:outline-none focus:ring-0 leading-none"
             />
           ) : (
             <h1
@@ -53,18 +62,14 @@ export function ChapterTitle({
                 if (viewMode === 'EDIT') setIsEditingTitle(true);
               }}
               title={viewMode === 'EDIT' ? 'Clica para editar o título' : ''}
-              className={`font-serif lining-nums text-3xl md:text-4xl font-bold text-[#111111] tracking-tight ${
-                viewMode === 'EDIT' ? 'cursor-pointer hover:opacity-75' : ''
+              className={`font-sans font-black text-4xl md:text-5xl uppercase tracking-tight text-[#111111] leading-none ${
+                viewMode === 'EDIT' ? 'cursor-pointer hover:opacity-80' : ''
               }`}
             >
-              {title || 'Sem título'}
+              {title ? `${title.toUpperCase()}.` : 'SEM TÍTULO.'}
             </h1>
           )}
         </div>
-      </div>
-
-      <div className="font-mono text-[10px] text-[#767571] tracking-wider uppercase">
-        Última edição: {updatedAtFormatted}
       </div>
     </div>
   );

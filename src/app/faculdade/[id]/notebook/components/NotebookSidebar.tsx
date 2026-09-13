@@ -37,23 +37,24 @@ export function NotebookSidebar({
   };
 
   return (
-    <aside className="w-72 border-r border-[#D8D5CC] flex flex-col bg-[#F6F4EE] shrink-0 font-mono">
+    <aside className="w-72 border-r border-[#D8D5CC] flex flex-col bg-[#F6F4EE] shrink-0 font-mono select-none">
       {/* PESQUISA */}
-      <div className="p-4 border-b border-[#D8D5CC] space-y-3">
-        <h2 className="text-[10px] font-bold tracking-widest text-[#767571] uppercase">
+      <div className="p-4 border-b border-[#D8D5CC] space-y-2.5">
+        <h2 className="text-[10px] font-bold tracking-widest text-[#767571] uppercase flex items-center gap-2">
+          <span className="inline-block w-1.5 h-1.5 bg-[#111111]" />
           ÍNDICE DE CAPÍTULOS
         </h2>
         <input
           type="text"
-          placeholder="Q PESQUISAR NO NOTEBOOK..."
+          placeholder="[ PESQUISAR NO NOTEBOOK... ]"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full bg-[#EBE8DF] border border-[#D8D5CC] p-2 text-[10px] focus:outline-none focus:border-[#111111] placeholder-[#A1A09A]"
+          className="w-full bg-[#EBE8DF] border border-[#D8D5CC] p-2 text-[10px] focus:outline-none focus:border-[#111111] focus:bg-[#FAF8F3] placeholder-[#A1A09A] uppercase font-mono rounded-none"
         />
       </div>
 
       {/* LISTA DE CAPÍTULOS */}
-      <div className="flex-1 overflow-y-auto divide-y divide-[#EBE8DF]">
+      <div className="flex-1 overflow-y-auto divide-y divide-[#D8D5CC]">
         {chapters.length === 0 ? (
           <div className="p-4 text-[10px] text-[#767571] uppercase">
             Sem capítulos em {activeTab.toLowerCase()}.
@@ -64,18 +65,17 @@ export function NotebookSidebar({
             return (
               <div
                 key={chap.id}
-                className={`group relative w-full p-4 transition-colors cursor-pointer ${
+                className={`group relative w-full p-3.5 transition-colors cursor-pointer ${
                   isSelected
                     ? 'bg-[#EBE8DF] border-l-4 border-l-[#111111]'
-                    : 'hover:bg-[#EBE8DF]/50'
+                    : 'hover:bg-[#EBE8DF]/60'
                 }`}
                 onClick={() => onSelectChapter(chap.id)}
               >
-                <div className="flex items-center justify-between pr-2">
-                  <div className="text-[11px] font-bold text-[#111111] line-clamp-1">
-                    {chap.number} - {chap.title}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-bold text-[#111111] uppercase line-clamp-1">
+                    {chap.number} // {chap.title}
                   </div>
-                  {/* BOTÃO PARA APAGAR O CAPÍTULO */}
                   <button
                     type="button"
                     title="Apagar Capítulo"
@@ -85,7 +85,7 @@ export function NotebookSidebar({
                         onDeleteChapter(chap.id);
                       }
                     }}
-                    className="opacity-0 group-hover:opacity-100 text-[9px] font-bold text-red-600 hover:underline cursor-pointer transition-opacity"
+                    className="opacity-0 group-hover:opacity-100 text-[9px] font-bold text-red-600 hover:bg-red-600 hover:text-white px-1 transition-opacity cursor-pointer"
                   >
                     [ APAGAR ]
                   </button>
@@ -94,7 +94,7 @@ export function NotebookSidebar({
                 <div className="flex justify-between items-center text-[9px] text-[#767571] mt-2">
                   <span>EDITADO: {chap.updatedAt}</span>
                   {isSelected && (
-                    <span className="font-bold text-[#111111] uppercase">[ ATIVO ]</span>
+                    <span className="font-extrabold text-[#111111] uppercase tracking-wider">[ ATIVO ]</span>
                   )}
                 </div>
               </div>
@@ -109,17 +109,17 @@ export function NotebookSidebar({
           <button
             type="button"
             onClick={() => setIsAdding(true)}
-            className="w-full bg-[#111111] text-[#FCF9F2] py-2.5 px-4 text-[10px] font-bold tracking-wider hover:bg-[#31312C] transition-colors uppercase cursor-pointer"
+            className="w-full bg-[#111111] text-[#FCF9F2] py-2.5 px-4 text-[10px] font-bold tracking-widest hover:bg-[#31312C] transition-colors uppercase cursor-pointer rounded-none border border-[#111111]"
           >
             + NOVO CAPÍTULO
           </button>
         ) : (
           <form
             onSubmit={handleFormSubmit}
-            className="bg-[#111111] text-[#FCF9F2] p-3 border border-[#111111] text-[10px] space-y-2 uppercase"
+            className="bg-[#111111] text-[#FCF9F2] p-3 border border-[#111111] text-[10px] space-y-2.5 uppercase rounded-none"
           >
             <div className="flex justify-between items-center border-b border-[#31312C] pb-1.5">
-              <span className="font-bold text-[#FCF9F2] text-[9.5px]">
+              <span className="font-bold text-[#FCF9F2] text-[9.5px] tracking-wider">
                 NOVO CAPÍTULO ({activeTab})
               </span>
               <button
@@ -132,7 +132,7 @@ export function NotebookSidebar({
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[8px] font-bold text-[#A1A09A]">
+              <label className="block text-[8px] font-bold text-[#A1A09A] tracking-wider">
                 TÍTULO DO CAPÍTULO
               </label>
               <input
@@ -141,7 +141,7 @@ export function NotebookSidebar({
                 placeholder="EX: CRIPTOGRAFIA DE BLOCO"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                className="w-full bg-[#1B1B18] border border-[#31312C] p-1.5 font-bold text-[#FCF9F2] focus:outline-none focus:border-[#FCF9F2] text-[10px]"
+                className="w-full bg-[#1B1B18] border border-[#31312C] p-1.5 font-bold text-[#FCF9F2] focus:outline-none focus:border-[#FCF9F2] text-[10px] rounded-none"
               />
             </div>
 
@@ -155,7 +155,7 @@ export function NotebookSidebar({
               </button>
               <button
                 type="submit"
-                className="px-3 py-1 bg-[#FCF9F2] text-[#111111] hover:bg-[#E5E2D9] text-[9px] font-bold cursor-pointer transition-colors"
+                className="px-3 py-1 bg-[#FCF9F2] text-[#111111] hover:bg-[#E5E2D9] text-[9px] font-bold cursor-pointer transition-colors rounded-none"
               >
                 CRIAR
               </button>
