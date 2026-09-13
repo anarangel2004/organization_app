@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Chapter, NotebookTab, PaperStyle } from '../types';
 import { EditorToolbar } from './EditorToolbar';
 import { ChapterTitle } from './ChapterTitle';
-import { DrawingCanvas } from './DrawingCanvas';
+import { DrawingCanvas, DrawingCanvasRef } from './DrawingCanvas';
 
 interface NotebookEditorProps {
   chapter?: Chapter & {
@@ -39,6 +39,11 @@ export function NotebookEditor({
   const [penColor, setPenColor] = useState<string>('#111111');
   const [penSize, setPenSize] = useState<number>(3);
   const [eraserType, setEraserType] = useState<EraserType>('SMALL');
+
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const canvasRef = useRef<DrawingCanvasRef>(null);
 
   useEffect(() => {
     setLocalTitle(chapter?.title || '');
@@ -87,7 +92,7 @@ export function NotebookEditor({
 
         if (pageNumber) {
           const pdfIframe = document.querySelector('iframe') as HTMLIFrameElement;
-          
+
           if (pdfIframe) {
             const cleanSrc = pdfIframe.src.split('#')[0];
             pdfIframe.src = `${cleanSrc}#page=${pageNumber}`;
@@ -101,8 +106,7 @@ export function NotebookEditor({
 
   return (
     <main className="flex-1 flex flex-col bg-[#FAF8F3] overflow-y-auto border-r border-[#D8D5CC] relative print:bg-white print:border-none print:overflow-visible print:block print:p-0">
-      {/* BARRA DE FERRAMENTAS COM ALTERNADOR DE MODO EDIT/REVIEW */}
-      <div className="no-print">
+      <div className="no-print sticky top-0 z-40 bg-[#EBE8DF]">
         <EditorToolbar
           viewMode={viewMode}
           setViewMode={setViewMode}
@@ -116,13 +120,16 @@ export function NotebookEditor({
           setEraserType={setEraserType}
           execFormat={execFormat}
           applyHeading={applyHeading}
+          onUndo={() => canvasRef.current?.undo()}
+          onRedo={() => canvasRef.current?.redo()}
+          canUndo={canUndo}
+          canRedo={canRedo}
         />
       </div>
 
-      {/* ÁREA DO CONTEÚDO */}
-      <div 
+      <div
         onClick={handleEditorClick}
-        className="flex-1 p-8 md:p-12 max-w-4xl mx-auto w-full space-y-4 print:p-0 print:m-0 print:max-w-full print:w-full"
+        className="flex-1 p-8 md:p-12 max-w-4xl mx-auto w-full space-y-6 print:p-0 print:m-0 print:max-w-full print:w-full"
       >
         {chapter ? (
           <>
@@ -141,6 +148,7 @@ export function NotebookEditor({
             />
 
             <DrawingCanvas
+              ref={canvasRef}
               chapterId={chapter.id}
               chapterContent={chapter.content}
               drawingDataRaw={chapter.drawingData || chapter.drawing}
@@ -152,6 +160,10 @@ export function NotebookEditor({
               eraserType={eraserType}
               onUpdateContent={onUpdateContent}
               onUpdateDrawing={onUpdateDrawing}
+              onHistoryChange={(u, r) => {
+                setCanUndo(u);
+                setCanRedo(r);
+              }}
             />
           </>
         ) : (

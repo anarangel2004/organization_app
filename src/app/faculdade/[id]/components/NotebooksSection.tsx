@@ -89,7 +89,7 @@ export function NotebooksSection({ chapters = [], subjectId: propSubjectId }: No
           <span className="text-[10px] tracking-[0.12em] text-[#767571] uppercase block mb-1">
             SECÇÃO 02 // REPOSITÓRIO DE APONTAMENTOS
           </span>
-          <h2 className="font-sans font-black text-6xl sm:text-7xl md:text-8xl leading-[0.9] text-[#111111] uppercase tracking-[-0.01em]">
+          <h2 className="font-display text-6xl sm:text-7xl md:text-8xl leading-[0.9] text-[#111111] uppercase tracking-[-0.01em]">
             NOTEBOOKS.
           </h2>
         </div>

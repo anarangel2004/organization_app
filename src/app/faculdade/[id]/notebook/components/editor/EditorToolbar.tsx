@@ -22,6 +22,11 @@ interface EditorToolbarProps {
   setViewMode?: (mode: 'EDIT' | 'PREVIEW') => void;
   paperStyle?: any;
   onPaperStyleChange?: (style: any) => void;
+
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 const COLORS = [
@@ -60,6 +65,10 @@ export function EditorToolbar({
   setViewMode,
   paperStyle,
   onPaperStyleChange,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
 }: EditorToolbarProps) {
   const [isLinkSelected, setIsLinkSelected] = useState(false);
   const [isBoldSelected, setIsBoldSelected] = useState(false);
@@ -92,11 +101,9 @@ export function EditorToolbar({
           ? (anchor as HTMLElement)
           : anchor.parentElement;
 
-      // Verificar Link
       const linkElement = element?.closest('a');
       setIsLinkSelected(!!linkElement);
 
-      // Verificar Negrito, Itálico e Listas nativamente e via DOM
       try {
         setIsBoldSelected(
           document.queryCommandState('bold') || !!element?.closest('b, strong')
@@ -113,7 +120,6 @@ export function EditorToolbar({
         setIsListSelected(!!element?.closest('ul, li'));
       }
 
-      // Verificar Bloco Atual (Título, Subtítulo, Normal)
       if (element) {
         const heading2 = element.closest('h2');
         const heading3 = element.closest('h3');
@@ -225,7 +231,7 @@ export function EditorToolbar({
   };
 
   return (
-    <div className="bg-[#EBE8DF] border-b border-[#D8D5CC] font-mono text-[10px] select-none no-print px-4 h-12 flex items-center justify-between gap-4 overflow-x-auto overflow-y-hidden">
+    <div className="sticky top-0 z-40 bg-[#EBE8DF] border-b border-[#D8D5CC] font-mono text-[10px] select-none no-print px-4 h-12 flex items-center justify-between gap-4 overflow-x-auto overflow-y-hidden">
       <div className="flex items-center gap-3 shrink-0">
         {setViewMode && (
           <div className="flex items-center border border-[#111111] bg-[#E2DFD6] p-0.5 shrink-0">
@@ -278,6 +284,33 @@ export function EditorToolbar({
             );
           })}
         </div>
+
+        {/* SETAS DE UNDO / REDO QUANDO FERRAMENTAS DE DESENHO ESTÃO ATIVAS */}
+        {activeTool !== 'TEXT' && viewMode === 'EDIT' && (
+          <>
+            <span className="text-[#D8D5CC]">|</span>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={onUndo}
+                disabled={!canUndo}
+                className="px-2 py-1 font-bold border border-[#111111] bg-[#E2DFD6] text-[#111111] hover:bg-[#D8D5CC] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Desfazer Desenho (Ctrl+Z)"
+              >
+                ↶
+              </button>
+              <button
+                type="button"
+                onClick={onRedo}
+                disabled={!canRedo}
+                className="px-2 py-1 font-bold border border-[#111111] bg-[#E2DFD6] text-[#111111] hover:bg-[#D8D5CC] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Refazer Desenho (Ctrl+Y / Cmd+Shift+Z)"
+              >
+                ↷
+              </button>
+            </div>
+          </>
+        )}
 
         <span className="text-[#D8D5CC]">|</span>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, use, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 
 import { Chapter, NotebookTab, PaperStyle } from './components/types';
@@ -15,12 +15,16 @@ export type SyncStatus = 'synced' | 'saving' | 'error';
 
 function NotebookContent({ subjectId }: { subjectId: string }) {
   const supabase = createClient();
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const initialTab = (searchParams.get('tab') as NotebookTab) || 'TEORICAS';
+
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
+  
+  const currentTabFromUrl = (searchParams.get('tab') as NotebookTab) || 'TEORICAS';
 
   const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [activeTab, setActiveTab] = useState<NotebookTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<NotebookTab>(currentTabFromUrl);
   const [selectedChapterId, setSelectedChapterId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [paperStyle, setPaperStyle] = useState<PaperStyle>('PAUTADO');
@@ -29,6 +33,15 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const [isSplitViewOpen, setIsSplitViewOpen] = useState<boolean>(false);
   const [splitViewWidth, setSplitViewWidth] = useState<number>(420);
   const [, setIsLoading] = useState<boolean>(true);
+
+  // Estados para o modal de novo capítulo
+  const [isNewChapterModalOpen, setIsNewChapterModalOpen] = useState<boolean>(false);
+  const [newChapterTitle, setNewChapterTitle] = useState<string>('');
+
+  // Sincroniza o estado caso a URL mude externamente
+  useEffect(() => {
+    setActiveTab(currentTabFromUrl);
+  }, [currentTabFromUrl]);
 
   // 1. CARREGAR CAPÍTULOS DO SUPABASE
   const fetchChapters = useCallback(async () => {
@@ -64,28 +77,27 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
         if (prevId && mappedChapters.some((c) => c.id === prevId)) {
           return prevId;
         }
-        const firstInTab = mappedChapters.find((c) => c.category === initialTab);
+        const firstInTab = mappedChapters.find((c) => c.category === currentTabFromUrl);
         return firstInTab ? firstInTab.id : '';
       });
     }
     setIsLoading(false);
-  }, [subjectId, initialTab, supabase]);
+  }, [subjectId, currentTabFromUrl, supabase]);
 
   useEffect(() => {
     fetchChapters();
   }, [fetchChapters]);
 
-  // 2. CRIAR NOVO CAPÍTULO NO SUPABASE
-  const handleAddChapter = async (title?: string) => {
-    let cleanTitle = typeof title === 'string' ? title : '';
+  // 2. ABRIR MODAL / CRIAR NOVO CAPÍTULO NO SUPABASE
+  const handleOpenAddChapterModal = () => {
+    setNewChapterTitle('');
+    setIsNewChapterModalOpen(true);
+  };
 
-    if (!cleanTitle) {
-      const userPrompt = prompt('Nome do novo capítulo:', 'NOVO CAPÍTULO');
-      if (userPrompt === null) return;
-      cleanTitle = userPrompt;
-    }
+  const executeAddChapter = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
 
-    const finalTitle = cleanTitle.trim() || 'NOVO CAPÍTULO';
+    const finalTitle = newChapterTitle.trim() || 'NOVO CAPÍTULO';
 
     const categoryChapters = chapters.filter((c) => c.category === activeTab);
     const nextNumber = String(categoryChapters.length + 1).padStart(2, '0');
@@ -110,6 +122,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
     setChapters((prev) => [...prev, tempChapter]);
     setSelectedChapterId(tempId);
+    setIsNewChapterModalOpen(false);
 
     try {
       const { data, error } = await supabase
@@ -146,11 +159,17 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     }
   };
 
-  // 3. ATUALIZAR TEXTO NO SUPABASE
+  // 3. ATUALIZAR TEXTO NO SUPABASE COM ATUALIZAÇÃO OTIMISTA DE ESTADO LOCAL
   const handleUpdateContent = async (newContent: string) => {
     if (!selectedChapterId) return;
 
     setSyncStatus('saving');
+
+    setChapters((prev) =>
+      prev.map((c) =>
+        c.id === selectedChapterId ? { ...c, content: newContent } : c
+      )
+    );
 
     const { error } = await supabase
       .from('chapters')
@@ -222,20 +241,53 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     }
   };
 
-  // 6. REMOVER PDF
+  // 6. REMOVER PDF E APAGAR TODOS OS LINKS ASSOCIADOS
   const handlePdfRemove = async () => {
     if (!selectedChapterId) return;
 
+    const editorEl = document.querySelector('[contenteditable="true"]') as HTMLElement;
+    let cleanedContent: string | null = null;
+
+    if (editorEl) {
+      const links = editorEl.querySelectorAll('a');
+
+      if (links.length > 0) {
+        links.forEach((link) => {
+          const parent = link.parentNode;
+          while (link.firstChild) {
+            parent?.insertBefore(link.firstChild, link);
+          }
+          parent?.removeChild(link);
+        });
+
+        cleanedContent = editorEl.innerHTML;
+        editorEl.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+
+    const currentChapter = chapters.find((c) => c.id === selectedChapterId);
+    const finalContent = cleanedContent !== null ? cleanedContent : (currentChapter?.content || '');
+
     const { error } = await supabase
       .from('chapters')
-      .update({ pdf_url: null, pdf_name: null })
+      .update({ 
+        pdf_url: null, 
+        pdf_name: null, 
+        content: finalContent,
+        updated_at: new Date().toISOString() 
+      })
       .eq('id', selectedChapterId);
 
     if (!error) {
       setChapters((prev) =>
         prev.map((c) =>
           c.id === selectedChapterId
-            ? { ...c, pdfName: undefined, pdfUrl: undefined }
+            ? { 
+                ...c, 
+                pdfName: undefined, 
+                pdfUrl: undefined, 
+                content: finalContent 
+              }
             : c
         )
       );
@@ -258,6 +310,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     }
   };
 
+  // TROCA DE ABA COM ATUALIZAÇÃO DA URL
   const handleTabChange = (newTab: NotebookTab) => {
     setActiveTab(newTab);
     const tabChapters = chapters.filter((c) => c.category === newTab);
@@ -266,6 +319,11 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     } else {
       setSelectedChapterId('');
     }
+
+    // Atualiza o parâmetro ?tab= na URL sem dar refresh à página
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', newTab);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
   const handleUpdateTitle = async (newTitle: string) => {
@@ -321,7 +379,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               activeTab={activeTab}
-              onAddChapter={handleAddChapter}
+              onAddChapter={handleOpenAddChapterModal}
               onDeleteChapter={handleDeleteChapter}
             />
           </aside>
@@ -367,6 +425,47 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
           </div>
         )}
       </div>
+
+      {/* MODAL PERSONALIZADO PARA NOVO CAPÍTULO */}
+      {isNewChapterModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-[#F6F4EE] border border-[#111111]/10 rounded-xl shadow-2xl p-6 font-sans">
+            <h3 className="text-sm font-semibold tracking-wider text-[#111111] uppercase mb-1">
+              Novo Capítulo
+            </h3>
+            <p className="text-xs text-[#111111]/60 mb-4">
+              Insere o título para o capítulo da secção <span className="font-semibold text-[#111111]">{activeTab}</span>.
+            </p>
+
+            <form onSubmit={executeAddChapter}>
+              <input
+                type="text"
+                autoFocus
+                value={newChapterTitle}
+                onChange={(e) => setNewChapterTitle(e.target.value)}
+                placeholder="EX: INTRODUÇÃO À MATÉRIA"
+                className="w-full px-3 py-2 text-sm bg-white border border-[#111111]/20 rounded-lg focus:outline-none focus:border-[#111111] uppercase tracking-wide placeholder:normal-case mb-5"
+              />
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsNewChapterModalOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-[#111111]/70 hover:text-[#111111] hover:bg-black/5 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-[#111111] hover:bg-[#111111]/90 rounded-lg shadow-sm transition-colors uppercase tracking-wider"
+                >
+                  Criar Capítulo
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

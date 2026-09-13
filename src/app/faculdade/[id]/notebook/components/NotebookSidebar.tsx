@@ -109,9 +109,9 @@ export function NotebookSidebar({
       <div className="p-3 border-t border-[#D8D5CC] bg-[#F6F4EE]">
         <button
           onClick={() => onAddChapter()}
-          className="w-full bg-[#111111] text-[#FCF9F2] hover:bg-[#31312C] text-[11px] font-bold uppercase py-2.5 transition-colors border border-[#111111] tracking-wider"
+          className="flex items-center justify-center gap-2 w-full px-3 py-2 text-[10px] font-bold tracking-wider text-[#FCF9F2] bg-[#111111] border border-[#111111] hover:bg-[#EBE8DF] hover:text-[#111111] transition-colors uppercase font-mono"
         >
-          + NOVO CAPÍTULO
+          <span>+ NOVO CAPÍTULO</span>
         </button>
       </div>
     </aside>
