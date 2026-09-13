@@ -26,7 +26,8 @@ export function ChapterTitle({
   return (
     <div className="border-b border-[#D8D5CC] pb-3 mb-4 space-y-1">
       <div className="flex items-baseline gap-3">
-        <span className="font-mono text-2xl md:text-3xl font-extrabold text-[#111111] shrink-0 select-none">
+        {/* NÚMERO COM LINING-NUMS E TRACKING-TIGHT IDENTICO AO TÍTULO */}
+        <span className="font-serif lining-nums text-3xl md:text-4xl font-bold text-[#111111] shrink-0 select-none tracking-tight">
           {chapterIndexStr}
         </span>
 
@@ -44,7 +45,7 @@ export function ChapterTitle({
               }}
               onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
               autoFocus
-              className="w-full font-mono text-2xl md:text-3xl font-extrabold text-[#111111] tracking-tight bg-transparent border-none p-0 focus:outline-none focus:ring-0"
+              className="w-full font-serif lining-nums text-3xl md:text-4xl font-bold text-[#111111] tracking-tight bg-transparent border-none p-0 focus:outline-none focus:ring-0"
             />
           ) : (
             <h1
@@ -52,7 +53,7 @@ export function ChapterTitle({
                 if (viewMode === 'EDIT') setIsEditingTitle(true);
               }}
               title={viewMode === 'EDIT' ? 'Clica para editar o título' : ''}
-              className={`font-mono text-2xl md:text-3xl font-extrabold text-[#111111] tracking-tight ${
+              className={`font-serif lining-nums text-3xl md:text-4xl font-bold text-[#111111] tracking-tight ${
                 viewMode === 'EDIT' ? 'cursor-pointer hover:opacity-75' : ''
               }`}
             >
@@ -62,7 +63,7 @@ export function ChapterTitle({
         </div>
       </div>
 
-      <div className="font-mono text-[10px] text-[#767571] tracking-wider">
+      <div className="font-mono text-[10px] text-[#767571] tracking-wider uppercase">
         Última edição: {updatedAtFormatted}
       </div>
     </div>

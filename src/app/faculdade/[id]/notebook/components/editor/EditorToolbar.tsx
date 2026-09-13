@@ -5,11 +5,9 @@ type EraserType = 'SMALL' | 'LARGE' | 'OBJECT';
 
 const TEXT_COLORS = [
   { name: 'Preto', hex: '#111111' },
-  { name: 'Azul', hex: '#0055FF' },
-  { name: 'Vermelho', hex: '#D9381E' },
-  { name: 'Verde', hex: '#059669' },
-  { name: 'Laranja', hex: '#D97706' },
-  { name: 'Roxo', hex: '#7C3AED' },
+  { name: 'Azul Escuro', hex: '#1E3A8A' },
+  { name: 'Vermelho', hex: '#B91C1C' },
+  { name: 'Verde', hex: '#047857' },
 ];
 
 interface EditorToolbarProps {
