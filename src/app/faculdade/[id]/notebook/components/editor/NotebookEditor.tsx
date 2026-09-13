@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Chapter, NotebookTab, PaperStyle } from '../types';
+import { Chapter, NotebookTab, PaperStyle } from '@/types';
 import { EditorToolbar } from './EditorToolbar';
 import { ChapterTitle } from './ChapterTitle';
 import { DrawingCanvas, DrawingCanvasRef } from './DrawingCanvas';

@@ -1,7 +1,7 @@
 'use client';
 
-import { AssessmentItem } from './types';
-import { formatDateStr } from './utils';
+import { AssessmentItem } from '@/types';
+import { formatDateStr } from '@/lib/utils';
 import { AssessmentFileUploader } from './AssessmentFileUploader';
 
 interface AssessmentItemRowProps {

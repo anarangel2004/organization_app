@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Plus, Clock, X, Sparkles, Trash2 } from 'lucide-react';
-import { Subject, Schedule } from '../types';
+import { Subject, Schedule } from '@/types';
 
 interface AddSubjectModalProps {
   isOpen: boolean;

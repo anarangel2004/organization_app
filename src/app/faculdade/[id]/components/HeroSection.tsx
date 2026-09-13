@@ -1,16 +1,41 @@
 'use client';
 
 import { useState } from 'react';
-import { SubjectData, ClassSchedule } from '@/types/subject';
+import { SubjectData, ClassSchedule, Deadline } from '@/types';
 
 interface HeroSectionProps {
   subject: SubjectData | null;
   loading: boolean;
+  deadlines?: Deadline[];
 }
+
+const DEFAULT_DEADLINES: Deadline[] = [
+  {
+    id: '1',
+    title: 'ENTREGA DO PROJETO PRÁTICO N1',
+    date: '2026-09-25',
+    daysRemaining: 12,
+    location: 'SUBMISSÃO VIA PORTAL ACADÉMICO',
+    isCritical: true,
+  },
+  {
+    id: '2',
+    title: 'TESTE TEÓRICO INTERMÉDIO',
+    date: '2026-10-11',
+    daysRemaining: 28,
+    isCritical: false,
+  },
+  {
+    id: '3',
+    title: 'DEFESA ORAL DO LABORATÓRIO',
+    date: '2026-10-28',
+    daysRemaining: 45,
+    isCritical: false,
+  },
+];
 
 const DAY_NAMES = ['', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
 
-// Converte qualquer formato de dia (número 1-7, "Terça", "TERCA", "2") para número 1-7
 function normalizeDayNumber(day: any): number {
   if (typeof day === 'number' && !isNaN(day)) return day;
   const str = String(day || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -37,19 +62,13 @@ function getNextClass(schedules: ClassSchedule[] = []): string {
     const dayNum = normalizeDayNumber(s.dayOfWeek);
     let daysDiff = (dayNum - currentDay + 7) % 7;
     
-    // Se for hoje mas a hora de início já passou, considera próxima semana (+7 dias)
     if (daysDiff === 0 && s.startTime <= currentTime) {
       daysDiff = 7;
     }
     return { ...s, dayNum, daysDiff };
   });
 
-  mapped.sort((a, b) => {
-    if (a.daysDiff === b.daysDiff) {
-      return a.startTime.localeCompare(b.startTime);
-    }
-    return a.daysDiff - b.daysDiff;
-  });
+  mapped.sort((a, b) => (a.daysDiff === b.daysDiff ? a.startTime.localeCompare(b.startTime) : a.daysDiff - b.daysDiff));
 
   const next = mapped[0];
   if (!next) return 'SEM AULAS AGENDADAS';
@@ -60,21 +79,82 @@ function getNextClass(schedules: ClassSchedule[] = []): string {
   return `PRÓXIMA AULA [${next.type || 'TP'}] · ${dayLabel} ${next.startTime}–${next.endTime} · ${next.room}`;
 }
 
-export function HeroSection({ subject, loading }: HeroSectionProps) {
+export function HeroSection({ subject, loading, deadlines }: HeroSectionProps) {
   const [note, setNote] = useState<string>('');
   const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
+
+  const activeDeadlines = deadlines && deadlines.length > 0 ? deadlines : DEFAULT_DEADLINES;
+  const criticalDeadline = activeDeadlines.find((d) => d.isCritical) || activeDeadlines[0];
+  const secondaryDeadlines = activeDeadlines.filter((d) => d.id !== criticalDeadline?.id);
 
   const nextClassText = subject ? getNextClass(subject.schedules) : 'CARREGANDO...';
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center font-mono text-[9px] tracking-[0.12em] text-[#767571] uppercase border-b border-[#D8D5CC] pb-2 gap-1">
+      {/* BLOCO SUPERIOR DE PRAZOS */}
+      <div className="space-y-3">
+        {/* BANNER DE PRAZO CRÍTICO */}
+        {criticalDeadline && (
+          <div className="bg-[#111111] text-[#FCF9F2] p-5 sm:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-[#111111]">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                <span className="font-mono text-[9px] tracking-[0.12em] text-[#D8D5CC] uppercase">
+                  PRAZO CRÍTICO
+                </span>
+              </div>
+              <h3 className="font-display text-2xl sm:text-4xl uppercase tracking-tight">
+                {criticalDeadline.title}
+              </h3>
+            </div>
+
+            <div className="text-left md:text-right font-mono shrink-0">
+              <span className="text-2xl sm:text-3xl font-bold block">
+                {criticalDeadline.daysRemaining ?? 0} DIAS RESTANTES
+              </span>
+              {criticalDeadline.location && (
+                <span className="text-[10px] text-[#D8D5CC] uppercase block mt-0.5">
+                  {criticalDeadline.location}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* PRAZOS FUTUROS (SEGUNDÁRIOS) */}
+        {secondaryDeadlines.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {secondaryDeadlines.map((item) => (
+              <div
+                key={item.id}
+                className="border border-[#D8D5CC] p-4 bg-[#F6F3EC] hover:border-[#111111] flex justify-between items-center font-mono transition-colors"
+              >
+                <div className="space-y-1">
+                  <span className="text-[9px] text-[#767571] uppercase block">
+                    PRAZO FUTURO
+                  </span>
+                  <span className="text-[12px] font-bold text-[#111111] uppercase block">
+                    {item.title}
+                  </span>
+                </div>
+                <span className="bg-[#EBE8E1] border border-[#D8D5CC] px-2.5 py-1 text-[10px] font-bold text-[#111111] shrink-0">
+                  FALTAM {item.daysRemaining ?? 0} DIAS
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* METADADOS SUPERIORES DA DISCIPLINA */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center font-mono text-[9px] tracking-[0.12em] text-[#767571] uppercase border-b border-[#D8D5CC] pb-2 gap-1 pt-2">
         <div>[DOSSIÉ ARQUIVO] UNIDADE CURRICULAR</div>
         <div>
           REF: {subject?.code || '---'} · ANO LETIVO {subject?.academicYear || '2024/2025'}
         </div>
       </div>
 
+      {/* GRELHA PRINCIPAL DO HERO */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         <div className="lg:col-span-7 space-y-4">
           <div className="inline-flex items-center gap-2 bg-[#111111] text-[#FCF9F2] font-mono text-[10px] tracking-[0.1em] font-bold px-2.5 py-1 uppercase">
@@ -95,6 +175,7 @@ export function HeroSection({ subject, loading }: HeroSectionProps) {
           </div>
         </div>
 
+        {/* CARD LATERAL DA FICHA */}
         <div className="lg:col-span-5 border border-[#D8D5CC] p-6 bg-[#F6F3EC] space-y-4">
           <div className="flex justify-between items-center font-mono text-[10px] tracking-[0.1em] uppercase border-b border-[#D8D5CC] pb-2 text-[#767571]">
             <span className="text-[#111111] font-bold">FICHA_ARQUIVO</span>
@@ -103,9 +184,13 @@ export function HeroSection({ subject, loading }: HeroSectionProps) {
 
           <div className="space-y-2 font-mono text-[11px] tracking-[0.05em]">
             <div className="flex justify-between items-center py-2 border-b border-[#E5E2DB]">
-              <span className="text-[#767571] uppercase text-[9px] tracking-[0.12em]">REGENTE</span>
-              <span className="font-bold text-[#111111]">{subject?.teacherTeorica || 'N/D'}</span>
-            </div>
+  <span className="text-[#767571] uppercase text-[9px] tracking-[0.12em]">REGENTE</span>
+  <span className="font-bold text-[#111111]">
+    {typeof subject?.teacherTeorica === 'object'
+      ? subject.teacherTeorica.name
+      : subject?.teacherTeorica || 'N/D'}
+  </span>
+</div>
             <div className="flex justify-between items-center py-2 border-b border-[#E5E2DB]">
               <span className="text-[#767571] uppercase text-[9px] tracking-[0.12em]">Nº DE CRÉDITOS / ECTS</span>
               <span className="font-bold text-[#111111]">
@@ -137,18 +222,23 @@ export function HeroSection({ subject, loading }: HeroSectionProps) {
             )}
           </div>
 
+          {/* BOTÕES DE NAVEGAÇÃO */}
           <div className="pt-2 space-y-2">
             <a
               href="#biblioteca"
-              className="block text-center bg-[#111111] hover:bg-[#31312c] text-[#FCF9F2] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors"
+              className="flex items-center justify-center bg-[#111111] hover:bg-white border border-[#111111] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors text-center group"
             >
-              ABRIR BIBLIOTECA &rarr;
+              <span className="text-[#FCF9F2] group-hover:text-[#111111] transition-colors">
+                ABRIR BIBLIOTECA &rarr;
+              </span>
             </a>
             <a
               href="#horario"
-              className="block text-center border border-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] text-[#111111] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors"
+              className="flex items-center justify-center border border-[#111111] hover:bg-[#111111] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors text-center group"
             >
-              VER HORÁRIO COMPLETO &rarr;
+              <span className="text-[#111111] group-hover:text-[#FCF9F2] transition-colors">
+                VER HORÁRIO COMPLETO &rarr;
+              </span>
             </a>
           </div>
         </div>

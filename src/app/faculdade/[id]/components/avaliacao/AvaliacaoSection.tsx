@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase';
-import { AssessmentItem, AvaliacaoSectionProps } from './types';
-import { getItemEffectiveGrade } from './utils';
+import { AssessmentItem, AvaliacaoSectionProps } from '@/types';
+import { getItemEffectiveGrade } from '@/lib/utils';
 import { AvaliacaoHeader } from './AvaliacaoHeader';
 import { NewAssessmentForm } from './NewAssessmentForm';
 import { AssessmentItemRow } from './AssessmentItemRow';

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { SubjectData } from '@/types/subject';
+import { SubjectData } from '@/types';
 import { ChapterData } from './components/NotebooksSection';
 import { SubjectHeader } from './components/SubjectHeader';
 import { HeroSection } from './components/HeroSection';
@@ -10,9 +10,8 @@ import { VisaoGeralSection } from './components/VisaoGeralSection';
 import { NotebooksSection } from './components/NotebooksSection';
 import { HorarioSection } from './components/HorarioSection';
 import { AvaliacaoSection } from './components/avaliacao/AvaliacaoSection';
-import { BibliotecaPrazosSection } from './components/BibliotecaPrazosSection';
+import { BibliotecaSection } from './components/BibliotecaSection';
 import { SubjectFooter } from './components/SubjectFooter';
-
 
 function cleanSlug(text: string): string {
   return text
@@ -28,6 +27,18 @@ function formatTeacher(teacher: any): string {
   if (typeof teacher === 'string') return teacher;
   if (typeof teacher === 'object' && teacher.name) return teacher.name;
   return 'N/D';
+}
+
+function calculateDaysRemaining(dueDateStr?: string): number {
+  if (!dueDateStr) return 0;
+  const target = new Date(dueDateStr);
+  const today = new Date();
+  target.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+
+  const diffTime = target.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays > 0 ? diffDays : 0;
 }
 
 export default function SubjectDetailPage({
@@ -124,17 +135,16 @@ export default function SubjectDetailPage({
           return fk === subId || fk === subCode;
         });
 
-        // Dentro do fetchSubject no page.tsx:
-setChapters(
-  subjectChapters.map((c: any) => ({
-    id: String(c.id),
-    tab: (c.tab || c.type || 'TEORICAS').toUpperCase(),
-    updatedAt: c.updated_at || c.updatedAt,
-    hasContent: Boolean((c.content || '').replace(/<[^>]*>/g, '').trim()),
-    pdfUrl: c.pdf_url || c.pdfUrl,
-    isCompleted: Boolean(c.is_completed), // <-- Adicionado
-  }))
-);
+        setChapters(
+          subjectChapters.map((c: any) => ({
+            id: String(c.id),
+            tab: (c.tab || c.type || 'TEORICAS').toUpperCase(),
+            updatedAt: c.updated_at || c.updatedAt,
+            hasContent: Boolean((c.content || '').replace(/<[^>]*>/g, '').trim()),
+            pdfUrl: c.pdf_url || c.pdfUrl,
+            isCompleted: Boolean(c.is_completed),
+          }))
+        );
 
         setSubject({
           id: String(found.id),
@@ -148,12 +158,18 @@ setChapters(
           degreeYear: found.degree_year || found.ano || 1,
           semester: found.semester || found.semestre || 1,
           schedules: parsedSchedules,
-          deadlines: subjectDeadlines.map((d: any) => ({
-            id: String(d.id),
-            title: d.title || d.titulo || 'Prazo',
-            date: d.date || d.due_date || d.data,
-            type: d.type || d.tipo,
-          })),
+          // Dentro do setSubject(...) no page.tsx:
+deadlines: subjectDeadlines.map((d: any) => {
+  const rawDate = d.date || d.due_date || d.data;
+  return {
+    id: String(d.id),
+    title: d.title || d.titulo || 'PRAZO',
+    date: rawDate || new Date().toISOString(), // <-- Propriedade obrigatória adicionada
+    daysRemaining: d.days_remaining ?? calculateDaysRemaining(rawDate),
+    location: d.location || d.local || 'SUBMISSÃO VIA PORTAL ACADÉMICO',
+    isCritical: Boolean(d.is_critical ?? d.isCritical ?? d.critico),
+  };
+}),
         });
       }
     } catch (err) {
@@ -174,7 +190,11 @@ setChapters(
       <main className="max-w-7xl mx-auto px-6 pt-6 space-y-24">
         {/* SECÇÃO 01: VISÃO GERAL */}
         <div id="visao-geral" className="space-y-16 scroll-mt-24">
-          <HeroSection subject={subject} loading={loading} />
+          <HeroSection
+            subject={subject}
+            loading={loading}
+            deadlines={subject?.deadlines}
+          />
           <VisaoGeralSection subject={subject} />
         </div>
 
@@ -192,9 +212,9 @@ setChapters(
           />
         </div>
 
-        {/* SECÇÃO 04: BIBLIOTECA & PRAZOS */}
+        {/* SECÇÃO 04: BIBLIOTECA */}
         <div id="biblioteca" className="scroll-mt-24">
-          <BibliotecaPrazosSection />
+          <BibliotecaSection />
         </div>
 
         {/* SECÇÃO 05: AVALIAÇÃO */}

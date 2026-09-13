@@ -15,7 +15,7 @@ import {
   ArrowLeft,
   Loader2
 } from 'lucide-react';
-import { Subject } from '../types';
+import { Subject } from '@/types';
 import { supabase } from '@/lib/supabase';
 
 export type FileCategory = 'Teórico' | 'Prático' | 'Projeto' | 'Teste / Exame';

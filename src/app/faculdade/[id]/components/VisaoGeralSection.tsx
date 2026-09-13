@@ -1,6 +1,6 @@
 'use client';
 
-import { SubjectData, Deadline } from '@/types/subject';
+import { SubjectData, Deadline } from '@/types';
 
 interface VisaoGeralSectionProps {
   subject: SubjectData | null;
@@ -58,17 +58,19 @@ export function VisaoGeralSection({ subject }: VisaoGeralSectionProps) {
 
         {/* 02: REGENTE */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between py-4 border-b border-[#D8D5CC] gap-2">
-          <div className="font-mono text-[11px] tracking-[0.05em] text-[#111111] uppercase font-bold flex items-center gap-4">
-            <span>02</span>
-            <span>REGENTE</span>
-          </div>
-          <div className="flex items-center gap-3 font-mono text-[10px] tracking-[0.05em]">
-            <span className="text-[#767571] uppercase">CORPO DOCENTE</span>
-            <span className="font-bold text-[#111111] uppercase">
-              {subject?.teacherTeorica || 'N/D'}
-            </span>
-          </div>
-        </div>
+  <div className="font-mono text-[11px] tracking-[0.05em] text-[#111111] uppercase font-bold flex items-center gap-4">
+    <span>02</span>
+    <span>REGENTE</span>
+  </div>
+  <div className="flex items-center gap-3 font-mono text-[10px] tracking-[0.05em]">
+    <span className="text-[#767571] uppercase">CORPO DOCENTE</span>
+    <span className="font-bold text-[#111111] uppercase">
+      {typeof subject?.teacherTeorica === 'object'
+        ? subject.teacherTeorica.name
+        : subject?.teacherTeorica || 'N/D'}
+    </span>
+  </div>
+</div>
 
         {/* 03: PRÓXIMOS PRAZOS (MÚLTIPLOS) */}
         <div className="py-4 border-b border-[#111111] space-y-3">
