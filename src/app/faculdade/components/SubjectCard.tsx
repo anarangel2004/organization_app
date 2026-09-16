@@ -137,12 +137,17 @@ const getNextClassInfo = (schedules?: ScheduleSlot[] | null) => {
   };
 };
 
-export function SubjectCard({ subject, index, onDelete }: SubjectCardProps) {
+export function SubjectCard({ subject, index }: SubjectCardProps) {
   const router = useRouter();
   const subNumber = String(index + 1).padStart(2, '0');
 
   const handleCardClick = () => {
     router.push(`/faculdade/${subject.id}`);
+  };
+
+  const handleNotebookClick = (e: React.MouseEvent, tab: 'TEORICAS' | 'PRATICAS' | 'TESTES') => {
+    e.stopPropagation();
+    router.push(`/faculdade/${subject.id}/notebook?tab=${tab}`);
   };
 
   const teacherDisplay = getTeacherName(subject.teacher_teorica);
@@ -155,7 +160,7 @@ export function SubjectCard({ subject, index, onDelete }: SubjectCardProps) {
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
         {/* NÚMERO E NOME DA DISCIPLINA */}
-        <div className="lg:col-span-7 flex items-start gap-3">
+        <div className="lg:col-span-6 flex items-start gap-3">
           <span className="font-mono text-sm sm:text-base font-normal text-[#111111] leading-none pt-1 min-w-[28px]">
             {subNumber}
           </span>
@@ -194,34 +199,46 @@ export function SubjectCard({ subject, index, onDelete }: SubjectCardProps) {
           </div>
         </div>
 
-        {/* BOTÕES DE AÇÃO */}
-        <div className="lg:col-span-2 flex justify-end items-center">
-          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            <button
-              title="Caderno"
-              className="w-7 h-7 border border-[#D8D5CC] bg-[#FCF9F2] flex items-center justify-center text-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-              </svg>
-            </button>
-            <button
-              title="Pasta"
-              className="w-7 h-7 border border-[#D8D5CC] bg-[#FCF9F2] flex items-center justify-center text-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-            </button>
+        {/* CADERNOS DA DISCIPLINA (TEÓRICAS, PRÁTICAS, EXAMES) */}
+        <div className="lg:col-span-3 flex justify-end items-center">
+          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            {/* Caderno Teóricas */}
             <button
               type="button"
-              title="Eliminar"
-              onClick={() => onDelete && onDelete(subject.id)}
-              className="w-7 h-7 border border-[#D8D5CC] bg-[#FCF9F2] flex items-center justify-center text-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] transition-colors"
+              title="Caderno de Teóricas"
+              onClick={(e) => handleNotebookClick(e, 'TEORICAS')}
+              className="h-7 px-2.5 border border-[#D8D5CC] bg-[#FCF9F2] flex items-center gap-1.5 text-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] transition-colors font-mono text-[9px] font-bold uppercase tracking-wider"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
               </svg>
+              <span>TEÓRICAS</span>
+            </button>
+
+            {/* Caderno Práticas */}
+            <button
+              type="button"
+              title="Caderno de Práticas"
+              onClick={(e) => handleNotebookClick(e, 'PRATICAS')}
+              className="h-7 px-2.5 border border-[#D8D5CC] bg-[#FCF9F2] flex items-center gap-1.5 text-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] transition-colors font-mono text-[9px] font-bold uppercase tracking-wider"
+            >
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              <span>PRÁTICAS</span>
+            </button>
+
+            {/* Caderno Exames */}
+            <button
+              type="button"
+              title="Caderno de Testes e Exames"
+              onClick={(e) => handleNotebookClick(e, 'TESTES')}
+              className="h-7 px-2.5 border border-[#D8D5CC] bg-[#FCF9F2] flex items-center gap-1.5 text-[#111111] hover:bg-[#111111] hover:text-[#FCF9F2] transition-colors font-mono text-[9px] font-bold uppercase tracking-wider"
+            >
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              <span>EXAMES</span>
             </button>
           </div>
         </div>

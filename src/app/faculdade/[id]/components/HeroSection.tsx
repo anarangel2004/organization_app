@@ -140,7 +140,7 @@ export function HeroSection({ subject, loading }: HeroSectionProps) {
           {/* BOTÕES DE NAVEGAÇÃO */}
           <div className="pt-2 space-y-2">
             <a
-              href="#prazos"
+              href="#biblioteca"
               className="flex items-center justify-center bg-[#111111] hover:bg-white border border-[#111111] font-mono text-[10px] tracking-[0.1em] font-bold uppercase py-3 transition-colors text-center group"
             >
               <span className="text-[#FCF9F2] group-hover:text-[#111111] transition-colors">
