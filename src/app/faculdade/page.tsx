@@ -1,15 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase'; // Import do cliente autenticado
+import { PageHeader } from '@/components/ui/PageHeader';
+import ProfileModal from '@/components/ui/ProfileModal';
 import { HeaderSection } from './components/HeaderSection';
-import { SubjectCard, type Subject } from './components/SubjectCard'; // <-- Chaves { } adicionadas
+import { ScheduleSection } from './components/ScheduleSection'; // <-- SECÇÃO DO HORÁRIO
+import { SubjectCard, type Subject } from './components/SubjectCard';
 import { AddSubjectForm } from './components/AddSubjectForm';
 import { FooterSection } from './components/FooterSection';
 
 export default function FaculdadePage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  // Instância do Supabase pronta para enviar os cookies/sessão do utilizador
+  const supabase = createClient();
 
   useEffect(() => {
     fetchSubjects();
@@ -18,6 +25,7 @@ export default function FaculdadePage() {
   const fetchSubjects = async () => {
     setLoading(true);
     try {
+      // O Supabase aplica a regra de RLS automaticamente e traz apenas as TUAS disciplinas
       const { data, error } = await supabase.from('subjects').select('*');
       if (error) throw error;
       setSubjects(data || []);
@@ -31,8 +39,36 @@ export default function FaculdadePage() {
   return (
     <div className="min-h-screen bg-[#FCF9F2] text-[#111111] font-sans selection:bg-[#111111] selection:text-[#FCF9F2] flex flex-col justify-between">
       <main className="max-w-7xl mx-auto px-6 pt-10 pb-12 space-y-12 w-full flex-1">
-        {/* CABEÇALHO & ESTATÍSTICAS */}
-        <HeaderSection totalSubjects={subjects.length} />
+        {/* CABEÇALHO NAVEGÁVEL COM BOTÃO VOLTAR */}
+        <PageHeader 
+          title="Catálogo Curricular & Unidades"
+          subtitle="Gestão de disciplinas, parâmetros monográficos e assiduidade"
+          color="#111111"
+          backHref="/"
+          categoryCode="FACULDADE // DOSSIÊ PRINCIPAL"
+        />
+
+        {/* CABEÇALHO PRINCIPAL & ESTATÍSTICAS */}
+        <HeaderSection 
+          stats={{
+            totalSubjects: subjects.length,
+            totalChapters: 6,
+            academicYear: 'OUTONO 2026',
+            lastSignIn: 'HÁ 2 DIAS',
+            user: {
+              name: 'UTILIZADOR ATELIER',
+              email: 'estudante@atelier-agenda.pt',
+              code: 'USR-2026',
+              role: 'MESTRADO EM ARQUITETURA'
+            }
+          }}
+          onOpenProfileModal={() => setIsProfileOpen(true)}
+        />
+
+        <hr className="border-[#D8D5CC]" />
+
+        {/* SECÇÃO 01: HORÁRIO & AGENDA INTEGRADA */}
+        <ScheduleSection />
 
         <hr className="border-[#D8D5CC]" />
 
@@ -67,6 +103,12 @@ export default function FaculdadePage() {
 
       {/* RODAPÉ EDITORIAL */}
       <FooterSection />
+
+      {/* MODAL DE PERFIL */}
+      <ProfileModal 
+        isOpen={isProfileOpen} 
+        onClose={() => setIsProfileOpen(false)} 
+      />
     </div>
   );
 }
