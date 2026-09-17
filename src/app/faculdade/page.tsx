@@ -42,8 +42,9 @@ export default function FaculdadePage() {
     // Carregamento inicial único (equivalente a um fetch-on-mount); a regra
     // set-state-in-effect é pensada para efeitos que sincronizam com props/state
     // que mudam, não para o pedido inicial de dados ao servidor.
-    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSubjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- correr apenas uma vez ao montar
   }, []);
 
   // Dados de perfil derivados da sessão real (nome/email verdadeiros;

@@ -153,9 +153,9 @@ export function AddSubjectForm({ onSubjectAdded }: AddSubjectFormProps) {
       setPesoPratica('');
       setIsOpen(false);
       onSubjectAdded();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Erro ao adicionar cadeira:', err);
-      setErrorMsg(err.message || 'Erro ao guardar no banco de dados.');
+      setErrorMsg(err instanceof Error ? err.message : 'Erro ao guardar no banco de dados.');
     } finally {
       setLoading(false);
     }

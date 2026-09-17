@@ -68,7 +68,7 @@ export function NotebookSidebar({
                   >
                     <div className="flex items-center gap-1.5">
                       <span className="uppercase text-[#111111] truncate">
-                        {chapterNum} // {chapter.title}
+                        {chapterNum} {'//'} {chapter.title}
                       </span>
                       {chapter.isCompleted && (
                         <span className="text-[9px] bg-[#111111] text-[#FCF9F2] px-1 font-bold shrink-0">

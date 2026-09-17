@@ -29,7 +29,7 @@ export function ChapterTitle({
       <div className="flex items-center justify-between font-mono text-[10px] md:text-xs text-[#767571] tracking-widest uppercase select-none">
         <span className="flex items-center gap-2">
           <span className="inline-block w-2 h-2 bg-[#111111]" />
-          CAPÍTULO {chapterIndexStr} // CADERNO ACADÉMICO
+          CAPÍTULO {chapterIndexStr} {'//'} CADERNO ACADÉMICO
         </span>
         <span>ÚLTIMA EDIÇÃO: {updatedAtFormatted}</span>
       </div>

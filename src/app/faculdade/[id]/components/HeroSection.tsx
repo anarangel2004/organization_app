@@ -10,7 +10,7 @@ interface HeroSectionProps {
 
 const DAY_NAMES = ['', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
 
-function normalizeDayNumber(day: any): number {
+function normalizeDayNumber(day: unknown): number {
   if (typeof day === 'number' && !isNaN(day)) return day;
   const str = String(day || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
@@ -94,7 +94,7 @@ export function HeroSection({ subject, loading }: HeroSectionProps) {
         <div className="lg:col-span-5 border border-[#D8D5CC] p-6 bg-[#F6F3EC] space-y-4">
           <div className="flex justify-between items-center font-mono text-[10px] tracking-[0.1em] uppercase border-b border-[#D8D5CC] pb-2 text-[#767571]">
             <span className="text-[#111111] font-bold">FICHA_ARQUIVO</span>
-            <span>{subject?.code || '---'} // {subject?.academicYear || '2024/2025'}</span>
+            <span>{subject?.code || '---'} {'//'} {subject?.academicYear || '2024/2025'}</span>
           </div>
 
           <div className="space-y-2 font-mono text-[11px] tracking-[0.05em]">

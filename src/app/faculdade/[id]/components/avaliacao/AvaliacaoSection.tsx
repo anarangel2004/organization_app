@@ -55,6 +55,7 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
   }, [subjectId, supabase]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchAssessmentsAndSubject();
   }, [fetchAssessmentsAndSubject]);
 
@@ -94,6 +95,7 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
       const fileExt = fileParts.length > 1 ? fileParts.pop() : '';
       const baseName = fileParts.join('.');
       const cleanBaseName = baseName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      // eslint-disable-next-line react-hooks/purity -- handler de evento (onChange), não corre durante o render
       const fileNameClean = `${Date.now()}_${cleanBaseName}.${fileExt}`;
       
       const filePath = `${subjectId || 'geral'}/${fileNameClean}`;
@@ -123,8 +125,8 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
         alert('FICHEIRO PRÉ-CARREGADO COM SUCESSO!');
         return { fileName: originalFileName, fileUrl: publicUrl };
       }
-    } catch (error: any) {
-      alert(`ERRO AO PROCESSAR FICHEIRO: ${error?.message || 'Erro desconhecido'}`);
+    } catch (error) {
+      alert(`ERRO AO PROCESSAR FICHEIRO: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     } finally {
       setUploading(false);
     }

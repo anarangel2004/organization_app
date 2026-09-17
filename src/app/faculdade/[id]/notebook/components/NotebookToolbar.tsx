@@ -35,14 +35,14 @@ export function NotebookToolbar({
           [ ÍNDICE ]
         </button>
 
-        <span className="text-[#D8D5CC]">//</span>
+        <span className="text-[#D8D5CC]">{'//'}</span>
 
         <button type="button" className="flex items-center gap-1 font-bold hover:text-[#767571] cursor-pointer uppercase">
           <span>TEXTO</span>
         </button>
-        <span className="text-[#D8D5CC]">//</span>
+        <span className="text-[#D8D5CC]">{'//'}</span>
         <button type="button" className="hover:text-[#767571] cursor-pointer font-bold uppercase">TRAÇO 0.5MM</button>
-        <span className="text-[#D8D5CC]">//</span>
+        <span className="text-[#D8D5CC]">{'//'}</span>
 
         {/* ESTILO DE PÁGINA */}
         <div className="flex items-center gap-2">

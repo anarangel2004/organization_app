@@ -95,8 +95,10 @@ export function LibraryModal({
 
   useEffect(() => {
     if (isOpen && subject) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchFiles();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchFiles não é memoizada; depende só de isOpen/subject
   }, [isOpen, subject]);
 
   if (!isOpen || !subject) return null;
@@ -408,7 +410,7 @@ export function LibraryModal({
                     Nenhum ficheiro encontrado nesta categoria.
                   </p>
                   <p className="text-[11px] text-slate-400">
-                    Clica em <strong>"Adicionar Ficheiro"</strong> para carregar o teu primeiro documento.
+                    Clica em <strong>&quot;Adicionar Ficheiro&quot;</strong> para carregar o teu primeiro documento.
                   </p>
                 </div>
               ) : (

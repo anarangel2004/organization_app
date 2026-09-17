@@ -14,6 +14,51 @@ import { AvaliacaoSection } from './components/avaliacao/AvaliacaoSection';
 import { BibliotecaSection } from './components/BibliotecaSection';
 import { SubjectFooter } from './components/SubjectFooter';
 
+// Formas mínimas dos registos crus devolvidos pelo Supabase (sem tipos gerados
+// para a base de dados; só os campos que esta página efetivamente lê).
+interface RawSubjectRow {
+  id: string | number;
+  code?: string;
+  name?: string;
+  teacher_teorica?: string | { name?: string } | null;
+  regente?: string | { name?: string } | null;
+  ects?: number;
+  academic_year?: string;
+  degree_year?: number;
+  semester?: number;
+  schedules?: unknown;
+}
+
+interface RawScheduleEntry {
+  id?: string | number;
+  day?: string;
+  dayOfWeek?: string;
+  startTime?: string;
+  start_time?: string;
+  endTime?: string;
+  end_time?: string;
+  room?: string;
+  sala?: string;
+  type?: string;
+  tipo?: string;
+}
+
+interface RawChapterRow {
+  id: string | number;
+  category?: string;
+  updated_at?: string;
+  content?: string;
+  pdf_url?: string;
+  is_completed?: boolean;
+}
+
+interface RawAssessmentRow {
+  id: string | number;
+  due_date?: string;
+  title?: string;
+  category?: string;
+}
+
 function cleanSlug(text: string): string {
   return text
     .toLowerCase()
@@ -23,7 +68,7 @@ function cleanSlug(text: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-function formatTeacher(teacher: any): string {
+function formatTeacher(teacher: string | { name?: string } | null | undefined): string {
   if (!teacher) return 'N/D';
   if (typeof teacher === 'string') return teacher;
   if (typeof teacher === 'object' && teacher.name) return teacher.name;
@@ -81,7 +126,7 @@ export default function SubjectDetailPage({
 
       const searchTarget = cleanSlug(rawId);
 
-      const found = dbSubjects.find((s: any) => {
+      const found = dbSubjects.find((s: RawSubjectRow) => {
         const sId = cleanSlug(String(s.id || ''));
         const sCode = cleanSlug(String(s.code || ''));
         const sName = cleanSlug(String(s.name || ''));
@@ -115,13 +160,13 @@ export default function SubjectDetailPage({
         if (typeof rawSchedules === 'string') {
           try {
             rawSchedules = JSON.parse(rawSchedules);
-          } catch (e) {
+          } catch {
             rawSchedules = [];
           }
         }
         if (!Array.isArray(rawSchedules)) rawSchedules = [];
 
-        const parsedSchedules = rawSchedules.map((s: any, idx: number) => ({
+        const parsedSchedules = rawSchedules.map((s: RawScheduleEntry, idx: number) => ({
           id: String(s.id || idx + 1),
           day: s.day || s.dayOfWeek || 'A definir',
           dayOfWeek: s.day || s.dayOfWeek || 'A definir',
@@ -133,9 +178,9 @@ export default function SubjectDetailPage({
 
         // Mapeamento dos Capítulos
         setChapters(
-          (chaptersData || []).map((c: any) => ({
+          (chaptersData || []).map((c: RawChapterRow) => ({
             id: String(c.id),
-            tab: (c.category || 'TEORICAS').toUpperCase(),
+            tab: (c.category || 'TEORICAS').toUpperCase() as ChapterData['tab'],
             updatedAt: c.updated_at,
             hasContent: Boolean((c.content || '').replace(/<[^>]*>/g, '').trim()),
             pdfUrl: c.pdf_url,
@@ -155,13 +200,13 @@ export default function SubjectDetailPage({
           semester: found.semester || 1,
           schedules: parsedSchedules,
           deadlines: (assessmentsData || [])
-            .filter((a: any) => a.due_date)
-            .map((a: any) => {
+            .filter((a: RawAssessmentRow) => a.due_date)
+            .map((a: RawAssessmentRow) => {
               const daysLeft = calculateDaysRemaining(a.due_date);
               return {
                 id: String(a.id),
                 title: a.title || 'AVALIAÇÃO',
-                date: a.due_date,
+                date: a.due_date ?? '',
                 daysRemaining: daysLeft,
                 location: `AVALIAÇÃO ${a.category || 'GERAL'}`,
                 isCritical: daysLeft >= 0 && daysLeft <= 7,
@@ -177,6 +222,7 @@ export default function SubjectDetailPage({
   }, [rawId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSubject();
   }, [fetchSubject]);
 

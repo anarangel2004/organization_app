@@ -46,6 +46,7 @@ export function NotebookEditor({
   const canvasRef = useRef<DrawingCanvasRef>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalTitle(chapter?.title || '');
   }, [chapter?.id, chapter?.title]);
 

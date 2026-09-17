@@ -73,7 +73,6 @@ export default function TrabalhoPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- correr apenas uma vez ao montar
   }, []);
 
   const handleCreateProject = async (e: React.FormEvent) => {

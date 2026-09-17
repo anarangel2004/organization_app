@@ -79,7 +79,9 @@ export function HorarioSection({ subjectId, schedules = [], onRefresh }: Horario
   // Evita o erro de renderização infinita comparando o conteúdo e não a referência
   const schedulesKey = JSON.stringify(schedules);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalSchedules(schedules || []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- usa schedulesKey de propósito para evitar loop por referência
   }, [schedulesKey]);
 
   const handleOpenAdd = () => {
@@ -132,9 +134,9 @@ export function HorarioSection({ subjectId, schedules = [], onRefresh }: Horario
         setIsFormOpen(false);
         if (onRefresh) onRefresh();
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Erro de ligação:', err);
-      alert(`Erro inesperado: ${err.message || err}`);
+      alert(`Erro inesperado: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }
@@ -187,9 +189,9 @@ export function HorarioSection({ subjectId, schedules = [], onRefresh }: Horario
       } else if (onRefresh) {
         onRefresh();
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Erro na ligação:', err);
-      alert(`Erro inesperado: ${err.message || err}`);
+      alert(`Erro inesperado: ${err instanceof Error ? err.message : String(err)}`);
       setLocalSchedules(previousSchedules);
     }
   };

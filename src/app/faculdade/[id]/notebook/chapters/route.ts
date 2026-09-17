@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     // AQUI: Inserir na tua BD (ex: await db.chapter.create({ data: newChapter }))
 
     return NextResponse.json(newChapter, { status: 201 });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Erro ao criar capítulo' }, { status: 500 });
   }
 }

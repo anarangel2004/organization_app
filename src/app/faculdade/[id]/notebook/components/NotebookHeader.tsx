@@ -35,6 +35,7 @@ export function NotebookHeader({
     const isIpad = /iPad|Macintosh/.test(navigator.userAgent) && isTouch;
 
     if (isIpad) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- deteção de dispositivo só é possível no cliente
       setDeviceLabel('IPAD PRO VINCULADO');
     } else if (isTouch) {
       setDeviceLabel('TABLET VINCULADO');
@@ -76,9 +77,9 @@ export function NotebookHeader({
         >
           ← VOLTAR
         </Link>
-        <span className="text-[#D8D5CC]">//</span>
+        <span className="text-[#D8D5CC]">{'//'}</span>
         <span className="text-[#767571] uppercase tracking-wider">FACULDADE</span>
-        <span className="text-[#D8D5CC]">//</span>
+        <span className="text-[#D8D5CC]">{'//'}</span>
         <span className="text-[#111111] uppercase tracking-wider font-extrabold">CADERNO</span>
 
         {/* BOTÕES DAS ABAS */}
@@ -121,7 +122,7 @@ export function NotebookHeader({
         <div className="hidden lg:flex items-center gap-2 text-[#767571] font-mono">
           <span className="w-2 h-2 bg-[#111111] inline-block" />
           <span>{deviceLabel}</span>
-          <span className="text-[#D8D5CC]">//</span>
+          <span className="text-[#D8D5CC]">{'//'}</span>
           <span className="flex items-center gap-1.5 font-bold text-[#111111]">
             <span
               className={`w-2 h-2 inline-block rounded-full ${

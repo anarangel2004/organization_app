@@ -37,7 +37,7 @@ const DAY_MAP: Record<string, number> = {
   sábado: 6, sabado: 6, sab: 6,
 };
 
-const getTeacherName = (teacher: any): string => {
+const getTeacherName = (teacher: string | { name?: string | null } | null | undefined): string => {
   if (!teacher) return 'NÃO ATRIBUÍDO';
 
   if (typeof teacher === 'string') {

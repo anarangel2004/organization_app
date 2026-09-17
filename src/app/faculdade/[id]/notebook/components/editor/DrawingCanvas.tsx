@@ -424,8 +424,8 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
 
-      const events = (e.nativeEvent as any).getCoalescedEvents
-        ? (e.nativeEvent as any).getCoalescedEvents()
+      const events = (e.nativeEvent as PointerEvent).getCoalescedEvents
+        ? (e.nativeEvent as PointerEvent).getCoalescedEvents()
         : [e];
 
       for (const ev of events) {

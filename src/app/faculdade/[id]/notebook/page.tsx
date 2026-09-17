@@ -40,6 +40,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
   // Sincroniza o estado caso a URL mude externamente
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveTab(currentTabFromUrl);
   }, [currentTabFromUrl]);
 
@@ -85,6 +86,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   }, [subjectId, currentTabFromUrl, supabase]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchChapters();
   }, [fetchChapters]);
 

@@ -77,13 +77,13 @@ export function SubjectHeader({ subject }: SubjectHeaderProps) {
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <div className="font-mono text-xs font-bold tracking-widest text-[#111111] uppercase flex items-center gap-2">
           <span>FACULDADE</span>
-          <span className="text-[#767571] font-normal">//</span>
+          <span className="text-[#767571] font-normal">{'//'}</span>
           <span className="bg-[#111111] text-[#FCF9F2] px-2 py-0.5 rounded-sm">
             {subject?.code || '---'}
           </span>
           {subject?.academic_year && (
             <>
-              <span className="text-[#767571] font-normal">//</span>
+              <span className="text-[#767571] font-normal">{'//'}</span>
               <span className="text-[#767571] font-normal">
                 {subject.academic_year}
               </span>

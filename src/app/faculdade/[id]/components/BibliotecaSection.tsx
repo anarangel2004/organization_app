@@ -46,6 +46,7 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
 
   // Reset da página quando se altera o filtro de pesquisa ou aba
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentPage(1);
   }, [search, activeTab, sortBy, sortOrder]);
 
@@ -81,7 +82,7 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
             id: item.id,
             title: cleanTitle,
             type: detectedType,
-            category: (item.category as any) || 'GERAL',
+            category: (item.category as ResourceItem['category']) || 'GERAL',
             vol: extractedVol,
             url: item.file_url || '#',
             fileName: item.file_name || item.title,
@@ -98,7 +99,9 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchResources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchResources não é memoizada; depende só do subjectId
   }, [subjectId]);
 
   // RESET / ABRIR MODAL CRIAÇÃO
@@ -150,7 +153,7 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
 
     try {
       let finalUrl = editingItem ? editingItem.url : newUrl.trim();
-      let fileNameToSave = selectedFile 
+      const fileNameToSave = selectedFile 
         ? selectedFile.name 
         : (editingItem ? editingItem.fileName : newTitle);
 
@@ -230,7 +233,7 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
             id: insertedData.id,
             title: newTitle.trim() || fileNameToSave,
             type: newType,
-            category: insertedData.category as any,
+            category: insertedData.category as ResourceItem['category'],
             vol: formattedVol,
             url: insertedData.file_url,
             fileName: insertedData.file_name,
@@ -241,9 +244,9 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
       }
 
       setIsModalOpen(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Erro ao guardar em subject_files:', err);
-      alert(`Erro ao guardar: ${err.message || 'Erro desconhecido'}`);
+      alert(`Erro ao guardar: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -271,9 +274,9 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
       }
 
       setItems((prev) => prev.filter((i) => i.id !== item.id));
-    } catch (err: any) {
+    } catch (err) {
       console.error('Erro ao apagar recurso:', err);
-      alert(`Erro ao apagar: ${err.message || 'Erro desconhecido'}`);
+      alert(`Erro ao apagar: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
     }
   };
 
@@ -292,8 +295,8 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
         return matchesSearch && matchesTab;
       })
       .sort((a, b) => {
-        let valA = sortBy === 'title' ? a.title.toLowerCase() : new Date(a.createdAt).getTime();
-        let valB = sortBy === 'title' ? b.title.toLowerCase() : new Date(b.createdAt).getTime();
+        const valA = sortBy === 'title' ? a.title.toLowerCase() : new Date(a.createdAt).getTime();
+        const valB = sortBy === 'title' ? b.title.toLowerCase() : new Date(b.createdAt).getTime();
 
         if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
         if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
@@ -364,7 +367,7 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
           ].map((mode) => (
             <button
               key={mode.key}
-              onClick={() => setSortBy(mode.key as any)}
+              onClick={() => setSortBy(mode.key as 'created' | 'title')}
               className={`px-2 py-0.5 border cursor-pointer ${
                 sortBy === mode.key
                   ? 'border-black font-bold text-black bg-[#F2EFE9]'
@@ -510,7 +513,7 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
                     value={newType}
                     disabled={!!editingItem}
                     onChange={(e) => {
-                      setNewType(e.target.value as any);
+                      setNewType(e.target.value as 'PDF' | 'ZIP' | 'LINK');
                       setSelectedFile(null);
                       setNewUrl('');
                     }}
@@ -528,7 +531,7 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
                   </label>
                   <select
                     value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value as any)}
+                    onChange={(e) => setNewCategory(e.target.value as ResourceItem['category'])}
                     className="w-full bg-[#F2EFE9] border border-neutral-400 p-2.5 uppercase focus:outline-none focus:border-black cursor-pointer"
                   >
                     <option value="TEÓRICAS">TEÓRICAS</option>

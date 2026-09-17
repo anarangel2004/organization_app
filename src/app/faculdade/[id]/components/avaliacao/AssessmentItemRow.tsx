@@ -17,7 +17,7 @@ interface AssessmentItemRowProps {
   onFileUpload: (
   e: React.ChangeEvent<HTMLInputElement>,
   itemId: string
-) => Promise<any>;
+) => Promise<{ fileName: string; fileUrl: string } | undefined>;
   onDeleteFile: (itemId: string) => Promise<void>;
 }
 

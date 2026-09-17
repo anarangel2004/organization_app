@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { PaperStyle } from '@/types';
 
 export type ActiveTool = 'TEXT' | 'PEN' | 'HIGHLIGHTER' | 'ERASER';
 export type EraserType = 'SMALL' | 'LARGE' | 'OBJECT';
@@ -20,8 +21,8 @@ interface EditorToolbarProps {
 
   viewMode?: 'EDIT' | 'PREVIEW';
   setViewMode?: (mode: 'EDIT' | 'PREVIEW') => void;
-  paperStyle?: any;
-  onPaperStyleChange?: (style: any) => void;
+  paperStyle?: PaperStyle;
+  onPaperStyleChange?: (style: PaperStyle) => void;
 
   onUndo?: () => void;
   onRedo?: () => void;
