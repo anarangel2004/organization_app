@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User, LogOut, ShieldCheck, ChevronDown } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase';
 
 interface UserData {
   name: string;
@@ -12,22 +13,23 @@ interface UserData {
 }
 
 interface UserProfileMenuProps {
-  user?: UserData;
+  user?: UserData | null;
   onOpenProfileModal?: () => void;
 }
 
-export default function UserProfileMenu({
-  user = {
-    name: 'UTILIZADOR ATELIER',
-    email: 'estudante@atelier-agenda.pt',
-    role: 'MESTRADO EM ARQUITETURA',
-    code: 'USR-2026//04'
-  },
-  onOpenProfileModal
-}: UserProfileMenuProps) {
+const FALLBACK_USER: UserData = {
+  name: 'A CARREGAR…',
+  email: '',
+  role: '—',
+  code: '—',
+};
+
+export default function UserProfileMenu({ user, onOpenProfileModal }: UserProfileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  const displayUser = user ?? FALLBACK_USER;
 
   // Fechar dropdown ao clicar fora
   useEffect(() => {
@@ -40,9 +42,12 @@ export default function UserProfileMenu({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
-    // Adiciona aqui a lógica do teu backend (ex: supabase.auth.signOut() ou limpeza de cookie)
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setIsOpen(false);
     router.push('/login');
+    router.refresh();
   };
 
   return (
@@ -53,12 +58,12 @@ export default function UserProfileMenu({
         className="flex items-center gap-3 px-3 py-2 bg-white border border-black hover:bg-black hover:text-white transition-all duration-150 group"
       >
         <div className="w-6 h-6 bg-black text-white group-hover:bg-white group-hover:text-black flex items-center justify-center font-bold text-xs transition-colors">
-          {user.name.charAt(0)}
+          {displayUser.name.charAt(0)}
         </div>
         <div className="text-left hidden sm:block">
-          <p className="font-bold text-xs leading-none tracking-tight">{user.name}</p>
+          <p className="font-bold text-xs leading-none tracking-tight">{displayUser.name}</p>
           <p className="text-[9px] text-neutral-500 group-hover:text-neutral-300 leading-none mt-1">
-            {user.code}
+            {displayUser.code}
           </p>
         </div>
         <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
@@ -73,10 +78,10 @@ export default function UserProfileMenu({
               <ShieldCheck className="w-3 h-3 text-black" />
               <span>Sessão Ativa</span>
             </div>
-            <p className="text-xs font-bold uppercase text-black truncate">{user.name}</p>
-            <p className="text-[11px] text-neutral-600 truncate">{user.email}</p>
+            <p className="text-xs font-bold uppercase text-black truncate">{displayUser.name}</p>
+            <p className="text-[11px] text-neutral-600 truncate">{displayUser.email}</p>
             <div className="mt-2 text-[9px] bg-neutral-100 border border-neutral-300 px-1.5 py-0.5 inline-block font-bold">
-              {user.role}
+              {displayUser.role}
             </div>
           </div>
 

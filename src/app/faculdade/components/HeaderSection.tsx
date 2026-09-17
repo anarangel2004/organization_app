@@ -7,12 +7,12 @@ export interface HeaderStats {
   totalChapters: number;
   academicYear: string;
   lastSignIn: string;
-  user: {
+  user?: {
     name: string;
     email: string;
     code: string;
     role: string;
-  };
+  } | null;
 }
 
 interface HeaderSectionProps {
@@ -21,15 +21,6 @@ interface HeaderSectionProps {
 }
 
 export function HeaderSection({ stats, onOpenProfileModal }: HeaderSectionProps) {
-  // Valores por defeito caso 'stats' chegue como undefined
-  const defaultUser = {
-    name: 'UTILIZADOR ATELIER',
-    email: '',
-    code: 'USR-2026',
-    role: 'MESTRADO EM ARQUITETURA'
-  };
-
-  const user = stats?.user ?? defaultUser;
   const totalSubjects = stats?.totalSubjects ?? 0;
   const totalChapters = stats?.totalChapters ?? 0;
   const academicYear = stats?.academicYear ?? '2025/2026';
@@ -45,9 +36,9 @@ export function HeaderSection({ stats, onOpenProfileModal }: HeaderSectionProps)
         </span>
 
         {/* WIDGET DO PERFIL / LOGOUT */}
-        <UserProfileMenu 
-          user={user} 
-          onOpenProfileModal={onOpenProfileModal} 
+        <UserProfileMenu
+          user={stats?.user}
+          onOpenProfileModal={onOpenProfileModal}
         />
       </div>
 
@@ -67,7 +58,7 @@ export function HeaderSection({ stats, onOpenProfileModal }: HeaderSectionProps)
           <span>FOLHA DE REGISTO CURRICULAR</span>
           <span className="text-[#767571]">SISTEMA V.04</span>
         </div>
-        
+
         <div className="space-y-3 text-[#767571]">
           <div className="flex items-center justify-between">
             <span>DISCIPLINAS ATIVAS</span>
@@ -76,7 +67,7 @@ export function HeaderSection({ stats, onOpenProfileModal }: HeaderSectionProps)
               {String(totalSubjects).padStart(2, '0')}
             </span>
           </div>
-          
+
           <div className="flex items-center justify-between">
             <span>CADERNOS ATIVOS</span>
             <span className="flex-1 mx-3 border-b border-dotted border-[#D8D5CC]"></span>

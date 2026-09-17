@@ -2,13 +2,13 @@ import { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Organiza.me - Cibersegurança & SAP',
-    short_name: 'Organiza.me',
-    description: 'Gestão centrada de Mestrado em Cibersegurança e Projetos SAP',
+    name: 'Atelier Agenda',
+    short_name: 'Atelier',
+    description: 'Gestão integrada de rotinas académicas e profissionais',
     start_url: '/',
     display: 'standalone',
-    background_color: '#0f172a',
-    theme_color: '#0f172a',
+    background_color: '#FCF9F2',
+    theme_color: '#111111',
     orientation: 'portrait',
     icons: [
       {

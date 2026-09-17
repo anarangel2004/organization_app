@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase'; // Import do cliente autenticado
+import { useCurrentUser } from '@/lib/useCurrentUser';
+import { formatRelativeDate } from '@/lib/utils';
 import { PageHeader } from '@/components/ui/PageHeader';
 import ProfileModal from '@/components/ui/ProfileModal';
 import { HeaderSection } from './components/HeaderSection';
@@ -15,16 +17,16 @@ export default function FaculdadePage() {
   const [loading, setLoading] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
+  // Utilizador real da sessão Supabase (substitui os dados fictícios anteriores)
+  const { user } = useCurrentUser();
+
   // Instância do Supabase pronta para enviar os cookies/sessão do utilizador
-  const supabase = createClient();
+  // (criada uma única vez, para manter a referência estável entre renders)
+  const [supabase] = useState(() => createClient());
 
-  useEffect(() => {
-    fetchSubjects();
-  }, []);
-
-  const fetchSubjects = async () => {
-    setLoading(true);
+  const fetchSubjects = useCallback(async () => {
     try {
+      setLoading(true);
       // O Supabase aplica a regra de RLS automaticamente e traz apenas as TUAS disciplinas
       const { data, error } = await supabase.from('subjects').select('*');
       if (error) throw error;
@@ -34,13 +36,34 @@ export default function FaculdadePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [supabase]);
+
+  useEffect(() => {
+    // Carregamento inicial único (equivalente a um fetch-on-mount); a regra
+    // set-state-in-effect é pensada para efeitos que sincronizam com props/state
+    // que mudam, não para o pedido inicial de dados ao servidor.
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+    fetchSubjects();
+  }, []);
+
+  // Dados de perfil derivados da sessão real (nome/email verdadeiros;
+  // código e cargo mostram "—" enquanto não houver um perfil configurável)
+  const profileUser = user
+    ? {
+        name: user.name.toUpperCase(),
+        email: user.email,
+        role: '—',
+        institution: '—',
+        code: `USR-${user.id.slice(0, 8).toUpperCase()}`,
+        lastAccess: formatRelativeDate(user.lastSignInAt),
+      }
+    : null;
 
   return (
     <div className="min-h-screen bg-[#FCF9F2] text-[#111111] font-sans selection:bg-[#111111] selection:text-[#FCF9F2] flex flex-col justify-between">
       <main className="max-w-7xl mx-auto px-6 pt-10 pb-12 space-y-12 w-full flex-1">
         {/* CABEÇALHO NAVEGÁVEL COM BOTÃO VOLTAR */}
-        <PageHeader 
+        <PageHeader
           title="Catálogo Curricular & Unidades"
           subtitle="Gestão de disciplinas, parâmetros monográficos e assiduidade"
           color="#111111"
@@ -49,18 +72,20 @@ export default function FaculdadePage() {
         />
 
         {/* CABEÇALHO PRINCIPAL & ESTATÍSTICAS */}
-        <HeaderSection 
+        <HeaderSection
           stats={{
             totalSubjects: subjects.length,
             totalChapters: 6,
             academicYear: 'OUTONO 2026',
-            lastSignIn: 'HÁ 2 DIAS',
-            user: {
-              name: 'UTILIZADOR ATELIER',
-              email: 'estudante@atelier-agenda.pt',
-              code: 'USR-2026',
-              role: 'MESTRADO EM ARQUITETURA'
-            }
+            lastSignIn: profileUser?.lastAccess ?? 'HOJE',
+            user: profileUser
+              ? {
+                  name: profileUser.name,
+                  email: profileUser.email,
+                  code: profileUser.code,
+                  role: profileUser.role,
+                }
+              : null,
           }}
           onOpenProfileModal={() => setIsProfileOpen(true)}
         />
@@ -105,9 +130,10 @@ export default function FaculdadePage() {
       <FooterSection />
 
       {/* MODAL DE PERFIL */}
-      <ProfileModal 
-        isOpen={isProfileOpen} 
-        onClose={() => setIsProfileOpen(false)} 
+      <ProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={profileUser}
       />
     </div>
   );

@@ -1,53 +1,59 @@
 'use client';
 
 import React from 'react';
-import { X, LogOut, User, Mail, ShieldAlert, Calendar } from 'lucide-react';
+import { X, LogOut, User, ShieldAlert } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase';
+
+interface ProfileModalUser {
+  name: string;
+  email: string;
+  role: string;
+  institution: string;
+  code: string;
+  lastAccess: string;
+}
 
 interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
-  user?: {
-    name: string;
-    email: string;
-    role: string;
-    institution: string;
-    code: string;
-    lastAccess: string;
-  };
+  user?: ProfileModalUser | null;
 }
 
-export default function ProfileModal({
-  isOpen,
-  onClose,
-  user = {
-    name: 'UTILIZADOR ATELIER',
-    email: 'estudante@atelier-agenda.pt',
-    role: 'MESTRADO EM ARQUITETURA',
-    institution: 'DEPT. CIÊNCIAS & HUMANIDADES',
-    code: 'USR-2026//04',
-    lastAccess: 'HÁ 2 DIAS'
-  }
-}: ProfileModalProps) {
+const FALLBACK_USER: ProfileModalUser = {
+  name: 'A CARREGAR…',
+  email: '',
+  role: '—',
+  institution: '—',
+  code: '—',
+  lastAccess: '—',
+};
+
+export default function ProfileModal({ isOpen, onClose, user }: ProfileModalProps) {
   const router = useRouter();
 
   if (!isOpen) return null;
 
-  const handleLogout = () => {
-    // Adiciona a tua lógica de logout
+  const displayUser = user ?? FALLBACK_USER;
+
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    onClose();
     router.push('/login');
+    router.refresh();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 font-mono">
       <div className="bg-[#FBF9F5] border-2 border-black w-full max-w-lg shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] relative">
-        
+
         {/* Cabeçalho do Modal */}
         <div className="flex items-center justify-between bg-black text-white px-4 py-3">
           <span className="text-xs uppercase font-bold tracking-widest flex items-center gap-2">
-            <User className="w-4 h-4" /> // REGISTO DE PERFIL DE UTILIZADOR
+            <User className="w-4 h-4" /> {'// REGISTO DE PERFIL DE UTILIZADOR'}
           </span>
-          <button 
+          <button
             onClick={onClose}
             className="hover:bg-neutral-800 p-1 transition-colors"
           >
@@ -57,16 +63,16 @@ export default function ProfileModal({
 
         {/* Corpo do Modal */}
         <div className="p-6 space-y-6">
-          
+
           {/* Identificação Principal */}
           <div className="border border-black p-4 bg-white flex items-center gap-4">
             <div className="w-16 h-16 bg-black text-white font-extrabold text-2xl flex items-center justify-center border border-black">
-              {user.name.charAt(0)}
+              {displayUser.name.charAt(0)}
             </div>
             <div>
-              <p className="text-xs text-neutral-500 uppercase tracking-wider">{user.code}</p>
-              <h2 className="text-xl font-extrabold text-black uppercase tracking-tight">{user.name}</h2>
-              <p className="text-xs font-bold text-neutral-700 mt-0.5">{user.email}</p>
+              <p className="text-xs text-neutral-500 uppercase tracking-wider">{displayUser.code}</p>
+              <h2 className="text-xl font-extrabold text-black uppercase tracking-tight">{displayUser.name}</h2>
+              <p className="text-xs font-bold text-neutral-700 mt-0.5">{displayUser.email}</p>
             </div>
           </div>
 
@@ -75,19 +81,19 @@ export default function ProfileModal({
             <div className="bg-neutral-100 px-3 py-1.5 border-b border-black text-[10px] font-bold uppercase tracking-wider text-neutral-600">
               DADOS DE CREDENCIAÇÃO
             </div>
-            
+
             <div className="divide-y divide-neutral-200 text-xs">
               <div className="p-3 flex justify-between items-center">
                 <span className="text-neutral-500 uppercase">CURSO / CARGO</span>
-                <span className="font-bold text-black uppercase">{user.role}</span>
+                <span className="font-bold text-black uppercase">{displayUser.role}</span>
               </div>
               <div className="p-3 flex justify-between items-center">
                 <span className="text-neutral-500 uppercase">DEPARTAMENTO</span>
-                <span className="font-bold text-black uppercase">{user.institution}</span>
+                <span className="font-bold text-black uppercase">{displayUser.institution}</span>
               </div>
               <div className="p-3 flex justify-between items-center">
                 <span className="text-neutral-500 uppercase">ÚLTIMO ACESSO</span>
-                <span className="font-bold text-black uppercase">{user.lastAccess}</span>
+                <span className="font-bold text-black uppercase">{displayUser.lastAccess}</span>
               </div>
             </div>
           </div>

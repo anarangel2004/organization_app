@@ -1,25 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { 
-  getProjects, 
-  createProject, 
-  deleteProject, 
-  getTasks, 
-  createTask, 
-  toggleTaskStatus, 
-  deleteTask,
-  Project, 
-  Task 
-} from '@/lib/db';
-import { 
-  Briefcase, 
-  Plus, 
-  Trash2, 
-  Layers, 
-  X, 
-  CheckCircle2, 
-  Clock, 
+import {
+  getWorkProjects,
+  createWorkProject,
+  deleteWorkProject,
+  getWorkTasks,
+  createWorkTask,
+  toggleWorkTask,
+  deleteWorkTask,
+  WorkProject,
+  WorkTask,
+} from '@/lib/workData';
+import {
+  Briefcase,
+  Plus,
+  Trash2,
+  Layers,
+  X,
+  CheckCircle2,
+  Clock,
   Building2,
   Calendar,
   AlertCircle
@@ -35,9 +35,10 @@ const SAP_PRESET_COLORS = [
 ];
 
 export default function TrabalhoPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<WorkProject[]>([]);
+  const [tasks, setTasks] = useState<WorkTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Modais State
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
@@ -46,7 +47,7 @@ export default function TrabalhoPage() {
   // Form State: Projetos
   const [projectName, setProjectName] = useState('');
   const [selectedColor, setSelectedColor] = useState(SAP_PRESET_COLORS[0]);
-  
+
   // Form State: Tarefas
   const [taskTitle, setTaskTitle] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
@@ -54,43 +55,41 @@ export default function TrabalhoPage() {
 
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   async function loadData() {
     setLoading(true);
+    setErrorMessage(null);
     try {
-      const [projectsData, tasksData] = await Promise.all([
-        getProjects('work'),
-        getTasks()
-      ]);
+      const [projectsData, tasksData] = await Promise.all([getWorkProjects(), getWorkTasks()]);
       setProjects(projectsData);
-      setTasks(tasksData.filter(t => t.context === 'work'));
+      setTasks(tasksData);
     } catch (err) {
       console.error('Erro ao carregar dados do trabalho:', err);
+      setErrorMessage('Não foi possível carregar os projetos e tarefas. Tenta atualizar a página.');
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- correr apenas uma vez ao montar
+  }, []);
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!projectName.trim()) return;
 
     setSubmitting(true);
+    setErrorMessage(null);
     try {
-      await createProject({
-        name: projectName.trim(),
-        color: selectedColor,
-        context: 'work',
-      });
-
+      await createWorkProject({ name: projectName.trim(), color: selectedColor });
       setProjectName('');
       setIsProjectModalOpen(false);
       await loadData();
     } catch (err) {
       console.error('Erro ao criar iniciativa SAP:', err);
+      setErrorMessage('Não foi possível criar a iniciativa. Tenta novamente.');
     } finally {
       setSubmitting(false);
     }
@@ -101,13 +100,12 @@ export default function TrabalhoPage() {
     if (!taskTitle.trim()) return;
 
     setSubmitting(true);
+    setErrorMessage(null);
     try {
-      await createTask({
+      await createWorkTask({
         title: taskTitle.trim(),
         project_id: selectedProjectId || null,
         due_date: dueDate ? new Date(dueDate).toISOString() : null,
-        completed: false,
-        context: 'work',
       });
 
       setTaskTitle('');
@@ -117,6 +115,7 @@ export default function TrabalhoPage() {
       await loadData();
     } catch (err) {
       console.error('Erro ao criar tarefa SAP:', err);
+      setErrorMessage('Não foi possível criar a tarefa. Tenta novamente.');
     } finally {
       setSubmitting(false);
     }
@@ -124,34 +123,40 @@ export default function TrabalhoPage() {
 
   const handleDeleteProject = async (id: string, name: string) => {
     if (!confirm(`Tens a certeza que queres eliminar o projeto SAP "${name}"?`)) return;
+    setErrorMessage(null);
     try {
-      await deleteProject(id);
-      setProjects(projects.filter(p => p.id !== id));
-      setTasks(tasks.filter(t => t.project_id !== id));
+      await deleteWorkProject(id);
+      setProjects(projects.filter((p) => p.id !== id));
+      setTasks(tasks.filter((t) => t.project_id !== id));
     } catch (err) {
       console.error('Erro ao eliminar projeto:', err);
+      setErrorMessage('Não foi possível eliminar o projeto.');
     }
   };
 
   const handleToggleTask = async (taskId: string, currentStatus: boolean) => {
+    setErrorMessage(null);
     try {
-      await toggleTaskStatus(taskId, !currentStatus);
-      setTasks(tasks.map(t => t.id === taskId ? { ...t, completed: !currentStatus } : t));
+      await toggleWorkTask(taskId, !currentStatus);
+      setTasks(tasks.map((t) => (t.id === taskId ? { ...t, completed: !currentStatus } : t)));
     } catch (err) {
       console.error('Erro ao atualizar estado da tarefa:', err);
+      setErrorMessage('Não foi possível atualizar a tarefa.');
     }
   };
 
   const handleDeleteTask = async (taskId: string) => {
+    setErrorMessage(null);
     try {
-      await deleteTask(taskId);
-      setTasks(tasks.filter(t => t.id !== taskId));
+      await deleteWorkTask(taskId);
+      setTasks(tasks.filter((t) => t.id !== taskId));
     } catch (err) {
       console.error('Erro ao eliminar tarefa:', err);
+      setErrorMessage('Não foi possível eliminar a tarefa.');
     }
   };
 
-  const pendingTasks = tasks.filter(t => !t.completed);
+  const pendingTasks = tasks.filter((t) => !t.completed);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -180,9 +185,17 @@ export default function TrabalhoPage() {
         </div>
       </div>
 
+      {/* Aviso de erro */}
+      {errorMessage && (
+        <div className="flex items-start gap-2 bg-red-950/40 border border-red-900/60 text-red-300 text-xs px-4 py-3 rounded-lg">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{errorMessage}</span>
+        </div>
+      )}
+
       {/* Conteúdo Principal */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Lista de Projetos SAP (2 Cols) */}
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-sm font-bold text-slate-300 flex items-center gap-2">
@@ -206,8 +219,8 @@ export default function TrabalhoPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {projects.map((p) => {
-                const projectTasks = tasks.filter(t => t.project_id === p.id);
-                const doneTasks = projectTasks.filter(t => t.completed);
+                const projectTasks = tasks.filter((t) => t.project_id === p.id);
+                const doneTasks = projectTasks.filter((t) => t.completed);
 
                 return (
                   <div
@@ -266,7 +279,7 @@ export default function TrabalhoPage() {
           ) : (
             <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
               {tasks.map((task) => {
-                const project = projects.find(p => p.id === task.project_id);
+                const project = projects.find((p) => p.id === task.project_id);
 
                 return (
                   <div
