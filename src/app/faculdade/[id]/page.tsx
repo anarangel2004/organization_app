@@ -263,7 +263,7 @@ export default function SubjectDetailPage({
 
         {/* SECÇÃO 04: BIBLIOTECA */}
         <div id="biblioteca" className="scroll-mt-24">
-          <BibliotecaSection />
+          <BibliotecaSection subjectId={subject?.id} />
         </div>
 
         {/* SECÇÃO 05: AVALIAÇÃO */}

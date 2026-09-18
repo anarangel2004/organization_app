@@ -20,7 +20,7 @@ interface Props {
 
 const ITEMS_PER_PAGE = 12; // 8 de cada lado na grelha de 2 colunas
 
-export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
+export function BibliotecaSection({ subjectId }: Props) {
   const [items, setItems] = useState<ResourceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -51,16 +51,23 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
   }, [search, activeTab, sortBy, sortOrder]);
 
   // 1. CARREGAR FICHEIROS
+  // Cada disciplina só pode ver os seus próprios ficheiros: sem um subjectId
+  // válido não fazemos pedido nenhum (evita mostrar/misturar ficheiros de
+  // outras disciplinas enquanto o subject ainda está a carregar).
   const fetchResources = async () => {
+    if (!subjectId) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
-      let query = supabase.from('subject_files').select('*');
-      
-      if (subjectId && subjectId !== 'GERAL') {
-        query = query.eq('subject_id', subjectId);
-      }
-
-      const { data, error } = await query.order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('subject_files')
+        .select('*')
+        .eq('subject_id', subjectId)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
@@ -149,6 +156,12 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
   // 2. GUARDAR / EDITAR FICHEIRO
   const handleSaveResource = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!subjectId) {
+      alert('Não foi possível identificar a disciplina desta biblioteca. Recarrega a página e tenta novamente.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -335,7 +348,9 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
 
           <button
             onClick={handleOpenCreateModal}
-            className="bg-[#111111] text-[#FCF9F2] px-4 py-2 text-xs font-mono font-bold uppercase hover:bg-neutral-800 transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
+            disabled={!subjectId}
+            title={!subjectId ? 'A carregar disciplina...' : undefined}
+            className="bg-[#111111] text-[#FCF9F2] px-4 py-2 text-xs font-mono font-bold uppercase hover:bg-neutral-800 transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <span>+</span> ADICIONAR
           </button>
