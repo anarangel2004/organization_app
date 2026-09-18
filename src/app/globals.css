@@ -85,3 +85,25 @@ main a[href^="#"]:hover {
     page-break-inside: avoid;
   }
 }
+
+/* ===================================================
+   TICKER DA PÁGINA PRINCIPAL (faixa de prazos críticos)
+   =================================================== */
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll 32s linear infinite;
+}
+
+.ticker-track:hover {
+  animation-play-state: paused;
+}

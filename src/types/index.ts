@@ -53,6 +53,7 @@ export interface Subject {
     title: string;
     date: string;
   };
+  updatedAt?: string | null;
 }
 export type SubjectData = Subject;
 

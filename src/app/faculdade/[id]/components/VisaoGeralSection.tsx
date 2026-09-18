@@ -28,15 +28,35 @@ function getUpcomingDeadlines(deadlines: Deadline[] = []): { title: string; days
     .sort((a, b) => a.daysLeft - b.daysLeft);
 }
 
+// Formata a data de atualização real da disciplina, se existir
+function formatRelativeUpdate(dateStr?: string | null): string | null {
+  if (!dateStr) return null;
+  const target = new Date(dateStr);
+  if (isNaN(target.getTime())) return null;
+
+  const diffMs = Date.now() - target.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) return 'HOJE';
+  if (diffDays === 1) return 'HÁ 1 DIA';
+  return `HÁ ${diffDays} DIAS`;
+}
+
 export function VisaoGeralSection({ subject }: VisaoGeralSectionProps) {
   const upcomingDeadlines = getUpcomingDeadlines(subject?.deadlines);
+  const lastUpdatedLabel = formatRelativeUpdate(subject?.updatedAt);
+
+  const evaluation = subject?.evaluation;
+  const evaluationLabel = evaluation
+    ? `TEÓRICA ${evaluation.teoricaWeight}% // PRÁTICA ${evaluation.praticaWeight}%`
+    : 'PESOS DE AVALIAÇÃO AINDA NÃO DEFINIDOS';
 
   return (
     <section id="visao-geral" className="space-y-6 pt-12">
       <div className="border-b border-[#D8D5CC] pb-4 space-y-3">
         <div className="flex flex-wrap justify-between items-center gap-2 font-mono text-[10px] tracking-[0.12em] text-[#767571] uppercase">
           <span>SECÇÃO 01 // PARÂMETROS DA DISCIPLINA</span>
-          <span>ÚLTIMA ATUALIZAÇÃO: HÁ 2 DIAS</span>
+          {lastUpdatedLabel && <span>ÚLTIMA ATUALIZAÇÃO: {lastUpdatedLabel}</span>}
         </div>
 
         <h2 className="font-display text-6xl sm:text-7xl md:text-8xl leading-[0.9] text-[#111111] uppercase tracking-[-0.01em] pt-2">
@@ -52,7 +72,7 @@ export function VisaoGeralSection({ subject }: VisaoGeralSectionProps) {
             <span>AVALIAÇÃO</span>
           </div>
           <div className="font-mono text-[11px] font-bold text-[#111111] uppercase">
-            EXAME FINAL 60% // TRABALHO DE GRUPO 40%
+            {evaluationLabel}
           </div>
         </div>
 

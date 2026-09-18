@@ -27,6 +27,9 @@ interface RawSubjectRow {
   degree_year?: number;
   semester?: number;
   schedules?: unknown;
+  theoretical_weight?: number | null;
+  practical_weight?: number | null;
+  updated_at?: string | null;
 }
 
 interface RawScheduleEntry {
@@ -198,6 +201,12 @@ export default function SubjectDetailPage({
           academicYear: found.academic_year || '2025/2026',
           degreeYear: found.degree_year || 1,
           semester: found.semester || 1,
+          evaluation: {
+            teoricaWeight: found.theoretical_weight ?? 50,
+            praticaWeight: found.practical_weight ?? 50,
+            requiresAttendance: false,
+          },
+          updatedAt: found.updated_at ?? null,
           schedules: parsedSchedules,
           deadlines: (assessmentsData || [])
             .filter((a: RawAssessmentRow) => a.due_date)
