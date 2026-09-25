@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { Anton, Hanken_Grotesk, Space_Mono } from 'next/font/google';
 import './globals.css';
+import SWRegister from '@/components/SWRegister';
+import OfflineIndicator from '@/components/OfflineIndicator';
 
 const anton = Anton({
   weight: '400',
@@ -38,7 +40,9 @@ export default function RootLayout({
       className={`${anton.variable} ${hanken.variable} ${spaceMono.variable}`}
     >
       <body className="bg-[#FCF9F2] text-[#111111] font-sans antialiased">
+        <SWRegister />
         {children}
+        <OfflineIndicator />
       </body>
     </html>
   );

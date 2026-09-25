@@ -21,12 +21,16 @@ export function WeeklyRhythm({ weekDays }: WeeklyRhythmProps) {
         </span>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {weekDays.map((day) => (
           <div
             key={day.date.toISOString()}
-            className={`shrink-0 w-44 border p-3 space-y-2 ${
-              day.isToday ? 'border-[#111111] border-2 bg-white' : 'border-[#D8D5CC] bg-[#F6F3EC]/40'
+            className={`border p-3 space-y-2 transition-opacity ${
+              day.isToday
+                ? 'border-[#111111] border-2 bg-white'
+                : day.isPast
+                ? 'border-[#D8D5CC] bg-[#F6F3EC]/20 opacity-55'
+                : 'border-[#D8D5CC] bg-[#F6F3EC]/40'
             }`}
           >
             <div className="flex items-center justify-between font-mono text-[10px] tracking-widest uppercase">

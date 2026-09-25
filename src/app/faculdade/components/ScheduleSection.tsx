@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase';
+import { getAllMirror } from '@/lib/offline/db';
+import { isNetworkError } from '@/lib/offline/sync';
 
 export type ClassType = 'TEÓRICA' | 'PRÁTICA' | 'AVALIAÇÃO' | 'GERAL';
 
@@ -112,18 +114,28 @@ export function ScheduleSection() {
     setLoading(true);
     setErrorMessage(null);
     try {
-      const supabase = createClient();
-      const [{ data: subjects, error: subjectsError }, { data: assessments, error: assessmentsError }] =
-        await Promise.all([
-          supabase.from('subjects').select('id, name, code, schedules'),
-          supabase.from('assessments').select('id, subject_id, title, category, due_date'),
-        ]);
+      let subjectRows: SubjectRow[];
+      let assessmentRows: AssessmentRow[];
+      try {
+        const supabase = createClient();
+        const [{ data: subjects, error: subjectsError }, { data: assessments, error: assessmentsError }] =
+          await Promise.all([
+            supabase.from('subjects').select('id, name, code, schedules'),
+            supabase.from('assessments').select('id, subject_id, title, category, due_date'),
+          ]);
 
-      if (subjectsError) throw subjectsError;
-      if (assessmentsError) throw assessmentsError;
+        if (subjectsError) throw subjectsError;
+        if (assessmentsError) throw assessmentsError;
 
-      const subjectRows = (subjects || []) as SubjectRow[];
-      const assessmentRows = (assessments || []) as AssessmentRow[];
+        subjectRows = (subjects || []) as SubjectRow[];
+        assessmentRows = (assessments || []) as AssessmentRow[];
+      } catch (fetchErr) {
+        if (!isNetworkError(fetchErr)) throw fetchErr;
+        // Sem rede: usa o que já estiver em cache (ficou lá ao abrir /faculdade
+        // ou a página de uma disciplina anteriormente com ligação).
+        subjectRows = await getAllMirror<SubjectRow>('subjects');
+        assessmentRows = await getAllMirror<AssessmentRow>('assessments');
+      }
       const subjectById = new Map(subjectRows.map((s) => [s.id, s]));
 
       const classItems: AgendaItem[] = [];

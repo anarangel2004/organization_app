@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase'; // Import do cliente autenticado
+import { getAllMirror, reconcileMirror } from '@/lib/offline/db';
+import { isNetworkError } from '@/lib/offline/sync';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { formatRelativeDate } from '@/lib/utils';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -31,8 +33,15 @@ export default function FaculdadePage() {
       const { data, error } = await supabase.from('subjects').select('*');
       if (error) throw error;
       setSubjects(data || []);
+      await reconcileMirror('subjects', data ?? []);
     } catch (err) {
-      console.error('Erro ao carregar disciplinas:', err);
+      if (isNetworkError(err)) {
+        // Sem rede: mostra a última cópia das disciplinas guardada localmente.
+        const cached = await getAllMirror<Subject>('subjects');
+        setSubjects(cached);
+      } else {
+        console.error('Erro ao carregar disciplinas:', err);
+      }
     } finally {
       setLoading(false);
     }

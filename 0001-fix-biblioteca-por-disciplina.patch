@@ -1,0 +1,108 @@
+From 0adeec17d2bff50fee7a35ab0b969e6b1c0418cd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 18 Sep 2026 16:08:02 +0100
+Subject: [PATCH] fix: scope biblioteca files to their own subject
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+BibliotecaSection was rendered without a subjectId, so it defaulted to
+'GERAL' and skipped the subject_id filter entirely — every discipline's
+library showed every file from every discipline, and every new upload
+was saved as subject_id='GERAL' instead of the real discipline.
+
+Now the subject page passes the actual subject id down, and
+BibliotecaSection refuses to fetch or save without a real subjectId
+instead of silently falling back to showing/tagging everything.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01F4ay1m4gzE9DFu72uS2MwD
+---
+ .../[id]/components/BibliotecaSection.tsx     | 33 ++++++++++++++-----
+ src/app/faculdade/[id]/page.tsx               |  2 +-
+ 2 files changed, 25 insertions(+), 10 deletions(-)
+
+diff --git a/src/app/faculdade/[id]/components/BibliotecaSection.tsx b/src/app/faculdade/[id]/components/BibliotecaSection.tsx
+index 521ca98..6ab1c77 100644
+--- a/src/app/faculdade/[id]/components/BibliotecaSection.tsx
++++ b/src/app/faculdade/[id]/components/BibliotecaSection.tsx
+@@ -20,7 +20,7 @@ interface Props {
+ 
+ const ITEMS_PER_PAGE = 12; // 8 de cada lado na grelha de 2 colunas
+ 
+-export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
++export function BibliotecaSection({ subjectId }: Props) {
+   const [items, setItems] = useState<ResourceItem[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [search, setSearch] = useState('');
+@@ -51,16 +51,23 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
+   }, [search, activeTab, sortBy, sortOrder]);
+ 
+   // 1. CARREGAR FICHEIROS
++  // Cada disciplina só pode ver os seus próprios ficheiros: sem um subjectId
++  // válido não fazemos pedido nenhum (evita mostrar/misturar ficheiros de
++  // outras disciplinas enquanto o subject ainda está a carregar).
+   const fetchResources = async () => {
++    if (!subjectId) {
++      setItems([]);
++      setLoading(false);
++      return;
++    }
++
+     try {
+       setLoading(true);
+-      let query = supabase.from('subject_files').select('*');
+-      
+-      if (subjectId && subjectId !== 'GERAL') {
+-        query = query.eq('subject_id', subjectId);
+-      }
+-
+-      const { data, error } = await query.order('created_at', { ascending: false });
++      const { data, error } = await supabase
++        .from('subject_files')
++        .select('*')
++        .eq('subject_id', subjectId)
++        .order('created_at', { ascending: false });
+ 
+       if (error) throw error;
+ 
+@@ -149,6 +156,12 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
+   // 2. GUARDAR / EDITAR FICHEIRO
+   const handleSaveResource = async (e: React.FormEvent) => {
+     e.preventDefault();
++
++    if (!subjectId) {
++      alert('Não foi possível identificar a disciplina desta biblioteca. Recarrega a página e tenta novamente.');
++      return;
++    }
++
+     setIsSubmitting(true);
+ 
+     try {
+@@ -335,7 +348,9 @@ export function BibliotecaSection({ subjectId = 'GERAL' }: Props) {
+ 
+           <button
+             onClick={handleOpenCreateModal}
+-            className="bg-[#111111] text-[#FCF9F2] px-4 py-2 text-xs font-mono font-bold uppercase hover:bg-neutral-800 transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
++            disabled={!subjectId}
++            title={!subjectId ? 'A carregar disciplina...' : undefined}
++            className="bg-[#111111] text-[#FCF9F2] px-4 py-2 text-xs font-mono font-bold uppercase hover:bg-neutral-800 transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+           >
+             <span>+</span> ADICIONAR
+           </button>
+diff --git a/src/app/faculdade/[id]/page.tsx b/src/app/faculdade/[id]/page.tsx
+index e6a4ea8..c13a37e 100644
+--- a/src/app/faculdade/[id]/page.tsx
++++ b/src/app/faculdade/[id]/page.tsx
+@@ -263,7 +263,7 @@ export default function SubjectDetailPage({
+ 
+         {/* SECÇÃO 04: BIBLIOTECA */}
+         <div id="biblioteca" className="scroll-mt-24">
+-          <BibliotecaSection />
++          <BibliotecaSection subjectId={subject?.id} />
+         </div>
+ 
+         {/* SECÇÃO 05: AVALIAÇÃO */}
+-- 
+2.43.0
+

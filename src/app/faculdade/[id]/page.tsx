@@ -3,6 +3,8 @@
 import { useState, useEffect, use, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { SubjectData } from '@/types';
+import { getAllMirror, putAllMirror, reconcileMirror } from '@/lib/offline/db';
+import { isNetworkError } from '@/lib/offline/sync';
 import { ChapterData } from './components/NotebooksSection';
 import { SubjectHeader } from './components/SubjectHeader';
 import { PrazosSection } from './components/PrazosSection';
@@ -48,6 +50,7 @@ interface RawScheduleEntry {
 
 interface RawChapterRow {
   id: string | number;
+  subject_id?: string | number;
   category?: string;
   updated_at?: string;
   content?: string;
@@ -57,6 +60,7 @@ interface RawChapterRow {
 
 interface RawAssessmentRow {
   id: string | number;
+  subject_id?: string | number;
   due_date?: string;
   title?: string;
   category?: string;
@@ -118,11 +122,20 @@ export default function SubjectDetailPage({
     try {
       setLoading(true);
 
-      const { data: dbSubjects, error } = await supabase
-        .from('subjects')
-        .select('*');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mantém o comportamento solto já existente neste ficheiro (sem tipos gerados da BD)
+      let dbSubjects: any[] | null = null;
+      try {
+        const { data, error } = await supabase.from('subjects').select('*');
+        if (error) throw error;
+        dbSubjects = data;
+        await reconcileMirror('subjects', data ?? []);
+      } catch (fetchErr) {
+        if (!isNetworkError(fetchErr)) throw fetchErr;
+        // Sem rede: usa a última cópia das disciplinas guardada localmente.
+        dbSubjects = await getAllMirror<RawSubjectRow>('subjects');
+      }
 
-      if (error || !dbSubjects) {
+      if (!dbSubjects) {
         setLoading(false);
         return;
       }
@@ -147,19 +160,42 @@ export default function SubjectDetailPage({
         const subId = String(found.id);
 
         // 1. CARREGAR AVALIAÇÕES / PRAZOS REAIS (Tabela 'assessments')
-        const { data: assessmentsData } = await supabase
-          .from('assessments')
-          .select('*')
-          .eq('subject_id', subId);
+        let assessmentsData: RawAssessmentRow[] = [];
+        try {
+          const { data, error: assessErr } = await supabase
+            .from('assessments')
+            .select('*')
+            .eq('subject_id', subId);
+          if (assessErr) throw assessErr;
+          assessmentsData = data ?? [];
+          await putAllMirror('assessments', assessmentsData);
+        } catch (assessErr) {
+          if (!isNetworkError(assessErr)) throw assessErr;
+          assessmentsData = (await getAllMirror<RawAssessmentRow>('assessments')).filter(
+            (a) => String(a.subject_id ?? '') === subId
+          );
+        }
 
         // 2. CARREGAR CAPÍTULOS (Tabela 'chapters')
-        const { data: chaptersData } = await supabase
-          .from('chapters')
-          .select('*')
-          .eq('subject_id', subId);
+        let chaptersData: RawChapterRow[] = [];
+        try {
+          const { data, error: chapErr } = await supabase
+            .from('chapters')
+            .select('*')
+            .eq('subject_id', subId);
+          if (chapErr) throw chapErr;
+          chaptersData = data ?? [];
+          await putAllMirror('chapters', chaptersData);
+        } catch (chapErr) {
+          if (!isNetworkError(chapErr)) throw chapErr;
+          chaptersData = (await getAllMirror<RawChapterRow>('chapters')).filter(
+            (c) => String(c.subject_id ?? '') === subId
+          );
+        }
 
         // Parse dos Horários
-        let rawSchedules = found.schedules || [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mantém o comportamento solto já existente (sem tipos gerados da BD)
+        let rawSchedules: any = found.schedules || [];
         if (typeof rawSchedules === 'string') {
           try {
             rawSchedules = JSON.parse(rawSchedules);

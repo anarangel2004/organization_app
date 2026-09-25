@@ -4,8 +4,10 @@ export interface AgendaRow {
   id: string;
   kind: 'AULA' | 'PRAZO' | 'TAREFA';
   time: string | null;
+  endTime?: string | null;
   title: string;
   subtitle: string;
+  color?: string;
 }
 
 export interface UpcomingRow {

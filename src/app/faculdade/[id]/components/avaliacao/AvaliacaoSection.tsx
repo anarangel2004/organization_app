@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase';
 import { AssessmentItem, AvaliacaoSectionProps } from '@/types';
+import { getAllMirror, putAllMirror, putMirror, deleteMirror, generateLocalId } from '@/lib/offline/db';
+import { queueMutation, isNetworkError } from '@/lib/offline/sync';
 import { getItemEffectiveGrade } from '@/lib/utils';
 import { AvaliacaoHeader } from './AvaliacaoHeader';
 import { NewAssessmentForm } from './NewAssessmentForm';
@@ -28,27 +30,50 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
     if (!subjectId) return;
     setLoading(true);
 
-    const { data: assessData, error: assessError } = await supabase
-      .from('assessments')
-      .select('*')
-      .eq('subject_id', subjectId)
-      .order('created_at', { ascending: true });
+    try {
+      const { data: assessData, error: assessError } = await supabase
+        .from('assessments')
+        .select('*')
+        .eq('subject_id', subjectId)
+        .order('created_at', { ascending: true });
 
-    if (assessError) {
-      console.error('Erro ao carregar avaliações:', assessError);
-    } else if (assessData) {
-      setItems(assessData as AssessmentItem[]);
+      if (assessError) throw assessError;
+      const rows = (assessData ?? []) as AssessmentItem[];
+      setItems(rows);
+      await putAllMirror('assessments', rows);
+    } catch (err) {
+      if (!isNetworkError(err)) {
+        console.error('Erro ao carregar avaliações:', err);
+      } else {
+        const cached = (await getAllMirror<AssessmentItem>('assessments')).filter(
+          (a) => a.subject_id === subjectId
+        );
+        setItems(cached);
+      }
     }
 
-    const { data: subjData } = await supabase
-      .from('subjects')
-      .select('theoretical_weight, practical_weight')
-      .eq('id', subjectId)
-      .single();
+    try {
+      const { data: subjData, error: subjError } = await supabase
+        .from('subjects')
+        .select('theoretical_weight, practical_weight')
+        .eq('id', subjectId)
+        .single();
 
-    if (subjData) {
-      if (typeof subjData.theoretical_weight === 'number') setTheoryWeight(subjData.theoretical_weight);
-      if (typeof subjData.practical_weight === 'number') setPracticeWeight(subjData.practical_weight);
+      if (subjError) throw subjError;
+      if (subjData) {
+        if (typeof subjData.theoretical_weight === 'number') setTheoryWeight(subjData.theoretical_weight);
+        if (typeof subjData.practical_weight === 'number') setPracticeWeight(subjData.practical_weight);
+      }
+    } catch (err) {
+      if (isNetworkError(err)) {
+        const cachedSubject = (await getAllMirror<{ id: string; theoretical_weight?: number; practical_weight?: number }>('subjects')).find(
+          (s) => s.id === subjectId
+        );
+        if (cachedSubject) {
+          if (typeof cachedSubject.theoretical_weight === 'number') setTheoryWeight(cachedSubject.theoretical_weight);
+          if (typeof cachedSubject.practical_weight === 'number') setPracticeWeight(cachedSubject.practical_weight);
+        }
+      }
     }
 
     setLoading(false);
@@ -64,19 +89,28 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
     if (!subjectId) return;
     setSavingWeights(true);
 
-    const { error } = await supabase
-      .from('subjects')
-      .update({
-        theoretical_weight: theoryWeight,
-        practical_weight: practiceWeight,
-      })
-      .eq('id', subjectId);
+    const weightsPayload = {
+      theoretical_weight: theoryWeight,
+      practical_weight: practiceWeight,
+    };
 
-    if (error) {
-      alert('ERRO AO GUARDAR PESOS DA CADEIRA.');
-    } else {
+    try {
+      const { error } = await supabase.from('subjects').update(weightsPayload).eq('id', subjectId);
+      if (error) throw error;
       setIsEditingWeights(false);
       if (onRefresh) onRefresh();
+    } catch (err) {
+      if (isNetworkError(err)) {
+        // Sem rede: guarda a alteração para sincronizar depois.
+        const cachedSubject = (await getAllMirror<Record<string, unknown> & { id: string }>('subjects')).find(
+          (s) => s.id === subjectId
+        );
+        if (cachedSubject) await putMirror('subjects', { ...cachedSubject, ...weightsPayload });
+        await queueMutation({ table: 'subjects', op: 'update', targetId: subjectId, payload: weightsPayload });
+        setIsEditingWeights(false);
+      } else {
+        alert('ERRO AO GUARDAR PESOS DA CADEIRA.');
+      }
     }
     setSavingWeights(false);
   };
@@ -105,7 +139,11 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
         .upload(filePath, file, { cacheControl: '3600', upsert: true });
 
       if (uploadError) {
-        alert(`ERRO NO STORAGE: ${uploadError.message}`);
+        if (isNetworkError(uploadError)) {
+          alert('SEM LIGAÇÃO — NÃO É POSSÍVEL ENVIAR FICHEIROS OFFLINE. TENTA QUANDO TIVERES REDE.');
+        } else {
+          alert(`ERRO NO STORAGE: ${uploadError.message}`);
+        }
         return;
       }
 
@@ -126,7 +164,11 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
         return { fileName: originalFileName, fileUrl: publicUrl };
       }
     } catch (error) {
-      alert(`ERRO AO PROCESSAR FICHEIRO: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+      if (isNetworkError(error)) {
+        alert('SEM LIGAÇÃO — NÃO É POSSÍVEL ENVIAR FICHEIROS OFFLINE. TENTA QUANDO TIVERES REDE.');
+      } else {
+        alert(`ERRO AO PROCESSAR FICHEIRO: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+      }
     } finally {
       setUploading(false);
     }
@@ -156,12 +198,24 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
       prev.map((item) => (item.id === id ? { ...item, [field]: numericValue } : item))
     );
 
-    const { error } = await supabase
-      .from('assessments')
-      .update({ [field]: numericValue })
-      .eq('id', id);
-
-    if (error) fetchAssessmentsAndSubject();
+    try {
+      const { data, error } = await supabase
+        .from('assessments')
+        .update({ [field]: numericValue })
+        .eq('id', id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      await putMirror('assessments', data as AssessmentItem);
+    } catch (err) {
+      if (isNetworkError(err)) {
+        const cached = items.find((item) => item.id === id);
+        if (cached) await putMirror('assessments', { ...cached, [field]: numericValue });
+        await queueMutation({ table: 'assessments', op: 'update', targetId: id, payload: { [field]: numericValue } });
+      } else {
+        fetchAssessmentsAndSubject();
+      }
+    }
   };
 
   // Ativar/Desativar Defesa
@@ -189,12 +243,24 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
       updatePayload.defense_date = null;
     }
 
-    const { error } = await supabase
-      .from('assessments')
-      .update(updatePayload)
-      .eq('id', id);
-
-    if (error) fetchAssessmentsAndSubject();
+    try {
+      const { data, error } = await supabase
+        .from('assessments')
+        .update(updatePayload)
+        .eq('id', id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      await putMirror('assessments', data as AssessmentItem);
+    } catch (err) {
+      if (isNetworkError(err)) {
+        const cached = items.find((item) => item.id === id);
+        if (cached) await putMirror('assessments', { ...cached, ...updatePayload });
+        await queueMutation({ table: 'assessments', op: 'update', targetId: id, payload: updatePayload });
+      } else {
+        fetchAssessmentsAndSubject();
+      }
+    }
   };
 
   // Apagar Item
@@ -203,13 +269,19 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
 
     setItems((prev) => prev.filter((item) => item.id !== id));
 
-    const { error } = await supabase.from('assessments').delete().eq('id', id);
-
-    if (error) {
-      alert('ERRO AO APAGAR ITEM.');
-      fetchAssessmentsAndSubject();
-    } else if (onRefresh) {
-      onRefresh();
+    try {
+      const { error } = await supabase.from('assessments').delete().eq('id', id);
+      if (error) throw error;
+      await deleteMirror('assessments', id);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      if (isNetworkError(err)) {
+        await deleteMirror('assessments', id);
+        await queueMutation({ table: 'assessments', op: 'delete', targetId: id, payload: {} });
+      } else {
+        alert('ERRO AO APAGAR ITEM.');
+        fetchAssessmentsAndSubject();
+      }
     }
   };
 
@@ -246,18 +318,28 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
       defense_date: null,
     };
 
-    const { data, error } = await supabase
-      .from('assessments')
-      .insert([payload])
-      .select()
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('assessments')
+        .insert([payload])
+        .select()
+        .single();
 
-    if (error) {
-      alert('ERRO AO GUARDAR AVALIAÇÃO NA BASE DE DADOS.');
-    } else if (data) {
+      if (error) throw error;
+      await putMirror('assessments', data as AssessmentItem);
       setItems((prev) => [...prev, data as AssessmentItem]);
       setIsAdding(false);
       if (onRefresh) onRefresh();
+    } catch (err) {
+      if (isNetworkError(err)) {
+        const optimistic = { id: generateLocalId(), ...payload } as AssessmentItem;
+        await putMirror('assessments', optimistic);
+        await queueMutation({ table: 'assessments', op: 'insert', tempId: optimistic.id, payload });
+        setItems((prev) => [...prev, optimistic]);
+        setIsAdding(false);
+      } else {
+        alert('ERRO AO GUARDAR AVALIAÇÃO NA BASE DE DADOS.');
+      }
     }
   };
 
@@ -267,9 +349,24 @@ export function AvaliacaoSection({ subjectId, onRefresh }: AvaliacaoSectionProps
       prev.map((item) => (item.id === id ? { ...item, ...updatedFields } : item))
     );
 
-    const { error } = await supabase.from('assessments').update(updatedFields).eq('id', id);
-
-    if (error) fetchAssessmentsAndSubject();
+    try {
+      const { data, error } = await supabase
+        .from('assessments')
+        .update(updatedFields)
+        .eq('id', id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      await putMirror('assessments', data as AssessmentItem);
+    } catch (err) {
+      if (isNetworkError(err)) {
+        const cached = items.find((item) => item.id === id);
+        if (cached) await putMirror('assessments', { ...cached, ...updatedFields });
+        await queueMutation({ table: 'assessments', op: 'update', targetId: id, payload: updatedFields });
+      } else {
+        fetchAssessmentsAndSubject();
+      }
+    }
   };
 
   // Filtros por Ramo

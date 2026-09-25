@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { putMirror, generateLocalId } from '@/lib/offline/db';
+import { queueMutation, isNetworkError } from '@/lib/offline/sync';
 
 interface AddSubjectFormProps {
   onSubjectAdded: () => void;
@@ -133,8 +135,16 @@ export function AddSubjectForm({ onSubjectAdded }: AddSubjectFormProps) {
         schedules: schedules.length > 0 ? schedules : null,
       };
 
-      const { error } = await supabase.from('subjects').insert([payload]);
-      if (error) throw error;
+      try {
+        const { error } = await supabase.from('subjects').insert([payload]);
+        if (error) throw error;
+      } catch (insertErr) {
+        if (!isNetworkError(insertErr)) throw insertErr;
+        // Sem rede: guarda localmente e sincroniza quando a ligação voltar.
+        const optimistic = { id: generateLocalId(), ...payload };
+        await putMirror('subjects', optimistic);
+        await queueMutation({ table: 'subjects', op: 'insert', tempId: optimistic.id, payload });
+      }
 
       // Limpar formulário
       setCode('');

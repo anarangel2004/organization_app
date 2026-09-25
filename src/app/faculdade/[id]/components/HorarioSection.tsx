@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getAllMirror, putMirror } from '@/lib/offline/db';
+import { queueMutation, isNetworkError } from '@/lib/offline/sync';
 
 export interface ScheduleSlot {
   id?: string;
@@ -123,9 +125,9 @@ export function HorarioSection({ subjectId, schedules = [], onRefresh }: Horario
 
       console.log('Resultado ao guardar no Supabase:', { data, error });
 
-      if (error) {
-        alert(`Erro ao guardar no Supabase: ${error.message}`);
-      } else if (!data || data.length === 0) {
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
         alert(
           `O Supabase não atualizou nenhuma linha (0 afetadas).\n\nPossíveis motivos:\n1. O ID "${subjectId}" não existe na tabela "subjects".\n2. As permissões de segurança (RLS) do Supabase bloqueiam o UPDATE.`
         );
@@ -135,8 +137,26 @@ export function HorarioSection({ subjectId, schedules = [], onRefresh }: Horario
         if (onRefresh) onRefresh();
       }
     } catch (err) {
-      console.error('Erro de ligação:', err);
-      alert(`Erro inesperado: ${err instanceof Error ? err.message : String(err)}`);
+      if (isNetworkError(err)) {
+        // Sem rede: guarda localmente e sincroniza o horário quando a rede voltar.
+        const cachedSubject = (await getAllMirror<Record<string, unknown> & { id: string }>('subjects')).find(
+          (s) => String(s.id) === String(subjectId)
+        );
+        if (cachedSubject) {
+          await putMirror('subjects', { ...cachedSubject, schedules: updatedSchedules });
+        }
+        await queueMutation({
+          table: 'subjects',
+          op: 'update',
+          targetId: String(subjectId),
+          payload: { schedules: updatedSchedules },
+        });
+        setLocalSchedules(updatedSchedules);
+        setIsFormOpen(false);
+      } else {
+        console.error('Erro de ligação:', err);
+        alert(`Erro inesperado: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -178,10 +198,9 @@ export function HorarioSection({ subjectId, schedules = [], onRefresh }: Horario
 
       console.log('Resultado do apagar no Supabase:', { data, error });
 
-      if (error) {
-        alert(`Erro ao eliminar no Supabase: ${error.message}`);
-        setLocalSchedules(previousSchedules); // Reverte se falhar
-      } else if (!data || data.length === 0) {
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
         alert(
           `Não foi possível apagar na base de dados (0 linhas afetadas).\n\nCausas prováveis:\n- O ID "${subjectId}" não coincide com a coluna "id" da tabela "subjects".\n- Falta de permissão para UPDATE na política de RLS do Supabase.`
         );
@@ -190,9 +209,25 @@ export function HorarioSection({ subjectId, schedules = [], onRefresh }: Horario
         onRefresh();
       }
     } catch (err) {
-      console.error('Erro na ligação:', err);
-      alert(`Erro inesperado: ${err instanceof Error ? err.message : String(err)}`);
-      setLocalSchedules(previousSchedules);
+      if (isNetworkError(err)) {
+        const cachedSubject = (await getAllMirror<Record<string, unknown> & { id: string }>('subjects')).find(
+          (s) => String(s.id) === String(subjectId)
+        );
+        if (cachedSubject) {
+          await putMirror('subjects', { ...cachedSubject, schedules: updated });
+        }
+        await queueMutation({
+          table: 'subjects',
+          op: 'update',
+          targetId: String(subjectId),
+          payload: { schedules: updated },
+        });
+        // Já está otimisticamente aplicado (setLocalSchedules(updated) acima).
+      } else {
+        console.error('Erro na ligação:', err);
+        alert(`Erro inesperado: ${err instanceof Error ? err.message : String(err)}`);
+        setLocalSchedules(previousSchedules);
+      }
     }
   };
 

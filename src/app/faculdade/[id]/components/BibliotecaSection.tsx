@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
+import { FolderOpen, SearchX, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 export interface ResourceItem {
@@ -405,8 +406,9 @@ export function BibliotecaSection({ subjectId }: Props) {
       <div className="border-b border-black w-full" />
 
       {loading ? (
-        <div className="p-12 text-center font-mono text-xs text-neutral-400 uppercase tracking-widest">
-          A CARREGAR FICHEIROS...
+        <div className="p-12 flex flex-col items-center justify-center gap-2 text-neutral-400">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="font-mono text-xs uppercase tracking-widest">A CARREGAR FICHEIROS...</span>
         </div>
       ) : (
         <>
@@ -497,8 +499,40 @@ export function BibliotecaSection({ subjectId }: Props) {
       )}
 
       {!loading && filteredResources.length === 0 && (
-        <div className="p-8 border border-dashed border-neutral-300 text-center font-mono text-xs text-neutral-500 uppercase">
-          SEM RECURSOS NA TABELA SUBJECT_FILES.
+        <div className="border-2 border-dashed border-neutral-300 bg-[#F2EFE9]/50 py-16 px-8 flex flex-col items-center justify-center text-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-[#111111] flex items-center justify-center">
+            {items.length === 0 ? (
+              <FolderOpen className="w-5 h-5 text-[#FCF9F2]" />
+            ) : (
+              <SearchX className="w-5 h-5 text-[#FCF9F2]" />
+            )}
+          </div>
+
+          {items.length === 0 ? (
+            <>
+              <h3 className="font-mono text-xs font-bold uppercase tracking-widest text-[#111111]">
+                ESTA BIBLIOTECA AINDA NÃO TEM FICHEIROS
+              </h3>
+              <p className="font-mono text-[11px] text-neutral-500 uppercase max-w-xs leading-relaxed">
+                Os recursos que adicionares aqui ficam exclusivos desta disciplina.
+              </p>
+              <button
+                onClick={handleOpenCreateModal}
+                className="mt-2 bg-[#111111] text-[#FCF9F2] px-4 py-2 text-xs font-mono font-bold uppercase hover:bg-neutral-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>+</span> ADICIONAR PRIMEIRO FICHEIRO
+              </button>
+            </>
+          ) : (
+            <>
+              <h3 className="font-mono text-xs font-bold uppercase tracking-widest text-[#111111]">
+                SEM RESULTADOS
+              </h3>
+              <p className="font-mono text-[11px] text-neutral-500 uppercase max-w-xs leading-relaxed">
+                Nenhum recurso corresponde à pesquisa ou ao filtro selecionado.
+              </p>
+            </>
+          )}
         </div>
       )}
 

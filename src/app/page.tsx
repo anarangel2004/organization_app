@@ -10,14 +10,19 @@ import { Ticker } from './components/Ticker';
 import { HomeMasthead } from './components/HomeMasthead';
 import { ModuleCards } from './components/ModuleCards';
 import { DeadlineCountdown } from './components/DeadlineCountdown';
-import { WeeklyRhythm } from './components/WeeklyRhythm';
+import { WeeklyCalendarGrid } from './components/WeeklyCalendarGrid';
+import { MiniMonthCalendar } from './components/MiniMonthCalendar';
+import { TodayAgenda } from './components/TodayAgenda';
+import { TimeBreakdown } from './components/TimeBreakdown';
 import { UpcomingDeadlines } from './components/UpcomingDeadlines';
 import { HomeFooter } from './components/HomeFooter';
 import { AgendaRow, SearchEntry, UpcomingRow, WeekDayCell } from './components/types';
 import {
   AssessmentLite,
   SubjectLite,
+  buildDayRows,
   collectClasses,
+  computeSubjectHours,
   dayOfYear,
   DAY_NUM_TO_LABEL,
   formatDaysLeftLabel,
@@ -36,6 +41,7 @@ export default function HomePage() {
   const [workTasks, setWorkTasks] = useState<WorkTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [monthAnchor, setMonthAnchor] = useState(() => new Date());
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -65,8 +71,12 @@ export default function HomePage() {
   }, []);
 
   const now = useMemo(() => new Date(), []);
-  const jsDay = now.getDay();
-  const todayNum = jsDay >= 1 && jsDay <= 5 ? jsDay : 0; // 0 = fim de semana, sem aulas hoje
+  const todayMid = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+  const todayNum = now.getDay(); // 0 = Domingo ... 6 = Sábado (convenção Date.getDay())
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
   const subjectLookup = useMemo(() => {
@@ -83,23 +93,42 @@ export default function HomePage() {
 
   const classes = useMemo(() => collectClasses(subjects), [subjects]);
 
-  // Próxima aula (a mais próxima ainda por vir esta semana, Seg-Sex)
+  const subjectHours = useMemo(() => computeSubjectHours(classes), [classes]);
+
+  const getDayRows = useCallback(
+    (date: Date) => buildDayRows(date, classes, assessments, workTasks, subjectLookup, projectLookup),
+    [classes, assessments, workTasks, subjectLookup, projectLookup]
+  );
+
+  const todayRows = useMemo(() => getDayRows(todayMid), [getDayRows, todayMid]);
+
+  const todayLabel = useMemo(
+    () =>
+      now
+        .toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: 'short' })
+        .toUpperCase()
+        .replace('.', ''),
+    [now]
+  );
+
+  const handlePrevMonth = useCallback(() => {
+    setMonthAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  }, []);
+
+  const handleNextMonth = useCallback(() => {
+    setMonthAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  }, []);
+
+  // Próxima aula (a mais próxima ainda por vir, considerando toda a semana Seg-Dom)
   const nextClassLabel = useMemo(() => {
     let best: { offset: number; minutes: number; dayNum: number; startTime: string } | null = null;
 
     for (const c of classes) {
-      let offset: number;
-      if (todayNum === 0) {
-        offset = c.dayNum; // fim de semana: ordena Seg (1) antes de Sex (5)
-      } else if (c.dayNum > todayNum) {
-        offset = c.dayNum - todayNum;
-      } else if (c.dayNum === todayNum && parseMinutes(c.startTime) > nowMinutes) {
-        offset = 0;
-      } else {
-        continue; // já passou esta semana
-      }
-
       const minutes = parseMinutes(c.startTime);
+      // Distância circular (0-6 dias) até à próxima ocorrência semanal deste dia.
+      let offset = (c.dayNum - todayNum + 7) % 7;
+      if (offset === 0 && minutes <= nowMinutes) offset = 7; // já passou hoje, só na próxima semana
+
       if (!best || offset < best.offset || (offset === best.offset && minutes < best.minutes)) {
         best = { offset, minutes, dayNum: c.dayNum, startTime: c.startTime };
       }
@@ -163,8 +192,6 @@ export default function HomePage() {
   // "RITMO SEMANAL": grelha Seg-Dom da semana atual
   // ==========================================
   const weekDays = useMemo<WeekDayCell[]>(() => {
-    const todayMid = new Date();
-    todayMid.setHours(0, 0, 0, 0);
     const jsDayNow = todayMid.getDay();
     const diffToMonday = jsDayNow === 0 ? -6 : 1 - jsDayNow;
     const monday = new Date(todayMid);
@@ -175,65 +202,12 @@ export default function HomePage() {
       const date = new Date(monday);
       date.setDate(monday.getDate() + i);
       const jsDayOfCell = date.getDay();
-      const classDayNum = jsDayOfCell >= 1 && jsDayOfCell <= 5 ? jsDayOfCell : 0;
       const isToday = date.getTime() === todayMid.getTime();
       const isPast = date.getTime() < todayMid.getTime();
 
-      const rows: AgendaRow[] = [];
-
-      if (classDayNum !== 0) {
-        classes
-          .filter((c) => c.dayNum === classDayNum)
-          .sort((a, b) => parseMinutes(a.startTime) - parseMinutes(b.startTime))
-          .forEach((c) => {
-            rows.push({
-              id: `aula-${c.subjectId}-${c.startTime}-${i}`,
-              kind: 'AULA',
-              time: c.startTime,
-              title: `${c.subjectCode}${c.type ? ` · ${c.type}` : ''}`,
-              subtitle: c.room ? `SALA ${c.room}` : 'AULA',
-            });
-          });
-      }
-
-      assessments.forEach((a) => {
-        const due = parseDueDate(a.due_date);
-        if (due && due.getTime() === date.getTime()) {
-          const subject = subjectLookup.get(a.subject_id);
-          rows.push({
-            id: `prazo-${a.id}-${i}`,
-            kind: 'PRAZO',
-            time: null,
-            title: a.title || 'AVALIAÇÃO',
-            subtitle: subject?.code || subject?.name || 'FACULDADE',
-          });
-        }
-      });
-
-      workTasks
-        .filter((t) => !t.completed)
-        .forEach((t) => {
-          const due = parseDueDate(t.due_date);
-          if (due && due.getTime() === date.getTime()) {
-            const project = t.project_id ? projectLookup.get(t.project_id) : undefined;
-            rows.push({
-              id: `tarefa-${t.id}-${i}`,
-              kind: 'TAREFA',
-              time: null,
-              title: t.title,
-              subtitle: project?.name || 'SEM PROJETO',
-            });
-          }
-        });
-
-      rows.sort((a, b) => {
-        if (a.time && b.time) return parseMinutes(a.time) - parseMinutes(b.time);
-        if (a.time) return -1;
-        if (b.time) return 1;
-        return 0;
-      });
-
+      const rows: AgendaRow[] = buildDayRows(date, classes, assessments, workTasks, subjectLookup, projectLookup);
       const hasCritical = rows.some((r) => r.kind === 'PRAZO');
+
       let status: WeekDayCell['status'];
       if (isPast) status = 'CONCLUÍDO';
       else if (isToday) status = 'HOJE';
@@ -252,7 +226,7 @@ export default function HomePage() {
       });
     }
     return cells;
-  }, [classes, assessments, workTasks, subjectLookup, projectLookup]);
+  }, [todayMid, classes, assessments, workTasks, subjectLookup, projectLookup]);
 
   // ==========================================
   // TICKER: os itens mais urgentes (hoje + próximos 7 dias)
@@ -359,7 +333,29 @@ export default function HomePage() {
 
             <hr className="border-[#D8D5CC]" />
 
-            <WeeklyRhythm weekDays={weekDays} />
+            <section className="space-y-4">
+              <h2 className="font-display text-4xl sm:text-5xl uppercase text-[#111111] tracking-tight">
+                Ritmo Semanal.
+              </h2>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                <div className="lg:col-span-4 space-y-6">
+                  <MiniMonthCalendar
+                    monthAnchor={monthAnchor}
+                    today={todayMid}
+                    onPrevMonth={handlePrevMonth}
+                    onNextMonth={handleNextMonth}
+                    getDayRows={getDayRows}
+                  />
+                  <TodayAgenda rows={todayRows} todayLabel={todayLabel} />
+                  <TimeBreakdown data={subjectHours} />
+                </div>
+
+                <div className="lg:col-span-8">
+                  <WeeklyCalendarGrid weekDays={weekDays} />
+                </div>
+              </div>
+            </section>
 
             <hr className="border-[#D8D5CC]" />
 
