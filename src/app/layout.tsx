@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Anton, Hanken_Grotesk, Space_Mono } from 'next/font/google';
+import { Anton, Hanken_Grotesk, Newsreader, Space_Mono } from 'next/font/google';
 import './globals.css';
 import SWRegister from '@/components/SWRegister';
 import OfflineIndicator from '@/components/OfflineIndicator';
@@ -14,6 +14,14 @@ const anton = Anton({
 const hanken = Hanken_Grotesk({
   subsets: ['latin'],
   variable: '--font-hanken',
+  display: 'swap',
+});
+
+// Serifa editorial do painel da página principal (títulos, números, itálicos).
+const newsreader = Newsreader({
+  subsets: ['latin'],
+  style: ['normal', 'italic'],
+  variable: '--font-newsreader',
   display: 'swap',
 });
 
@@ -37,7 +45,7 @@ export default function RootLayout({
   return (
     <html
       lang="pt"
-      className={`${anton.variable} ${hanken.variable} ${spaceMono.variable}`}
+      className={`${anton.variable} ${hanken.variable} ${newsreader.variable} ${spaceMono.variable}`}
     >
       <body className="bg-[#FCF9F2] text-[#111111] font-sans antialiased">
         <SWRegister />

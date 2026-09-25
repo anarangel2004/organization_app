@@ -1,0 +1,434 @@
+/* ===================================================
+   PAINEL — página principal (design "Painel completo")
+   Tokens e padrões de interação replicados do mockup:
+   fundo preto com grão, osso/petróleo/gelo, tooltips
+   "cartão rodado" com sombra sólida, segmentos, etc.
+   =================================================== */
+
+.root {
+  --bg: #0c0c0c;
+  --ink: #f0ece4;
+  --mut: #9c9a95;
+  --hair: rgba(240, 236, 228, 0.26);
+  --hair2: rgba(240, 236, 228, 0.1);
+  --navy: #1d3a4a;
+  --midblue: #6fa8c4;
+  --petro: #2f5c71;
+  --petro2: #4b84a0;
+  --bone: #dad5cd;
+  --gelo: #8fb3c4;
+  --acc: #8fb3c4;
+  --tipbg: #dad5cd;
+  --tipink: #0c0c0c;
+  --onfill: #f0ece4;
+  --inkdark: #0c0c0c;
+  --subdark: #4b4842;
+  --grain: 0.17;
+  --gutter: clamp(16px, 4.4vw, 64px);
+
+  position: relative;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-hanken), 'Hanken Grotesk', system-ui, sans-serif;
+  overflow-x: clip;
+}
+
+.root *,
+.root *::before,
+.root *::after {
+  box-sizing: border-box;
+}
+
+.root button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.root a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.root input,
+.root textarea {
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.root input::placeholder,
+.root textarea::placeholder {
+  color: var(--mut);
+  opacity: 1;
+}
+
+.root :focus-visible {
+  outline: 1px dashed var(--ink);
+  outline-offset: 4px;
+}
+
+.root ::selection {
+  background: var(--gelo);
+  color: var(--inkdark);
+}
+
+.inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+/* ---------- tipografia ---------- */
+.serif {
+  font-family: var(--font-newsreader), 'Newsreader', Georgia, serif;
+}
+
+.display {
+  font-family: var(--font-hanken), 'Hanken Grotesk', system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin: 0;
+}
+
+.sectionTitle {
+  font-family: var(--font-hanken), 'Hanken Grotesk', system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin: 0;
+  font-size: clamp(34px, 3.75vw, 54px);
+}
+
+.sectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  border-top: 1px solid var(--hair);
+  padding-top: 18px;
+  margin-bottom: 6px;
+}
+
+.muted {
+  color: var(--mut);
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- ligações e segmentos ---------- */
+.nl {
+  border-bottom: 1px solid transparent;
+  padding-bottom: 3px;
+}
+.nl:hover {
+  border-bottom-color: var(--mut);
+}
+.nlOn {
+  border-bottom-color: var(--ink);
+}
+
+.lnk {
+  border-bottom: 1px solid currentColor;
+  padding-bottom: 2px;
+}
+
+.segGroup {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.seg {
+  border: 1px solid var(--ink) !important;
+  padding: 7px 16px !important;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.seg + .seg {
+  margin-left: -1px !important;
+}
+.segSm {
+  padding: 5px 11px !important;
+  font-size: 13px;
+}
+.segOn {
+  background: var(--ink) !important;
+  color: var(--bg) !important;
+}
+
+.btnBone {
+  background: var(--bone) !important;
+  color: var(--inkdark) !important;
+  padding: 11px 20px !important;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btnDark {
+  background: var(--inkdark) !important;
+  color: var(--bone) !important;
+  padding: 10px 18px !important;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btnOutlineDark {
+  border: 1px solid var(--inkdark) !important;
+  padding: 9px 18px !important;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lineInput {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--ink);
+  padding: 8px 0;
+  font-size: 15px;
+}
+
+.boxInput {
+  background: transparent;
+  border: 1px solid var(--hair);
+  padding: 10px 14px;
+  font-size: 15px;
+}
+
+/* ---------- hover / tooltips ---------- */
+.hv {
+  position: relative;
+}
+.hv:hover,
+.hv:focus-within {
+  z-index: 30;
+}
+
+.tm {
+  transition: color 0.18s ease;
+}
+.hv:hover .tm,
+.hv:focus-within .tm {
+  color: var(--acc);
+}
+
+.tip {
+  position: absolute;
+  z-index: 40;
+  width: 300px;
+  max-width: min(340px, calc(100vw - 32px));
+  background: var(--tipbg);
+  color: var(--tipink);
+  padding: 20px 22px 22px;
+  box-shadow: 8px 8px 0 var(--tc, var(--gelo));
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px) rotate(-1.2deg);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+  pointer-events: none;
+}
+.hv:hover > .tip,
+.hv:focus-within > .tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) rotate(-1.2deg);
+}
+
+.tipTitle {
+  font-family: var(--font-newsreader), 'Newsreader', Georgia, serif;
+  font-weight: 600;
+  font-size: 27px;
+  line-height: 1.08;
+}
+.tipBody {
+  font-size: 14px;
+  line-height: 1.55;
+  margin-top: 10px;
+  white-space: pre-line;
+}
+
+.tcV {
+  --tc: var(--petro2);
+}
+.tcP {
+  --tc: var(--gelo);
+}
+.tcM {
+  --tc: var(--gelo);
+}
+.tcE {
+  --tc: var(--mut);
+}
+
+.menu {
+  position: absolute;
+  z-index: 50;
+  right: 0;
+  top: calc(100% + 10px);
+  background: var(--bone);
+  color: var(--inkdark);
+  padding: 16px 18px;
+  min-width: 210px;
+  box-shadow: 6px 6px 0 var(--hair2);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+}
+.hv:hover > .menu,
+.hv:focus-within > .menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* ---------- azulejos (volumes) ---------- */
+.tile {
+  background: var(--bone);
+  color: var(--inkdark);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.tile .sub {
+  color: var(--subdark);
+  transition: color 0.18s ease;
+}
+.tileP {
+  background: var(--petro);
+  color: var(--ink);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.hv:hover .tile,
+.hv:focus-within .tile {
+  background: var(--petro);
+  color: var(--ink);
+}
+.hv:hover .tile .sub,
+.hv:focus-within .tile .sub {
+  color: var(--bone);
+}
+.hv:hover .tileP,
+.hv:focus-within .tileP {
+  background: var(--bone);
+  color: var(--inkdark);
+}
+
+/* ---------- filtro de contexto (grelha semanal) ---------- */
+.dimmable {
+  transition: opacity 0.2s ease;
+}
+.dimmed {
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+/* ---------- checkbox ---------- */
+.chk {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  border: 1px solid var(--ink);
+  background: transparent;
+  cursor: pointer;
+}
+.chk:checked {
+  background: var(--gelo);
+  border-color: var(--gelo);
+}
+.chk:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+/* O globals.css força cantos retos em tudo; o design usa alguns círculos. */
+.round {
+  border-radius: 50% !important;
+}
+
+/* ---------- grão ---------- */
+.grain {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 60;
+  opacity: var(--grain);
+  mix-blend-mode: overlay;
+}
+
+/* ---------- layout responsivo ---------- */
+.grid12 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 64px;
+}
+.colMain,
+.colSide {
+  min-width: 0;
+}
+
+@media (min-width: 1100px) {
+  .grid12 {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    column-gap: 24px;
+  }
+  .colMain {
+    grid-column: 1 / span 7;
+  }
+  .colSide {
+    grid-column: 9 / span 4;
+  }
+  .ruleLeft {
+    border-left: 1px solid var(--hair);
+    padding-left: 24px;
+  }
+}
+
+@media (max-width: 1099px) {
+  .ruleLeft {
+    border-top: 1px solid var(--hair);
+    padding-top: 24px;
+  }
+}
+
+.hideSm {
+  display: none;
+}
+@media (min-width: 900px) {
+  .hideSm {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tip,
+  .menu,
+  .tm,
+  .tile,
+  .tileP,
+  .tile .sub,
+  .dimmable {
+    transition: none;
+  }
+}

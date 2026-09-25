@@ -1,60 +1,101 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { formatRelativeDate } from '@/lib/utils';
-import { getWorkProjects, getWorkTasks, WorkProject, WorkTask } from '@/lib/workData';
-import ProfileModal from '@/components/ui/ProfileModal';
-import { Ticker } from './components/Ticker';
-import { HomeMasthead } from './components/HomeMasthead';
-import { ModuleCards } from './components/ModuleCards';
-import { DeadlineCountdown } from './components/DeadlineCountdown';
-import { WeeklyCalendarGrid } from './components/WeeklyCalendarGrid';
-import { MiniMonthCalendar } from './components/MiniMonthCalendar';
-import { TodayAgenda } from './components/TodayAgenda';
-import { TimeBreakdown } from './components/TimeBreakdown';
-import { UpcomingDeadlines } from './components/UpcomingDeadlines';
-import { HomeFooter } from './components/HomeFooter';
-import { AgendaRow, SearchEntry, UpcomingRow, WeekDayCell } from './components/types';
 import {
-  AssessmentLite,
+  createWorkTask,
+  getWorkProjects,
+  getWorkTasks,
+  toggleWorkTask,
+  WorkProject,
+  WorkTask,
+} from '@/lib/workData';
+import ProfileModal from '@/components/ui/ProfileModal';
+import type { SearchEntry } from './components/types';
+import {
   SubjectLite,
-  buildDayRows,
   collectClasses,
   computeSubjectHours,
   dayOfYear,
-  DAY_NUM_TO_LABEL,
-  formatDaysLeftLabel,
   parseDueDate,
   parseMinutes,
-  PT_WEEKDAY_LABEL,
 } from './components/homeAgenda';
+import s from './components/painel/painel.module.css';
+import { CtxFilter, PainelHeader, TopStrip, ViewMode } from './components/painel/PainelTop';
+import { HeroClass, HeroNextClass, HeroTile, PainelHero } from './components/painel/PainelHero';
+import { DayIndex, WeekColumn, WeekGrid } from './components/painel/PainelAgenda';
+import { PainelMonth } from './components/painel/PainelMonth';
+import { ActionPlan, Balance, DeadlineItem, Deadlines, PainelFooter } from './components/painel/PainelLower';
+import { useLocalState, useNow } from './components/painel/useLocalState';
+import { MOCK_LOCATION, MOCK_QUOTE, MOCK_TASK_HOURS } from './components/painel/mockData';
+import {
+  AssessmentFull,
+  ChapterLite,
+  EventSources,
+  LocalEvent,
+  MONTHS_PT,
+  PainelCat,
+  WEEKDAY_HERO_PT,
+  WEEKDAY_LONG_PT,
+  addDays,
+  buildEventsForDate,
+  classTypeLabel,
+  daysBetween,
+  isoKey,
+  isoWeek,
+  mondayOf,
+  notebookLabel,
+  relativeTime,
+  startOfDay,
+  subjectLongName,
+  subjectShortName,
+} from './components/painel/painelData';
+
+interface FocusState {
+  date: string;
+  ms: number;
+  since: number | null;
+}
 
 export default function HomePage() {
+  const router = useRouter();
   const { user } = useCurrentUser();
   const [supabase] = useState(() => createClient());
 
   const [subjects, setSubjects] = useState<SubjectLite[]>([]);
-  const [assessments, setAssessments] = useState<AssessmentLite[]>([]);
+  const [assessments, setAssessments] = useState<AssessmentFull[]>([]);
+  const [chapters, setChapters] = useState<ChapterLite[]>([]);
   const [workProjects, setWorkProjects] = useState<WorkProject[]>([]);
   const [workTasks, setWorkTasks] = useState<WorkTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [monthAnchor, setMonthAnchor] = useState(() => new Date());
+  const [ctx, setCtx] = useState<CtxFilter>('all');
+  const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(() => new Set());
+  const [touchedTaskIds, setTouchedTaskIds] = useState<Set<string>>(() => new Set());
+
+  // Sem tabela no Supabase: guardado só neste browser.
+  const [mode, setMode] = useLocalState<ViewMode>('painel:mode', 'revue');
+  const [notes, setNotes] = useLocalState<string[]>('painel:notes', []);
+  const [localEvents, setLocalEvents] = useLocalState<LocalEvent[]>('painel:events', []);
+  const [focus, setFocus] = useLocalState<FocusState>('painel:focus', { date: '', ms: 0, since: null });
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [subjectsRes, assessmentsRes, projects, tasks] = await Promise.all([
+      const [subjectsRes, assessmentsRes, chaptersRes, projects, tasks] = await Promise.all([
         supabase.from('subjects').select('id, name, code, schedules'),
-        supabase.from('assessments').select('id, subject_id, title, due_date'),
+        supabase.from('assessments').select('id, subject_id, title, due_date, weight_percent, category'),
+        supabase.from('chapters').select('id, subject_id, category, title, updated_at'),
         getWorkProjects(),
         getWorkTasks(),
       ]);
 
       setSubjects(subjectsRes.data || []);
       setAssessments(assessmentsRes.data || []);
+      setChapters(chaptersRes.data || []);
       setWorkProjects(projects);
       setWorkTasks(tasks);
     } catch (err) {
@@ -70,214 +111,298 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- correr apenas uma vez ao montar
   }, []);
 
-  const now = useMemo(() => new Date(), []);
-  const todayMid = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
-  const todayNum = now.getDay(); // 0 = Domingo ... 6 = Sábado (convenção Date.getDay())
+  const now = useNow(60_000);
+  const todayKey = isoKey(now);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- só muda quando muda o dia
+  const today = useMemo(() => startOfDay(now), [todayKey]);
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
-  const subjectLookup = useMemo(() => {
-    const map = new Map<string, SubjectLite>();
-    subjects.forEach((s) => map.set(s.id, s));
-    return map;
-  }, [subjects]);
-
-  const projectLookup = useMemo(() => {
-    const map = new Map<string, WorkProject>();
-    workProjects.forEach((p) => map.set(p.id, p));
-    return map;
-  }, [workProjects]);
-
+  const subjectLookup = useMemo(() => new Map(subjects.map((x) => [x.id, x])), [subjects]);
+  const projectLookup = useMemo(() => new Map(workProjects.map((p) => [p.id, p])), [workProjects]);
   const classes = useMemo(() => collectClasses(subjects), [subjects]);
 
-  const subjectHours = useMemo(() => computeSubjectHours(classes), [classes]);
-
-  const getDayRows = useCallback(
-    (date: Date) => buildDayRows(date, classes, assessments, workTasks, subjectLookup, projectLookup),
-    [classes, assessments, workTasks, subjectLookup, projectLookup]
+  const sources = useMemo<EventSources>(
+    () => ({ classes, assessments, tasks: workTasks, localEvents, subjectLookup, projectLookup }),
+    [classes, assessments, workTasks, localEvents, subjectLookup, projectLookup]
   );
+  const getEvents = useCallback((date: Date) => buildEventsForDate(date, sources), [sources]);
+  const todayEvents = useMemo(() => getEvents(today), [getEvents, today]);
 
-  const todayRows = useMemo(() => getDayRows(todayMid), [getDayRows, todayMid]);
-
-  const todayLabel = useMemo(
+  // ==========================================
+  // AULAS: hoje (para a sessão em curso) e a próxima noutro dia
+  // ==========================================
+  const todayClasses = useMemo<HeroClass[]>(
     () =>
-      now
-        .toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: 'short' })
-        .toUpperCase()
-        .replace('.', ''),
-    [now]
+      classes
+        .filter((c) => c.dayNum === today.getDay())
+        .sort((a, b) => parseMinutes(a.startTime) - parseMinutes(b.startTime))
+        .map((c) => ({
+          subjectId: c.subjectId,
+          title: subjectLongName(subjectLookup.get(c.subjectId)),
+          typeLabel: classTypeLabel(c.type),
+          start: c.startTime,
+          end: c.endTime,
+          room: c.room,
+        })),
+    [classes, today, subjectLookup]
   );
 
-  const handlePrevMonth = useCallback(() => {
-    setMonthAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-  }, []);
-
-  const handleNextMonth = useCallback(() => {
-    setMonthAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-  }, []);
-
-  // Próxima aula (a mais próxima ainda por vir, considerando toda a semana Seg-Dom)
-  const nextClassLabel = useMemo(() => {
-    let best: { offset: number; minutes: number; dayNum: number; startTime: string } | null = null;
-
+  const nextClassOtherDay = useMemo<HeroNextClass | null>(() => {
+    let best: { offset: number; minutes: number; c: (typeof classes)[number] } | null = null;
     for (const c of classes) {
+      const offset = (c.dayNum - today.getDay() + 7) % 7 || 7;
       const minutes = parseMinutes(c.startTime);
-      // Distância circular (0-6 dias) até à próxima ocorrência semanal deste dia.
-      let offset = (c.dayNum - todayNum + 7) % 7;
-      if (offset === 0 && minutes <= nowMinutes) offset = 7; // já passou hoje, só na próxima semana
-
       if (!best || offset < best.offset || (offset === best.offset && minutes < best.minutes)) {
-        best = { offset, minutes, dayNum: c.dayNum, startTime: c.startTime };
+        best = { offset, minutes, c };
       }
     }
+    if (!best) return null;
+    const date = addDays(today, best.offset);
+    return {
+      subjectId: best.c.subjectId,
+      title: subjectLongName(subjectLookup.get(best.c.subjectId)),
+      dayLabel: best.offset === 1 ? 'amanhã' : WEEKDAY_LONG_PT[date.getDay()].toLowerCase(),
+      start: best.c.startTime,
+      end: best.c.endTime,
+      room: best.c.room,
+    };
+  }, [classes, today, subjectLookup]);
 
-    if (!best) return 'SEM AULAS AGENDADAS ESTA SEMANA';
-    const dayLabel = best.offset === 0 ? 'HOJE' : DAY_NUM_TO_LABEL[best.dayNum];
-    return `${dayLabel} ${best.startTime}`;
-  }, [classes, todayNum, nowMinutes]);
-
-  const pendingTasksCount = useMemo(
-    () => workTasks.filter((t) => !t.completed).length,
-    [workTasks]
-  );
+  const nextLabel = useMemo(() => {
+    const code = (id: string) => subjectShortName(subjectLookup.get(id));
+    const room = (r: string) => (r ? `, Sala ${r}` : '');
+    const current = todayClasses.find((c) => {
+      const start = parseMinutes(c.start);
+      const end = c.end ? parseMinutes(c.end) : start + 90;
+      return nowMinutes >= start && nowMinutes < end;
+    });
+    if (current) return `Aula ${code(current.subjectId)} a decorrer${room(current.room)}`;
+    const later = todayClasses.find((c) => parseMinutes(c.start) > nowMinutes);
+    if (later) {
+      const diff = parseMinutes(later.start) - nowMinutes;
+      const inLabel = diff < 60 ? `${diff} min` : `${Math.floor(diff / 60)} h ${String(diff % 60).padStart(2, '0')} min`;
+      return `Aula ${code(later.subjectId)}${room(later.room)}, em ${inLabel}`;
+    }
+    if (nextClassOtherDay) {
+      return `Próxima aula: ${code(nextClassOtherDay.subjectId)}, ${nextClassOtherDay.dayLabel} às ${nextClassOtherDay.start}`;
+    }
+    return 'Sem aulas no horário';
+  }, [todayClasses, nowMinutes, nextClassOtherDay, subjectLookup]);
 
   // ==========================================
-  // "PRÓXIMOS 7 DIAS": prazos + tarefas (sem aulas, que são recorrentes)
+  // FOCO (cronómetro local, reinicia todos os dias)
   // ==========================================
-  const upcomingRows = useMemo<UpcomingRow[]>(() => {
-    const rows: UpcomingRow[] = [];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const limit = new Date(today);
-    limit.setDate(limit.getDate() + 6);
-    limit.setHours(23, 59, 59, 999);
+  const focusToday = focus.date === todayKey ? focus : { date: todayKey, ms: 0, since: null };
+  const focusRunning = focusToday.since !== null;
+  const focusMs = focusToday.ms + (focusToday.since !== null ? Math.max(0, now.getTime() - focusToday.since) : 0);
+  const focusMinutes = Math.floor(focusMs / 60000);
+  const focusLabel = `${String(Math.floor(focusMinutes / 60)).padStart(2, '0')}h ${String(focusMinutes % 60).padStart(2, '0')}m de foco hoje`;
 
-    assessments.forEach((a) => {
-      const due = parseDueDate(a.due_date);
-      if (due && due >= today && due <= limit) {
-        const subject = subjectLookup.get(a.subject_id);
-        rows.push({
-          id: `prazo-${a.id}`,
-          kind: 'PRAZO',
-          date: due,
-          title: a.title || 'AVALIAÇÃO',
-          subtitle: subject?.code || subject?.name || 'FACULDADE',
-        });
-      }
+  const toggleFocus = useCallback(() => {
+    setFocus((prev) => {
+      const key = isoKey(new Date());
+      const base = prev.date === key ? prev : { date: key, ms: 0, since: null };
+      if (base.since !== null) return { date: key, ms: base.ms + (Date.now() - base.since), since: null };
+      return { date: key, ms: base.ms, since: Date.now() };
+    });
+  }, [setFocus]);
+
+  // ==========================================
+  // VOLUMES: disciplinas pela edição de capítulos mais recente
+  // ==========================================
+  const tiles = useMemo<HeroTile[]>(() => {
+    const byCode = [...subjects].sort((a, b) => (a.code || a.name || '').localeCompare(b.code || b.name || ''));
+    const volOf = new Map(byCode.map((x, i) => [x.id, `Vol. ${String(i + 1).padStart(2, '0')}`]));
+
+    const latest = new Map<string, ChapterLite>();
+    const counts = new Map<string, { chapters: number; notebooks: Set<string> }>();
+    chapters.forEach((ch) => {
+      const cur = latest.get(ch.subject_id);
+      if (!cur || (ch.updated_at || '') > (cur.updated_at || '')) latest.set(ch.subject_id, ch);
+      const c = counts.get(ch.subject_id) || { chapters: 0, notebooks: new Set<string>() };
+      c.chapters += 1;
+      c.notebooks.add(ch.category || 'TEORICAS');
+      counts.set(ch.subject_id, c);
     });
 
+    const ranked = [...byCode].sort((a, b) => {
+      const ta = latest.get(a.id)?.updated_at || '';
+      const tb = latest.get(b.id)?.updated_at || '';
+      return tb.localeCompare(ta);
+    });
+
+    return ranked.slice(0, 2).map((subj) => {
+      const ch = latest.get(subj.id);
+      const count = counts.get(subj.id);
+      const vol = volOf.get(subj.id) || 'Vol.';
+      const name = subjectShortName(subj);
+      if (!ch || !count) {
+        return {
+          subjectId: subj.id,
+          vol,
+          name,
+          sub: 'Sem capítulos',
+          tipTitle: `${vol}, ${subjectLongName(subj)}`,
+          tipBody: 'Ainda não há capítulos nos notebooks desta disciplina. Abre para começar pelas Teóricas.',
+          href: `/faculdade/${subj.id}/notebook?tab=TEORICAS`,
+        };
+      }
+      const label = notebookLabel(ch.category);
+      const rel = relativeTime(ch.updated_at, now);
+      return {
+        subjectId: subj.id,
+        vol,
+        name,
+        sub: `${label} · ${rel}`,
+        tipTitle: `${vol}, ${subjectLongName(subj)}`,
+        tipBody: `${count.chapters} ${count.chapters === 1 ? 'capítulo' : 'capítulos'} em ${count.notebooks.size} ${
+          count.notebooks.size === 1 ? 'notebook' : 'notebooks'
+        }. Abre no último que editaste: ${label} (${ch.title || 'sem título'}, ${rel}).`,
+        href: `/faculdade/${subj.id}/notebook?tab=${ch.category || 'TEORICAS'}`,
+      };
+    });
+  }, [subjects, chapters, now]);
+
+  // ==========================================
+  // SEMANA (Seg–Sex, mais fim de semana se tiver eventos)
+  // ==========================================
+  const monday = useMemo(() => mondayOf(today), [today]);
+  const weekColumns = useMemo<WeekColumn[]>(() => {
+    const cols = Array.from({ length: 7 }, (_, i) => {
+      const date = addDays(monday, i);
+      return { date, events: getEvents(date) };
+    });
+    const weekend = cols.slice(5).some((c) => c.events.length > 0);
+    return weekend ? cols : cols.slice(0, 5);
+  }, [monday, getEvents]);
+
+  // ==========================================
+  // PRAZOS (avaliações + tarefas nos próximos 14 dias)
+  // ==========================================
+  const deadlineItems = useMemo<DeadlineItem[]>(() => {
+    const limit = addDays(today, 14);
+    const items: DeadlineItem[] = [];
+    assessments.forEach((a) => {
+      const due = parseDueDate(a.due_date);
+      if (!due || due < today || due > limit) return;
+      const subj = subjectLookup.get(a.subject_id);
+      const weight = typeof a.weight_percent === 'number' ? ` Peso: ${a.weight_percent}%.` : '';
+      items.push({
+        id: `a-${a.id}`,
+        cat: 'prazo',
+        date: due,
+        title: a.title || 'Avaliação',
+        typeLabel: `Faculdade · ${subjectShortName(subj)}`,
+        desc: `Avaliação de ${subjectLongName(subj)}.${weight}`,
+        href: `/faculdade/${a.subject_id}`,
+      });
+    });
     workTasks
       .filter((t) => !t.completed)
       .forEach((t) => {
         const due = parseDueDate(t.due_date);
-        if (due && due >= today && due <= limit) {
-          const project = t.project_id ? projectLookup.get(t.project_id) : undefined;
-          rows.push({
-            id: `tarefa-${t.id}`,
-            kind: 'TAREFA',
-            date: due,
-            title: t.title,
-            subtitle: project?.name || 'SEM PROJETO',
-          });
-        }
+        if (!due || due < today || due > limit) return;
+        const project = t.project_id ? projectLookup.get(t.project_id) : undefined;
+        items.push({
+          id: `t-${t.id}`,
+          cat: 'trab',
+          date: due,
+          title: t.title,
+          typeLabel: project?.name || 'Trabalho',
+          desc: `Tarefa de ${project?.name || 'trabalho sem projeto'}.`,
+          href: '/trabalho',
+        });
       });
-
-    return rows.sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [assessments, workTasks, subjectLookup, projectLookup]);
+    return items.sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [assessments, workTasks, today, subjectLookup, projectLookup]);
 
   // ==========================================
-  // "RITMO SEMANAL": grelha Seg-Dom da semana atual
+  // PLANO DE AÇÃO
   // ==========================================
-  const weekDays = useMemo<WeekDayCell[]>(() => {
-    const jsDayNow = todayMid.getDay();
-    const diffToMonday = jsDayNow === 0 ? -6 : 1 - jsDayNow;
-    const monday = new Date(todayMid);
-    monday.setDate(todayMid.getDate() + diffToMonday);
+  const planTasks = useMemo(
+    () =>
+      workTasks.filter((t) => {
+        if (!t.completed || touchedTaskIds.has(t.id)) return true;
+        const due = parseDueDate(t.due_date);
+        return due !== null && daysBetween(today, due) === 0;
+      }),
+    [workTasks, touchedTaskIds, today]
+  );
 
-    const cells: WeekDayCell[] = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(monday);
-      date.setDate(monday.getDate() + i);
-      const jsDayOfCell = date.getDay();
-      const isToday = date.getTime() === todayMid.getTime();
-      const isPast = date.getTime() < todayMid.getTime();
+  const classHoursWeek = useMemo(
+    () => computeSubjectHours(classes).reduce((sum, x) => sum + x.hours, 0),
+    [classes]
+  );
+  const taskHoursWeek = useMemo(() => {
+    const sunday = addDays(monday, 6);
+    return (
+      workTasks.filter((t) => {
+        if (t.completed) return false;
+        const due = parseDueDate(t.due_date);
+        return due !== null && due <= sunday;
+      }).length * MOCK_TASK_HOURS
+    );
+  }, [workTasks, monday]);
 
-      const rows: AgendaRow[] = buildDayRows(date, classes, assessments, workTasks, subjectLookup, projectLookup);
-      const hasCritical = rows.some((r) => r.kind === 'PRAZO');
-
-      let status: WeekDayCell['status'];
-      if (isPast) status = 'CONCLUÍDO';
-      else if (isToday) status = 'HOJE';
-      else if (hasCritical) status = 'CRÍTICO';
-      else if (rows.length > 0) status = 'PROGRAMADO';
-      else status = 'FLEXÍVEL';
-
-      cells.push({
-        date,
-        dayLabel: PT_WEEKDAY_LABEL[jsDayOfCell],
-        dateLabel: String(date.getDate()).padStart(2, '0'),
-        isToday,
-        isPast,
-        status,
-        rows,
+  const handleToggleTask = useCallback(async (task: WorkTask) => {
+    const next = !task.completed;
+    setPendingTaskIds((prev) => new Set(prev).add(task.id));
+    setTouchedTaskIds((prev) => new Set(prev).add(task.id));
+    setWorkTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, completed: next } : t)));
+    try {
+      await toggleWorkTask(task.id, next);
+    } catch (err) {
+      console.error('Erro ao atualizar a tarefa:', err);
+      setWorkTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, completed: !next } : t)));
+    } finally {
+      setPendingTaskIds((prev) => {
+        const copy = new Set(prev);
+        copy.delete(task.id);
+        return copy;
       });
     }
-    return cells;
-  }, [todayMid, classes, assessments, workTasks, subjectLookup, projectLookup]);
+  }, []);
+
+  const handleAddTask = useCallback(
+    async (title: string, projectId: string | null) => {
+      try {
+        const created = await createWorkTask({ title, project_id: projectId, due_date: todayKey });
+        setWorkTasks((prev) => [created, ...prev]);
+      } catch (err) {
+        console.error('Erro ao criar a tarefa:', err);
+      }
+    },
+    [todayKey]
+  );
 
   // ==========================================
-  // TICKER: os itens mais urgentes (hoje + próximos 7 dias)
+  // EVENTOS LOCAIS / NOTAS
   // ==========================================
-  const tickerItems = useMemo(() => {
-    return upcomingRows.slice(0, 6).map((row) => ({
-      id: row.id,
-      text: `${row.title} — ${row.subtitle}`,
-      tag: formatDaysLeftLabel(row.date, now),
-    }));
-  }, [upcomingRows, now]);
-
-  const nearestDeadline = upcomingRows[0] || null;
+  const handleAddEvent = useCallback(
+    (dateKey: string, title: string, time: string, cat: PainelCat) => {
+      setLocalEvents((prev) => [...prev, { id: `${Date.now()}`, date: dateKey, time, title, cat }]);
+    },
+    [setLocalEvents]
+  );
+  const handleRemoveEvent = useCallback(
+    (id: string) => setLocalEvents((prev) => prev.filter((e) => e.id !== id)),
+    [setLocalEvents]
+  );
+  const addNote = useCallback((text: string) => setNotes((prev) => [...prev, text]), [setNotes]);
 
   // ==========================================
-  // PESQUISA (sobre os dados já carregados, sem chamadas extra)
+  // PESQUISA (sobre os dados já carregados)
   // ==========================================
   const searchIndex = useMemo<SearchEntry[]>(() => {
     const entries: SearchEntry[] = [];
-    subjects.forEach((s) =>
-      entries.push({
-        id: `search-subj-${s.id}`,
-        label: s.name || s.code || 'Disciplina',
-        sublabel: 'FACULDADE // DISCIPLINA',
-        href: `/faculdade/${s.id}`,
-      })
+    subjects.forEach((x) =>
+      entries.push({ id: `s-${x.id}`, label: x.name || x.code || 'Disciplina', sublabel: 'Faculdade · Disciplina', href: `/faculdade/${x.id}` })
     );
     assessments.forEach((a) =>
-      entries.push({
-        id: `search-assess-${a.id}`,
-        label: a.title || 'Avaliação',
-        sublabel: 'FACULDADE // PRAZO',
-        href: `/faculdade/${a.subject_id}`,
-      })
+      entries.push({ id: `a-${a.id}`, label: a.title || 'Avaliação', sublabel: 'Faculdade · Prazo', href: `/faculdade/${a.subject_id}` })
     );
-    workProjects.forEach((p) =>
-      entries.push({
-        id: `search-proj-${p.id}`,
-        label: p.name,
-        sublabel: 'TRABALHO // PROJETO',
-        href: '/trabalho',
-      })
-    );
-    workTasks.forEach((t) =>
-      entries.push({
-        id: `search-task-${t.id}`,
-        label: t.title,
-        sublabel: 'TRABALHO // TAREFA',
-        href: '/trabalho',
-      })
-    );
+    workProjects.forEach((p) => entries.push({ id: `p-${p.id}`, label: p.name, sublabel: 'Trabalho · Projeto', href: '/trabalho' }));
+    workTasks.forEach((t) => entries.push({ id: `t-${t.id}`, label: t.title, sublabel: 'Trabalho · Tarefa', href: '/trabalho' }));
     return entries;
   }, [subjects, assessments, workProjects, workTasks]);
 
@@ -292,79 +417,103 @@ export default function HomePage() {
       }
     : null;
 
-  const todayFormatted = now
-    .toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
-    .toUpperCase();
+  const handleLogout = useCallback(async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  }, [supabase, router]);
 
-  const editionLabel = `VOL. ${now.getFullYear()} · Nº ${String(dayOfYear(now)).padStart(3, '0')}`;
+  const monthName = MONTHS_PT[today.getMonth()];
+  const dateLabel = `${WEEKDAY_LONG_PT[today.getDay()]}, ${today.getDate()} de ${monthName}`;
+  const indexLabel = `${WEEKDAY_LONG_PT[today.getDay()].replace('-feira', '').toLowerCase()}, ${today.getDate()}`;
 
   return (
-    <div className="min-h-screen bg-[#FCF9F2] text-[#111111] font-sans selection:bg-[#111111] selection:text-[#FCF9F2] flex flex-col justify-between">
-      <Ticker items={tickerItems} />
+    <div className={s.root}>
+      <TopStrip
+        focusLabel={focusLabel}
+        nextLabel={loading ? 'A carregar horário…' : nextLabel}
+        quote={MOCK_QUOTE}
+        focusRunning={focusRunning}
+        onToggleFocus={toggleFocus}
+      />
 
-      <main className="max-w-7xl mx-auto px-6 pt-10 pb-12 space-y-12 w-full flex-1">
-        <HomeMasthead
-          editionLabel={editionLabel}
-          todayFormatted={todayFormatted}
-          searchIndex={searchIndex}
-          profileUser={profileUser}
-          onOpenProfileModal={() => setIsProfileOpen(true)}
-        />
+      <PainelHeader
+        location={MOCK_LOCATION}
+        editionNumber={dayOfYear(today)}
+        dateLabel={dateLabel}
+        mode={mode}
+        onModeChange={setMode}
+        ctx={ctx}
+        onCtxChange={setCtx}
+        searchIndex={searchIndex}
+        userName={user?.name ?? null}
+        userEmail={user?.email ?? null}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onLogout={handleLogout}
+      />
 
-        {loading ? (
-          <div className="py-12 font-mono text-center text-xs tracking-widest uppercase text-[#767571]">
-            A CARREGAR AGENDA...
+      {loading ? (
+        <p className={`${s.inner} ${s.muted}`} style={{ paddingTop: 96, paddingBottom: 96, fontSize: 16 }}>
+          A carregar agenda…
+        </p>
+      ) : (
+        <>
+          <PainelHero
+            weekdayLabel={WEEKDAY_HERO_PT[today.getDay()]}
+            dayNumber={today.getDate()}
+            monthLine={`de ${monthName}, semana ${isoWeek(today)}`}
+            mode={mode}
+            todayClasses={todayClasses}
+            nextClass={nextClassOtherDay}
+            tiles={tiles}
+            subjectsCount={subjects.length}
+            focusRunning={focusRunning}
+            onToggleFocus={toggleFocus}
+            onCapture={addNote}
+          />
+
+          <main className={`${s.inner} ${s.grid12}`} style={{ paddingTop: 64 }}>
+            <div className={s.colMain}>
+              <DayIndex events={todayEvents} nowMinutes={nowMinutes} ctx={ctx} dayLabel={indexLabel} />
+            </div>
+            <div className={s.colSide}>
+              <WeekGrid columns={weekColumns} today={today} weekNumber={isoWeek(today)} ctx={ctx} />
+            </div>
+          </main>
+
+          <PainelMonth today={today} getEvents={getEvents} onAddEvent={handleAddEvent} onRemoveEvent={handleRemoveEvent} />
+
+          <Deadlines items={deadlineItems} today={today} ctx={ctx} />
+
+          <div className={`${s.inner} ${s.grid12}`} style={{ paddingTop: 80 }}>
+            <div className={s.colMain}>
+              <ActionPlan
+                tasks={planTasks}
+                projects={workProjects}
+                classHours={classHoursWeek}
+                taskHours={taskHoursWeek}
+                today={today}
+                pendingIds={pendingTaskIds}
+                onToggle={handleToggleTask}
+                onAdd={handleAddTask}
+              />
+            </div>
+            <div className={s.colSide}>
+              <Balance notes={notes} onAddNote={addNote} onClearNotes={() => setNotes([])} />
+            </div>
           </div>
-        ) : (
-          <>
-            <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-8">
-                <ModuleCards
-                  subjectsCount={subjects.length}
-                  nextClassLabel={nextClassLabel}
-                  projectsCount={workProjects.length}
-                  pendingTasksCount={pendingTasksCount}
-                />
-              </div>
-              <div className="lg:col-span-4">
-                <DeadlineCountdown deadline={nearestDeadline} />
-              </div>
-            </section>
+        </>
+      )}
 
-            <hr className="border-[#D8D5CC]" />
+      <PainelFooter />
 
-            <section className="space-y-4">
-              <h2 className="font-display text-4xl sm:text-5xl uppercase text-[#111111] tracking-tight">
-                Ritmo Semanal.
-              </h2>
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                <div className="lg:col-span-4 space-y-6">
-                  <MiniMonthCalendar
-                    monthAnchor={monthAnchor}
-                    today={todayMid}
-                    onPrevMonth={handlePrevMonth}
-                    onNextMonth={handleNextMonth}
-                    getDayRows={getDayRows}
-                  />
-                  <TodayAgenda rows={todayRows} todayLabel={todayLabel} />
-                  <TimeBreakdown data={subjectHours} />
-                </div>
-
-                <div className="lg:col-span-8">
-                  <WeeklyCalendarGrid weekDays={weekDays} />
-                </div>
-              </div>
-            </section>
-
-            <hr className="border-[#D8D5CC]" />
-
-            <UpcomingDeadlines rows={upcomingRows} />
-          </>
-        )}
-      </main>
-
-      <HomeFooter />
+      <svg aria-hidden="true" className={s.grain}>
+        <filter id="painel-grain">
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
+          <feColorMatrix type="saturate" values="0" />
+        </filter>
+        <rect width="100%" height="100%" filter="url(#painel-grain)" />
+      </svg>
 
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
     </div>
