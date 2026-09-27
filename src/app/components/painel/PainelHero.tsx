@@ -1,12 +1,11 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import s from './painel.module.css';
 import { Tip } from './ui';
 import { useNow } from './useLocalState';
 import { parseMinutes } from '../homeAgenda';
-import type { ViewMode } from './PainelTop';
 
 export interface HeroClass {
   subjectId: string;
@@ -40,7 +39,6 @@ interface HeroProps {
   weekdayLabel: string;
   dayNumber: number;
   monthLine: string;
-  mode: ViewMode;
   todayClasses: HeroClass[];
   nextClass: HeroNextClass | null;
   tiles: HeroTile[];
@@ -48,6 +46,9 @@ interface HeroProps {
   focusRunning: boolean;
   onToggleFocus: () => void;
   onCapture: (text: string) => void;
+  // Blocos encaixados na abertura: plano de ação (esquerda), notas (direita).
+  leftExtra?: ReactNode;
+  rightExtra?: ReactNode;
 }
 
 function pad(n: number): string {
@@ -70,7 +71,6 @@ export function PainelHero({
   weekdayLabel,
   dayNumber,
   monthLine,
-  mode,
   todayClasses,
   nextClass,
   tiles,
@@ -78,9 +78,10 @@ export function PainelHero({
   focusRunning,
   onToggleFocus,
   onCapture,
+  leftExtra,
+  rightExtra,
 }: HeroProps) {
   const now = useNow(1000);
-  const patternId = useId().replace(/:/g, '');
   const [capture, setCapture] = useState('');
   const [saved, setSaved] = useState(false);
 
@@ -138,13 +139,8 @@ export function PainelHero({
     setSaved(true);
   };
 
-  const isRevue = mode === 'revue';
-
   return (
-    <section
-      className={s.inner}
-      style={{ marginTop: 32 }}
-    >
+    <section className={s.inner} style={{ marginTop: 27 }}>
       <div
         style={{
           display: 'flex',
@@ -152,122 +148,102 @@ export function PainelHero({
           justifyContent: 'space-between',
           gap: 40,
           borderTop: '1px solid var(--hair)',
-          paddingTop: 28,
+          paddingTop: 23,
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 32, flex: '1 1 420px', minWidth: 0 }}>
+        {/* ESQUERDA: data + plano de ação */}
+        <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 360px', maxWidth: 531, minWidth: 0 }}>
           <h1
             className={s.display}
-            style={{ fontSize: 'clamp(84px, 10.5vw, 152px)', lineHeight: 0.88, letterSpacing: '-.04em' }}
+            style={{ fontSize: 'clamp(72px, 8.75vw, 126px)', lineHeight: 0.88, letterSpacing: '-.04em' }}
           >
             <span style={{ display: 'block' }}>{weekdayLabel}</span>
             <span style={{ display: 'block' }}>{dayNumber}</span>
           </h1>
           <p
             className={s.serif}
-            style={{ margin: 0, fontWeight: 600, fontSize: 'clamp(26px, 2.5vw, 36px)', lineHeight: 1.1, letterSpacing: '-.01em' }}
+            style={{ margin: '17px 0 0', fontWeight: 600, fontSize: 'clamp(22px, 2.1vw, 30px)', lineHeight: 1.1, letterSpacing: '-.01em' }}
           >
             {monthLine}
           </p>
+          {leftExtra}
         </div>
 
-        <div style={{ width: 'min(620px, 100%)' }}>
+        {/* DIREITA: sessão, volumes, captura e notas */}
+        <div style={{ width: 'min(515px, 100%)' }}>
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: isRevue ? 'minmax(0,1fr) auto' : 'minmax(0,1fr)',
-              minHeight: 320,
+              minHeight: 266,
               background: 'var(--bone)',
               color: 'var(--inkdark)',
+              padding: '22px 23px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              gap: 18,
             }}
           >
-            <div style={{ padding: '26px 28px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 20, minWidth: 0 }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{head}</span>
-                  <span style={{ fontSize: 14, color: 'var(--subdark)' }}>{status}</span>
-                </div>
-                <h2
-                  className={s.serif}
-                  style={{ margin: '14px 0 0', fontWeight: 600, fontSize: 'clamp(28px, 2.5vw, 36px)', lineHeight: 1.05, letterSpacing: '-.01em' }}
-                >
-                  {title}
-                </h2>
-                <p style={{ margin: '8px 0 0', fontSize: 15, color: 'var(--subdark)' }}>{subtitle}</p>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{head}</span>
+                <span style={{ fontSize: 12, color: 'var(--subdark)' }}>{status}</span>
               </div>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-                  <span
-                    className={s.serif}
-                    style={{ fontWeight: 600, fontSize: 'clamp(52px, 4.7vw, 68px)', lineHeight: 0.9, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' }}
-                  >
-                    {big}
-                  </span>
-                  <span style={{ fontSize: 14, color: 'var(--subdark)' }}>{bigNote}</span>
+              <h2
+                className={s.serif}
+                style={{ margin: '12px 0 0', fontWeight: 600, fontSize: 'clamp(24px, 2.1vw, 30px)', lineHeight: 1.05, letterSpacing: '-.01em' }}
+              >
+                {title}
+              </h2>
+              <p style={{ margin: '7px 0 0', fontSize: 12, color: 'var(--subdark)' }}>{subtitle}</p>
+            </div>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+                <span
+                  className={s.serif}
+                  style={{ fontWeight: 600, fontSize: 'clamp(44px, 3.9vw, 56px)', lineHeight: 0.9, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {big}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--subdark)' }}>{bigNote}</span>
+              </div>
+              {progress !== null && (
+                <div style={{ height: 5, background: 'rgba(12,12,12,.18)', marginTop: 12 }}>
+                  <div style={{ height: '100%', width: `${Math.round(progress * 100)}%`, background: 'var(--petro)' }} />
                 </div>
-                {progress !== null && (
-                  <div style={{ height: 6, background: 'rgba(12,12,12,.18)', marginTop: 14 }}>
-                    <div style={{ height: '100%', width: `${Math.round(progress * 100)}%`, background: 'var(--petro)' }} />
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
-                  {notebookHref ? (
-                    <Link href={notebookHref} className={s.btnDark}>Notebook</Link>
-                  ) : (
-                    <Link href="/faculdade" className={s.btnDark}>Faculdade</Link>
-                  )}
-                  <button type="button" onClick={onToggleFocus} className={s.btnOutlineDark} aria-pressed={focusRunning}>
-                    {focusRunning ? 'Pausar foco' : 'Iniciar foco'}
-                  </button>
-                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 13, flexWrap: 'wrap' }}>
+                <Link href={notebookHref ?? '/faculdade'} className={s.btnDark}>
+                  {notebookHref ? 'Notebook' : 'Faculdade'}
+                </Link>
+                <button type="button" onClick={onToggleFocus} className={s.btnOutlineDark} aria-pressed={focusRunning}>
+                  {focusRunning ? 'Pausar foco' : 'Iniciar foco'}
+                </button>
               </div>
             </div>
-            {isRevue && (
-              <div className={s.hideSm} style={{ width: 220, minHeight: 320 }}>
-                <svg viewBox="300 0 220 320" width="220" height="100%" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style={{ display: 'block', height: '100%' }}>
-                  <defs>
-                    <pattern id={patternId} width="7" height="7" patternUnits="userSpaceOnUse">
-                      <circle cx="3.5" cy="3.5" r="1.3" style={{ fill: 'var(--bone)' }} />
-                    </pattern>
-                  </defs>
-                  <rect x="-20" y="-20" width="660" height="360" style={{ fill: 'var(--bone)' }} />
-                  <circle cx="420" cy="170" r="170" style={{ fill: 'var(--petro)' }} />
-                  <circle cx="340" cy="170" r="130" style={{ fill: `url(#${patternId})` }} />
-                  <circle cx="150" cy="66" r="20" style={{ fill: 'var(--bg)' }} />
-                </svg>
-              </div>
-            )}
           </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-              gap: 13,
-              marginTop: 12,
-            }}
-          >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 11, marginTop: 10 }}>
             {tiles.map((t, i) => (
               <div key={t.subjectId} className={s.hv} style={{ aspectRatio: '1 / 1' }}>
                 <Link
                   href={t.href}
                   className={i === 0 ? s.tileP : s.tile}
-                  style={{ width: '100%', height: '100%', padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+                  style={{ width: '100%', height: '100%', padding: 15, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
                 >
-                  <span style={{ fontSize: 14, fontWeight: 500 }}>{t.vol}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{t.vol}</span>
                   <span style={{ display: 'block', minWidth: 0 }}>
                     <span
                       className={s.serif}
-                      style={{ display: 'block', fontWeight: 600, fontSize: 'clamp(28px, 2.8vw, 40px)', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      style={{ display: 'block', fontWeight: 600, fontSize: 'clamp(24px, 2.3vw, 33px)', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     >
                       {t.name}
                     </span>
-                    <span className={i === 0 ? undefined : s.sub} style={{ display: 'block', fontSize: 14, marginTop: 6 }}>
+                    <span className={i === 0 ? undefined : s.sub} style={{ display: 'block', fontSize: 12, marginTop: 5 }}>
                       {t.sub}
                     </span>
                   </span>
                 </Link>
-                <Tip tone={i === 0 ? 'v' : 'p'} title={t.tipTitle} style={{ left: 0, top: 'calc(100% - 20px)' }}>
+                <Tip tone={i === 0 ? 'v' : 'p'} title={t.tipTitle} style={{ left: 0, top: 'calc(100% - 17px)' }}>
                   {t.tipBody}
                 </Tip>
               </div>
@@ -275,19 +251,19 @@ export function PainelHero({
 
             {tiles.length < 2 && (
               <Link
-                href="/faculdade"
-                style={{ aspectRatio: '1 / 1', border: '1px dashed var(--hair)', padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+                href="/faculdade#nova-disciplina"
+                style={{ aspectRatio: '1 / 1', border: '1px dashed var(--hair)', padding: 15, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
               >
-                <span style={{ fontSize: 14 }} className={s.muted}>Vol. {String(tiles.length + 1).padStart(2, '0')}</span>
-                <span className={s.serif} style={{ fontWeight: 600, fontSize: 24, lineHeight: 1.05 }}>Nova disciplina</span>
+                <span className={s.muted} style={{ fontSize: 12 }}>Vol. {String(tiles.length + 1).padStart(2, '0')}</span>
+                <span className={s.serif} style={{ fontWeight: 600, fontSize: 20, lineHeight: 1.05 }}>Nova disciplina</span>
               </Link>
             )}
 
             <div
               className={s.hv}
-              style={{ aspectRatio: '1 / 1', border: '1px solid var(--bone)', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}
+              style={{ aspectRatio: '1 / 1', border: '1px solid var(--bone)', padding: 12, display: 'flex', flexDirection: 'column', gap: 7 }}
             >
-              <span className={s.serif} style={{ fontWeight: 600, fontSize: 20, lineHeight: 1 }}>Captura rápida</span>
+              <span className={s.serif} style={{ fontWeight: 600, fontSize: 17, lineHeight: 1 }}>Captura rápida</span>
               <textarea
                 aria-label="Captura rápida de apontamentos"
                 placeholder="Citação ou referência"
@@ -302,21 +278,24 @@ export function PainelHero({
                     saveCapture();
                   }
                 }}
-                style={{ flex: 1, minHeight: 0, resize: 'none', background: 'transparent', border: '1px solid var(--hair)', padding: 8, fontSize: 14, lineHeight: 1.4 }}
+                style={{ flex: 1, minHeight: 0, resize: 'none', background: 'transparent', border: '1px solid var(--hair)', padding: 7, fontSize: 12, lineHeight: 1.4 }}
               />
               <button
                 type="button"
                 onClick={saveCapture}
-                style={{ background: 'var(--bone)', color: 'var(--inkdark)', padding: '9px 10px', fontSize: 14, fontWeight: 600, textAlign: 'center' }}
+                style={{ background: 'var(--bone)', color: 'var(--inkdark)', padding: '7px 8px', fontSize: 12, fontWeight: 600, textAlign: 'center' }}
               >
                 {saved ? 'Guardado' : 'Gravar nas notas'}
               </button>
-              <Tip tone="m" title="Captura rápida" style={{ right: 0, top: 'calc(100% - 12px)', width: 280 }}>
-                Guarda citações e referências nas Notas efémeras, mais abaixo. Atalho: Ctrl+S.
+              <Tip tone="m" title="Captura rápida" style={{ right: 0, top: 'calc(100% - 10px)', width: 232 }}>
+                Guarda citações e referências nas Notas efémeras, logo abaixo. Atalho: Ctrl+S.
               </Tip>
             </div>
           </div>
-          <Link href="/faculdade" className={`${s.lnk} ${s.muted}`} style={{ display: 'inline-block', marginTop: 14, fontSize: 14 }}>
+
+          {rightExtra}
+
+          <Link href="/faculdade" className={`${s.lnk} ${s.muted}`} style={{ display: 'inline-block', marginTop: 13, fontSize: 12 }}>
             Ver todas as cadeiras ({subjectsCount}) →
           </Link>
         </div>

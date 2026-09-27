@@ -36,7 +36,7 @@ export function DayIndex({
     <section>
       <SectionHead title="ÍNDICE DO DIA" aside={dayLabel} />
       {rows.length === 0 && (
-        <p className={s.muted} style={{ margin: '22px 0 0', fontSize: 16 }}>
+        <p className={s.muted} style={{ margin: '18px 0 0', fontSize: 14 }}>
           {ctx === 'trab' ? 'Sem tarefas de trabalho com prazo hoje.' : 'Nada agendado para hoje.'}
         </p>
       )}
@@ -66,24 +66,24 @@ export function DayIndex({
             <span style={{ display: 'block' }}>
               <span
                 className={`${s.serif} ${s.tm}`}
-                style={{ display: 'block', fontWeight: 600, fontSize: 'clamp(30px, 3vw, 44px)', lineHeight: 1, letterSpacing: '-.01em' }}
+                style={{ display: 'block', fontWeight: 600, fontSize: 'clamp(28px, 2.6vw, 37px)', lineHeight: 1, letterSpacing: '-.01em' }}
               >
                 {ev.time || '—'}
               </span>
-              <span style={{ display: 'block', fontSize: 14, color: sub, marginTop: 4 }}>
+              <span style={{ display: 'block', fontSize: 12, color: sub, marginTop: 4 }}>
                 {ev.time ? `até ${ev.until || '—'}` : ev.cat === 'prazo' ? 'prazo do dia' : 'sem hora'}
               </span>
             </span>
             <span style={{ display: 'block', minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 'clamp(18px, 1.6vw, 22px)', fontWeight: 500, lineHeight: 1.2 }}>{ev.title}</span>
-              <span style={{ display: 'block', fontSize: 15, color: sub, marginTop: 4 }}>
+              <span style={{ display: 'block', fontSize: 'clamp(16px, 1.3vw, 18px)', fontWeight: 500, lineHeight: 1.2 }}>{ev.title}</span>
+              <span style={{ display: 'block', fontSize: 12, color: sub, marginTop: 4 }}>
                 {CAT_LABEL[ev.cat]}, {ev.place}
               </span>
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
               <span
                 style={{
-                  fontSize: 14,
+                  fontSize: 12,
                   fontWeight: statusStrong ? 600 : 400,
                   color: active ? 'var(--ink)' : ev.cat === 'prazo' ? 'var(--acc)' : 'var(--mut)',
                   whiteSpace: 'nowrap',
@@ -91,19 +91,19 @@ export function DayIndex({
               >
                 {status}
               </span>
-              <Swatch cat={ev.cat} />
+              <Swatch cat={ev.cat} size={10} />
             </span>
           </>
         );
 
         const rowStyle = {
           display: 'grid',
-          gridTemplateColumns: 'minmax(88px, 150px) minmax(0, 1fr) auto',
-          columnGap: 24,
+          gridTemplateColumns: 'minmax(76px, 124px) minmax(0, 1fr) auto',
+          columnGap: 20,
           alignItems: 'center',
-          width: 'calc(100% + 32px)',
-          margin: '0 -16px',
-          padding: '22px 16px',
+          width: 'calc(100% + 26px)',
+          margin: '0 -13px',
+          padding: '18px 13px',
           background: active ? 'var(--petro)' : 'transparent',
         } as const;
 
@@ -118,12 +118,12 @@ export function DayIndex({
               <Link
                 href={`/faculdade/${ev.subjectId}/notebook`}
                 className={s.lnk}
-                style={{ position: 'absolute', right: 0, bottom: 12, fontSize: 14 }}
+                style={{ position: 'absolute', right: 0, bottom: 10, fontSize: 12 }}
               >
                 Abrir notas
               </Link>
             )}
-            <Tip tone={CAT_TONE[ev.cat]} title={ev.title} style={{ right: 0, top: 'calc(100% - 18px)', width: 340 }}>
+            <Tip tone={CAT_TONE[ev.cat]} title={ev.title} style={{ right: 0, top: 'calc(100% - 15px)', width: 282 }}>
               {ev.desc}
             </Tip>
           </div>
@@ -141,7 +141,7 @@ export interface WeekColumn {
   events: PainelEvent[];
 }
 
-const PX_PER_HOUR = 22;
+const PX_PER_HOUR = 18.5;
 
 export function WeekGrid({
   columns,
@@ -172,32 +172,32 @@ export function WeekGrid({
   return (
     <section>
       <SectionHead title={`SEMANA ${weekNumber}`} aside={`${blockCount} ${blockCount === 1 ? 'bloco' : 'blocos'}`} />
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, columnGap: 8, marginTop: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, columnGap: 7, marginTop: 12 }}>
         {columns.map((col, ci) => {
           const isToday = isoKey(col.date) === todayKey;
           const tint = isToday ? 'rgba(240,236,228,.045)' : undefined;
           const untimed = col.events.filter((e) => !e.time);
-          const tipSide = ci < Math.ceil(n / 2) ? { left: 'calc(100% + 10px)' } : { right: 'calc(100% + 10px)' };
+          const tipSide = ci < Math.ceil(n / 2) ? { left: 'calc(100% + 8px)' } : { right: 'calc(100% + 8px)' };
 
           return (
             <div key={isoKey(col.date)} style={{ minWidth: 0 }}>
               <div
                 style={{
-                  height: 64,
+                  height: 53,
                   borderBottom: '1px solid var(--hair)',
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'flex-end',
-                  paddingBottom: 8,
+                  paddingBottom: 7,
                   paddingLeft: 2,
                   background: tint,
                 }}
               >
-                <span className={s.muted} style={{ fontSize: 14 }}>{WEEKDAY_SHORT_PT[col.date.getDay()]}</span>
+                <span className={s.muted} style={{ fontSize: 12 }}>{WEEKDAY_SHORT_PT[col.date.getDay()]}</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                   <span
                     className={s.serif}
-                    style={{ fontWeight: 600, fontSize: 28, lineHeight: 1, color: isToday ? 'var(--acc)' : undefined }}
+                    style={{ fontWeight: 600, fontSize: 23, lineHeight: 1, color: isToday ? 'var(--acc)' : undefined }}
                   >
                     {col.date.getDate()}
                   </span>
@@ -209,8 +209,8 @@ export function WeekGrid({
                       aria-label={`${CAT_LABEL[ev.cat]}: ${ev.title}`}
                       style={{ display: 'inline-flex' }}
                     >
-                      <Swatch cat={ev.cat} size={9} />
-                      <Tip tone={CAT_TONE[ev.cat]} title={ev.title} style={{ ...tipSide, top: 0, width: 250 }}>
+                      <Swatch cat={ev.cat} size={8} />
+                      <Tip tone={CAT_TONE[ev.cat]} title={ev.title} style={{ ...tipSide, top: 0, width: 208 }}>
                         {ev.desc}
                       </Tip>
                     </span>
@@ -231,7 +231,7 @@ export function WeekGrid({
                   .map((ev) => {
                     const startMin = parseMinutes(ev.time);
                     const top = ((startMin - startHour * 60) / 60) * PX_PER_HOUR + 1;
-                    const h = Math.max(((eventEnd(ev) - startMin) / 60) * PX_PER_HOUR - 3, 22);
+                    const h = Math.max(((eventEnd(ev) - startMin) / 60) * PX_PER_HOUR - 3, 20);
                     const sw = CAT_SWATCH[ev.cat];
                     const outline = ev.cat === 'pessoal';
                     return (
@@ -248,7 +248,7 @@ export function WeekGrid({
                             background: outline ? 'transparent' : sw.bg,
                             border: outline ? '1px solid var(--bone)' : undefined,
                             color: sw.fg,
-                            padding: outline ? '2px 6px' : '3px 7px',
+                            padding: outline ? '2px 5px' : '3px 6px',
                             display: 'flex',
                             flexDirection: 'column',
                             justifyContent: 'flex-start',
@@ -256,10 +256,10 @@ export function WeekGrid({
                           } as const;
                           const inner = (
                             <>
-                              <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.1, whiteSpace: 'nowrap' }}>{ev.time}</span>
+                              <span style={{ fontSize: 9, fontWeight: 600, lineHeight: 1.1, whiteSpace: 'nowrap' }}>{ev.time}</span>
                               <span
                                 style={{
-                                  fontSize: 10,
+                                  fontSize: 8,
                                   lineHeight: 1.1,
                                   opacity: 0.82,
                                   whiteSpace: 'nowrap',
@@ -279,7 +279,7 @@ export function WeekGrid({
                             <div aria-label={label} tabIndex={0} style={blockStyle}>{inner}</div>
                           );
                         })()}
-                        <Tip tone={CAT_TONE[ev.cat]} title={ev.title} style={{ ...tipSide, top: 0, width: 250 }}>
+                        <Tip tone={CAT_TONE[ev.cat]} title={ev.title} style={{ ...tipSide, top: 0, width: 208 }}>
                           {ev.desc}
                         </Tip>
                       </div>
@@ -290,15 +290,15 @@ export function WeekGrid({
           );
         })}
       </div>
-      <ul style={{ margin: '22px 0 0', padding: 0, listStyle: 'none', fontSize: 15, display: 'flex', flexWrap: 'wrap', gap: '10px 24px' }}>
+      <ul style={{ margin: '18px 0 0', padding: 0, listStyle: 'none', fontSize: 12, display: 'flex', flexWrap: 'wrap', gap: '8px 20px' }}>
         {(['fac', 'trab', 'prazo', 'pessoal'] as PainelCat[]).map((cat) => (
-          <li key={cat} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Swatch cat={cat} />
+          <li key={cat} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Swatch cat={cat} size={10} />
             {CAT_LABEL[cat]}
           </li>
         ))}
       </ul>
-      <p className={s.muted} style={{ margin: '10px 0 0', fontSize: 13 }}>
+      <p className={s.muted} style={{ margin: '8px 0 0', fontSize: 11 }}>
         {`${String(startHour).padStart(2, '0')}:00–${String(endHour).padStart(2, '0')}:00. Prazos e tarefas sem hora aparecem junto ao dia.`}
       </p>
     </section>

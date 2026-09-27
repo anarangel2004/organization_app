@@ -81,23 +81,23 @@ export function PainelMonth({
   const monthName = MONTHS_PT[shown.getMonth()];
 
   return (
-    <section className={s.inner} style={{ paddingTop: 80 }}>
+    <section className={s.inner} style={{ paddingTop: 66 }}>
       <SectionHead
         title="CALENDÁRIO MENSAL"
         aside={
-          <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 18, color: 'var(--ink)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 15, color: 'var(--ink)' }}>
             <button
               type="button"
               onClick={() => setOffset((o) => o - 1)}
               aria-label="Mês anterior"
               className={s.serif}
-              style={{ fontStyle: 'italic', fontSize: 26, lineHeight: 1, color: 'var(--mut)' }}
+              style={{ fontStyle: 'italic', fontSize: 22, lineHeight: 1, color: 'var(--mut)' }}
             >
               ‹
             </button>
             <span
               className={s.serif}
-              style={{ fontStyle: 'italic', fontWeight: 600, fontSize: 28, lineHeight: 1, minWidth: 170, textAlign: 'center' }}
+              style={{ fontStyle: 'italic', fontWeight: 600, fontSize: 23, lineHeight: 1, minWidth: 141, textAlign: 'center' }}
             >
               {monthName.charAt(0).toUpperCase() + monthName.slice(1)} {shown.getFullYear()}
             </span>
@@ -106,7 +106,7 @@ export function PainelMonth({
               onClick={() => setOffset((o) => o + 1)}
               aria-label="Mês seguinte"
               className={s.serif}
-              style={{ fontStyle: 'italic', fontSize: 26, lineHeight: 1, color: 'var(--mut)' }}
+              style={{ fontStyle: 'italic', fontSize: 22, lineHeight: 1, color: 'var(--mut)' }}
             >
               ›
             </button>
@@ -117,7 +117,7 @@ export function PainelMonth({
                 setOffset(0);
                 setSelKey(todayKey);
               }}
-              style={{ fontSize: 14, marginLeft: 6 }}
+              style={{ fontSize: 12, marginLeft: 5 }}
             >
               Hoje
             </button>
@@ -125,11 +125,11 @@ export function PainelMonth({
         }
       />
 
-      <div className={s.grid12} style={{ marginTop: 18, rowGap: 40 }}>
+      <div className={s.grid12} style={{ marginTop: 15, rowGap: 34 }}>
         <div className={s.colMain}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
             {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((d) => (
-              <div key={d} className={`${s.serif} ${s.muted}`} style={{ fontStyle: 'italic', fontSize: 15, paddingBottom: 8 }}>
+              <div key={d} className={`${s.serif} ${s.muted}`} style={{ fontStyle: 'italic', fontSize: 12, paddingBottom: 7 }}>
                 {d}
               </div>
             ))}
@@ -185,10 +185,10 @@ export function PainelMonth({
                     aria-label={`${c.date.getDate()} de ${MONTHS_PT[c.date.getMonth()]}, ${c.events.length} eventos`}
                     style={{
                       width: '100%',
-                      padding: '11px 8px 12px',
+                      padding: '9px 7px 10px',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: 5,
+                      gap: 4,
                       opacity: c.inMonth ? 1 : 0.35,
                       background: isSel && !isToday ? 'var(--hair2)' : 'transparent',
                       minWidth: 0,
@@ -201,34 +201,34 @@ export function PainelMonth({
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          width: 28,
-                          height: 28,
+                          width: 23,
+                          height: 23,
                           background: circleBg || 'transparent',
                           boxShadow: ring,
                           fontStyle: italic && !isToday ? 'italic' : 'normal',
                           fontWeight: isToday ? 700 : weight,
-                          fontSize: 16,
+                          fontSize: 13,
                           color: circleBg ? textColor : isToday ? 'var(--acc)' : 'var(--ink)',
                         }}
                       >
                         {c.date.getDate()}
                       </span>
                     ) : (
-                      <span className={s.serif} style={{ fontStyle: 'italic', fontWeight: 500, fontSize: 21, lineHeight: '28px', color: textColor }}>
+                      <span className={s.serif} style={{ fontStyle: 'italic', fontWeight: 500, fontSize: 17, lineHeight: '23px', color: textColor }}>
                         {c.date.getDate()}
                       </span>
                     )}
                     <span
                       className={s.hideSm}
                       style={{
-                        fontSize: deadline ? 12 : 11,
+                        fontSize: deadline ? 10 : 9,
                         fontWeight: deadline ? 700 : 400,
                         lineHeight: 1.25,
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         maxWidth: '100%',
-                        minHeight: 14,
+                        minHeight: 12,
                         color: deadline ? 'var(--acc)' : 'var(--mut)',
                       }}
                     >
@@ -238,8 +238,8 @@ export function PainelMonth({
                   <Tip
                     tone={deadline ? 'm' : c.events[0] ? CAT_TONE[c.events[0].cat] : 'e'}
                     title={`${c.date.getDate()} de ${MONTHS_PT[c.date.getMonth()]}`}
-                    titleSize={24}
-                    style={{ ...(c.col <= 3 ? { left: 8 } : { right: 8 }), top: '100%', width: 240 }}
+                    titleSize={20}
+                    style={{ ...(c.col <= 3 ? { left: 7 } : { right: 7 }), top: '100%', width: 199 }}
                   >
                     {preview}
                   </Tip>
@@ -247,20 +247,20 @@ export function PainelMonth({
               );
             })}
           </div>
-          <p className={s.muted} style={{ margin: '16px 0 0', fontSize: 13 }}>
+          <p className={s.muted} style={{ margin: '13px 0 0', fontSize: 11 }}>
             As aulas repetem-se todas as semanas a partir do horário de cada disciplina.
           </p>
         </div>
 
         <div className={`${s.colSide} ${s.ruleLeft}`}>
-          <h3 className={s.serif} style={{ margin: 0, fontStyle: 'italic', fontWeight: 600, fontSize: 30, lineHeight: 1.1 }}>
+          <h3 className={s.serif} style={{ margin: 0, fontStyle: 'italic', fontWeight: 600, fontSize: 25, lineHeight: 1.1 }}>
             {WEEKDAY_LONG_PT[selDate.getDay()].replace('-feira', '')}, {selDate.getDate()} de {MONTHS_PT[selDate.getMonth()]}
           </h3>
-          <span className={s.muted} style={{ display: 'block', marginTop: 4, fontSize: 13 }}>
+          <span className={s.muted} style={{ display: 'block', marginTop: 4, fontSize: 11 }}>
             {selEvents.length} {selEvents.length === 1 ? 'evento' : 'eventos'}
           </span>
 
-          <div style={{ marginTop: 16 }}>
+          <div style={{ marginTop: 13 }}>
             {selEvents.map((ev) => {
               const sw = CAT_SWATCH[ev.cat];
               const localId = ev.id.startsWith('local-') ? ev.id.slice(6) : null;
@@ -270,18 +270,18 @@ export function PainelMonth({
                   className={s.hv}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '64px minmax(0, 1fr) auto',
-                    columnGap: 12,
+                    gridTemplateColumns: '53px minmax(0, 1fr) auto',
+                    columnGap: 10,
                     alignItems: 'baseline',
-                    padding: '12px 0',
+                    padding: '10px 0',
                     borderBottom: '1px solid var(--hair2)',
                   }}
                 >
-                  <span className={s.serif} style={{ fontWeight: 600, fontSize: 16, lineHeight: 1 }}>{ev.time || '—'}</span>
+                  <span className={s.serif} style={{ fontWeight: 600, fontSize: 13, lineHeight: 1 }}>{ev.time || '—'}</span>
                   {ev.href ? (
-                    <Link href={ev.href} style={{ fontSize: 15, lineHeight: 1.3 }}>{ev.title}</Link>
+                    <Link href={ev.href} style={{ fontSize: 12, lineHeight: 1.3 }}>{ev.title}</Link>
                   ) : (
-                    <span style={{ fontSize: 15, lineHeight: 1.3 }}>{ev.title}</span>
+                    <span style={{ fontSize: 12, lineHeight: 1.3 }}>{ev.title}</span>
                   )}
                   <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     {localId && (
@@ -295,22 +295,22 @@ export function PainelMonth({
                         ×
                       </button>
                     )}
-                    <span aria-hidden="true" className={s.round} style={{ width: 8, height: 8, background: sw.bg, border: sw.border }} />
+                    <span aria-hidden="true" className={s.round} style={{ width: 7, height: 7, background: sw.bg, border: sw.border }} />
                   </span>
-                  <Tip tone={CAT_TONE[ev.cat]} title={ev.title} titleSize={22} style={{ right: 0, top: 'calc(100% - 10px)', width: 260 }}>
+                  <Tip tone={CAT_TONE[ev.cat]} title={ev.title} titleSize={18} style={{ right: 0, top: 'calc(100% - 8px)', width: 216 }}>
                     {ev.desc}
                   </Tip>
                 </div>
               );
             })}
             {selEvents.length === 0 && (
-              <p className={s.muted} style={{ margin: '14px 0 0', fontSize: 14 }}>
+              <p className={s.muted} style={{ margin: '12px 0 0', fontSize: 12 }}>
                 Sem eventos registados. Adiciona um abaixo.
               </p>
             )}
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 15 }}>
             <label style={{ display: 'block' }}>
               <span className={s.sr}>Título</span>
               <input
@@ -323,8 +323,8 @@ export function PainelMonth({
                 className={s.lineInput}
               />
             </label>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ display: 'block', width: 76 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <label style={{ display: 'block', width: 63 }}>
                 <span className={s.sr}>Hora</span>
                 <input value={time} onChange={(e) => setTime(e.target.value)} placeholder="14:00" inputMode="numeric" className={s.lineInput} />
               </label>
@@ -342,10 +342,10 @@ export function PainelMonth({
                 ))}
               </div>
             </div>
-            <button type="button" className={s.lnk} onClick={addEvent} style={{ fontSize: 14, alignSelf: 'flex-start' }}>
+            <button type="button" className={s.lnk} onClick={addEvent} style={{ fontSize: 12, alignSelf: 'flex-start' }}>
               + Adicionar
             </button>
-            <p className={s.muted} style={{ margin: 0, fontSize: 12 }}>
+            <p className={s.muted} style={{ margin: 0, fontSize: 10 }}>
               Os eventos adicionados aqui ficam guardados só neste browser.
             </p>
           </div>

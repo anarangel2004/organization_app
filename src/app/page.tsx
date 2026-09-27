@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { useCurrentUser } from '@/lib/useCurrentUser';
@@ -14,23 +14,44 @@ import {
   WorkTask,
 } from '@/lib/workData';
 import ProfileModal from '@/components/ui/ProfileModal';
-import type { SearchEntry } from './components/types';
+import { SubjectLite, collectClasses, dayOfYear, parseDueDate, parseMinutes } from './components/homeAgenda';
+import d from './components/denso/denso.module.css';
 import {
-  SubjectLite,
-  collectClasses,
-  computeSubjectHours,
-  dayOfYear,
-  parseDueDate,
-  parseMinutes,
-} from './components/homeAgenda';
-import s from './components/painel/painel.module.css';
-import { CtxFilter, PainelHeader, TopStrip, ViewMode } from './components/painel/PainelTop';
-import { HeroClass, HeroNextClass, HeroTile, PainelHero } from './components/painel/PainelHero';
-import { DayIndex, WeekColumn, WeekGrid } from './components/painel/PainelAgenda';
-import { PainelMonth } from './components/painel/PainelMonth';
-import { ActionPlan, Balance, DeadlineItem, Deadlines, PainelFooter } from './components/painel/PainelLower';
+  DensoHeader,
+  SearchHit,
+  ShortcutBar,
+  ShortcutItem,
+  scrollToId,
+  useHoverPin,
+  useShortcuts,
+} from './components/denso/DensoChrome';
+import {
+  BalanceB,
+  CaptureAndVolumes,
+  DayIndexB,
+  DayTitle,
+  DeadlineB,
+  DeadlinesB,
+  FooterB,
+  MonthB,
+  NotesB,
+  PlanB,
+  SessionCard,
+  TopStripB,
+  WeekB,
+  WeekCol,
+  deadlineKind,
+} from './components/denso/PainelB';
+import type { HeroClass, HeroNextClass, HeroTile } from './components/painel/PainelHero';
 import { useLocalState, useNow } from './components/painel/useLocalState';
-import { MOCK_LOCATION, MOCK_QUOTE, MOCK_TASK_HOURS } from './components/painel/mockData';
+import {
+  MOCK_BILLABLE_HOURS,
+  MOCK_DEADLINE_PREP,
+  MOCK_EXPENSES,
+  MOCK_LOCATION,
+  MOCK_QUOTE,
+  MOCK_STUDY_HOURS,
+} from './components/painel/mockData';
 import {
   AssessmentFull,
   ChapterLite,
@@ -38,17 +59,18 @@ import {
   LocalEvent,
   MONTHS_PT,
   PainelCat,
-  WEEKDAY_HERO_PT,
   WEEKDAY_LONG_PT,
   addDays,
   buildEventsForDate,
   classTypeLabel,
   daysBetween,
+  fmtNum,
   isoKey,
   isoWeek,
   mondayOf,
   notebookLabel,
   relativeTime,
+  shortDate,
   startOfDay,
   subjectLongName,
   subjectShortName,
@@ -59,6 +81,19 @@ interface FocusState {
   ms: number;
   since: number | null;
 }
+
+const HELP: [string, string][] = [
+  ['1–5', 'Ir para a secção'],
+  ['N', 'Nova tarefa'],
+  ['E', 'Novo evento'],
+  ['C', 'Captura rápida'],
+  ['F', 'Iniciar/pausar foco'],
+  ['Ctrl K', 'Pesquisa global'],
+  ['?', 'Mostrar/esconder esta ajuda'],
+  ['Esc', 'Fechar detalhes fixados'],
+];
+
+const SECTION_KEYS: Record<string, string> = { '1': 'dia', '2': 'semana', '3': 'prazos', '4': 'mes', '5': 'balanco' };
 
 export default function HomePage() {
   const router = useRouter();
@@ -72,27 +107,32 @@ export default function HomePage() {
   const [workTasks, setWorkTasks] = useState<WorkTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [ctx, setCtx] = useState<CtxFilter>('all');
   const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(() => new Set());
   const [touchedTaskIds, setTouchedTaskIds] = useState<Set<string>>(() => new Set());
+  const [active, setActive] = useState('dia');
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Sem tabela no Supabase: guardado só neste browser.
-  const [mode, setMode] = useLocalState<ViewMode>('painel:mode', 'revue');
   const [notes, setNotes] = useLocalState<string[]>('painel:notes', []);
   const [localEvents, setLocalEvents] = useLocalState<LocalEvent[]>('painel:events', []);
   const [focus, setFocus] = useLocalState<FocusState>('painel:focus', { date: '', ms: 0, since: null });
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  const taskInputRef = useRef<HTMLInputElement>(null);
+  const eventTitleRef = useRef<HTMLInputElement>(null);
+  const captureRef = useRef<HTMLTextAreaElement>(null);
+  const { bind } = useHoverPin();
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
       const [subjectsRes, assessmentsRes, chaptersRes, projects, tasks] = await Promise.all([
         supabase.from('subjects').select('id, name, code, schedules'),
-        supabase.from('assessments').select('id, subject_id, title, due_date, weight_percent, category'),
+        supabase.from('assessments').select('id, subject_id, title, due_date, weight_percent, category, grade'),
         supabase.from('chapters').select('id, subject_id, category, title, updated_at'),
         getWorkProjects(),
         getWorkTasks(),
       ]);
-
       setSubjects(subjectsRes.data || []);
       setAssessments(assessmentsRes.data || []);
       setChapters(chaptersRes.data || []);
@@ -106,12 +146,12 @@ export default function HomePage() {
   }, [supabase]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- pedido inicial de dados
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- correr apenas uma vez ao montar
   }, []);
 
-  const now = useNow(60_000);
+  const now = useNow(30_000);
   const todayKey = isoKey(now);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- só muda quando muda o dia
   const today = useMemo(() => startOfDay(now), [todayKey]);
@@ -129,7 +169,7 @@ export default function HomePage() {
   const todayEvents = useMemo(() => getEvents(today), [getEvents, today]);
 
   // ==========================================
-  // AULAS: hoje (para a sessão em curso) e a próxima noutro dia
+  // AULAS: hoje (sessão em curso) e a próxima noutro dia
   // ==========================================
   const todayClasses = useMemo<HeroClass[]>(
     () =>
@@ -152,9 +192,7 @@ export default function HomePage() {
     for (const c of classes) {
       const offset = (c.dayNum - today.getDay() + 7) % 7 || 7;
       const minutes = parseMinutes(c.startTime);
-      if (!best || offset < best.offset || (offset === best.offset && minutes < best.minutes)) {
-        best = { offset, minutes, c };
-      }
+      if (!best || offset < best.offset || (offset === best.offset && minutes < best.minutes)) best = { offset, minutes, c };
     }
     if (!best) return null;
     const date = addDays(today, best.offset);
@@ -170,7 +208,7 @@ export default function HomePage() {
 
   const nextLabel = useMemo(() => {
     const code = (id: string) => subjectShortName(subjectLookup.get(id));
-    const room = (r: string) => (r ? `, Sala ${r}` : '');
+    const room = (r: string) => (r ? ` · Sala ${r}` : '');
     const current = todayClasses.find((c) => {
       const start = parseMinutes(c.start);
       const end = c.end ? parseMinutes(c.end) : start + 90;
@@ -181,11 +219,9 @@ export default function HomePage() {
     if (later) {
       const diff = parseMinutes(later.start) - nowMinutes;
       const inLabel = diff < 60 ? `${diff} min` : `${Math.floor(diff / 60)} h ${String(diff % 60).padStart(2, '0')} min`;
-      return `Aula ${code(later.subjectId)}${room(later.room)}, em ${inLabel}`;
+      return `Aula ${code(later.subjectId)}${room(later.room)} · em ${inLabel}`;
     }
-    if (nextClassOtherDay) {
-      return `Próxima aula: ${code(nextClassOtherDay.subjectId)}, ${nextClassOtherDay.dayLabel} às ${nextClassOtherDay.start}`;
-    }
+    if (nextClassOtherDay) return `Próxima aula: ${code(nextClassOtherDay.subjectId)}, ${nextClassOtherDay.dayLabel} às ${nextClassOtherDay.start}`;
     return 'Sem aulas no horário';
   }, [todayClasses, nowMinutes, nextClassOtherDay, subjectLookup]);
 
@@ -196,7 +232,10 @@ export default function HomePage() {
   const focusRunning = focusToday.since !== null;
   const focusMs = focusToday.ms + (focusToday.since !== null ? Math.max(0, now.getTime() - focusToday.since) : 0);
   const focusMinutes = Math.floor(focusMs / 60000);
-  const focusLabel = `${String(Math.floor(focusMinutes / 60)).padStart(2, '0')}h ${String(focusMinutes % 60).padStart(2, '0')}m de foco hoje`;
+  const focusLabel: [string, string] = [
+    `${String(Math.floor(focusMinutes / 60)).padStart(2, '0')}h ${String(focusMinutes % 60).padStart(2, '0')}m`,
+    'de foco hoje',
+  ];
 
   const toggleFocus = useCallback(() => {
     setFocus((prev) => {
@@ -213,7 +252,6 @@ export default function HomePage() {
   const tiles = useMemo<HeroTile[]>(() => {
     const byCode = [...subjects].sort((a, b) => (a.code || a.name || '').localeCompare(b.code || b.name || ''));
     const volOf = new Map(byCode.map((x, i) => [x.id, `Vol. ${String(i + 1).padStart(2, '0')}`]));
-
     const latest = new Map<string, ChapterLite>();
     const counts = new Map<string, { chapters: number; notebooks: Set<string> }>();
     chapters.forEach((ch) => {
@@ -224,12 +262,7 @@ export default function HomePage() {
       c.notebooks.add(ch.category || 'TEORICAS');
       counts.set(ch.subject_id, c);
     });
-
-    const ranked = [...byCode].sort((a, b) => {
-      const ta = latest.get(a.id)?.updated_at || '';
-      const tb = latest.get(b.id)?.updated_at || '';
-      return tb.localeCompare(ta);
-    });
+    const ranked = [...byCode].sort((a, b) => (latest.get(b.id)?.updated_at || '').localeCompare(latest.get(a.id)?.updated_at || ''));
 
     return ranked.slice(0, 2).map((subj) => {
       const ch = latest.get(subj.id);
@@ -241,9 +274,9 @@ export default function HomePage() {
           subjectId: subj.id,
           vol,
           name,
-          sub: 'Sem capítulos',
+          sub: 'Teóricas · sem capítulos',
           tipTitle: `${vol}, ${subjectLongName(subj)}`,
-          tipBody: 'Ainda não há capítulos nos notebooks desta disciplina. Abre para começar pelas Teóricas.',
+          tipBody: 'Ainda não há capítulos nos cadernos desta disciplina.',
           href: `/faculdade/${subj.id}/notebook?tab=TEORICAS`,
         };
       }
@@ -255,9 +288,7 @@ export default function HomePage() {
         name,
         sub: `${label} · ${rel}`,
         tipTitle: `${vol}, ${subjectLongName(subj)}`,
-        tipBody: `${count.chapters} ${count.chapters === 1 ? 'capítulo' : 'capítulos'} em ${count.notebooks.size} ${
-          count.notebooks.size === 1 ? 'notebook' : 'notebooks'
-        }. Abre no último que editaste: ${label} (${ch.title || 'sem título'}, ${rel}).`,
+        tipBody: `${count.chapters} ${count.chapters === 1 ? 'capítulo' : 'capítulos'} em ${count.notebooks.size} ${count.notebooks.size === 1 ? 'caderno' : 'cadernos'}; último: ${ch.title || 'sem título'}.`,
         href: `/faculdade/${subj.id}/notebook?tab=${ch.category || 'TEORICAS'}`,
       };
     });
@@ -267,34 +298,33 @@ export default function HomePage() {
   // SEMANA (Seg–Sex, mais fim de semana se tiver eventos)
   // ==========================================
   const monday = useMemo(() => mondayOf(today), [today]);
-  const weekColumns = useMemo<WeekColumn[]>(() => {
+  const weekColumns = useMemo<WeekCol[]>(() => {
     const cols = Array.from({ length: 7 }, (_, i) => {
       const date = addDays(monday, i);
       return { date, events: getEvents(date) };
     });
-    const weekend = cols.slice(5).some((c) => c.events.length > 0);
-    return weekend ? cols : cols.slice(0, 5);
+    return cols.slice(5).some((c) => c.events.length > 0) ? cols : cols.slice(0, 5);
   }, [monday, getEvents]);
+  const weekBlocks = weekColumns.reduce((n, c) => n + c.events.length, 0);
 
   // ==========================================
-  // PRAZOS (avaliações + tarefas nos próximos 14 dias)
+  // PRAZOS (avaliações por classificar + tarefas, próximos 14 dias)
   // ==========================================
-  const deadlineItems = useMemo<DeadlineItem[]>(() => {
+  const deadlines = useMemo<DeadlineB[]>(() => {
     const limit = addDays(today, 14);
-    const items: DeadlineItem[] = [];
+    const items: Omit<DeadlineB, 'pct' | 'status'>[] = [];
     assessments.forEach((a) => {
       const due = parseDueDate(a.due_date);
-      if (!due || due < today || due > limit) return;
+      if (!due || due < today || due > limit || typeof a.grade === 'number') return;
       const subj = subjectLookup.get(a.subject_id);
-      const weight = typeof a.weight_percent === 'number' ? ` Peso: ${a.weight_percent}%.` : '';
       items.push({
         id: `a-${a.id}`,
-        cat: 'prazo',
         date: due,
+        kind: deadlineKind(a.title || ''),
         title: a.title || 'Avaliação',
-        typeLabel: `Faculdade · ${subjectShortName(subj)}`,
-        desc: `Avaliação de ${subjectLongName(subj)}.${weight}`,
-        href: `/faculdade/${a.subject_id}`,
+        meta: `Faculdade · ${shortDate(due)}`,
+        area: `Faculdade · ${subjectLongName(subj)}${typeof a.weight_percent === 'number' ? ` · peso ${a.weight_percent}%` : ''}`,
+        href: `/faculdade/${a.subject_id}#avaliacao`,
       });
     });
     workTasks
@@ -305,15 +335,18 @@ export default function HomePage() {
         const project = t.project_id ? projectLookup.get(t.project_id) : undefined;
         items.push({
           id: `t-${t.id}`,
-          cat: 'trab',
           date: due,
+          kind: 'ENTREGA',
           title: t.title,
-          typeLabel: project?.name || 'Trabalho',
-          desc: `Tarefa de ${project?.name || 'trabalho sem projeto'}.`,
+          meta: `${project?.name || 'Trabalho'} · ${shortDate(due)}`,
+          area: `Trabalho · ${project?.name || 'sem projeto'}`,
           href: '/trabalho',
         });
       });
-    return items.sort((a, b) => a.date.getTime() - b.date.getTime());
+    return items
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .slice(0, 3)
+      .map((x, i) => ({ ...x, pct: MOCK_DEADLINE_PREP[i]?.prep ?? 0, status: MOCK_DEADLINE_PREP[i]?.state ?? '—' }));
   }, [assessments, workTasks, today, subjectLookup, projectLookup]);
 
   // ==========================================
@@ -328,21 +361,6 @@ export default function HomePage() {
       }),
     [workTasks, touchedTaskIds, today]
   );
-
-  const classHoursWeek = useMemo(
-    () => computeSubjectHours(classes).reduce((sum, x) => sum + x.hours, 0),
-    [classes]
-  );
-  const taskHoursWeek = useMemo(() => {
-    const sunday = addDays(monday, 6);
-    return (
-      workTasks.filter((t) => {
-        if (t.completed) return false;
-        const due = parseDueDate(t.due_date);
-        return due !== null && due <= sunday;
-      }).length * MOCK_TASK_HOURS
-    );
-  }, [workTasks, monday]);
 
   const handleToggleTask = useCallback(async (task: WorkTask) => {
     const next = !task.completed;
@@ -384,27 +402,61 @@ export default function HomePage() {
     },
     [setLocalEvents]
   );
-  const handleRemoveEvent = useCallback(
-    (id: string) => setLocalEvents((prev) => prev.filter((e) => e.id !== id)),
-    [setLocalEvents]
-  );
+  const handleRemoveEvent = useCallback((id: string) => setLocalEvents((prev) => prev.filter((e) => e.id !== id)), [setLocalEvents]);
   const addNote = useCallback((text: string) => setNotes((prev) => [...prev, text]), [setNotes]);
 
   // ==========================================
-  // PESQUISA (sobre os dados já carregados)
+  // PESQUISA, ATALHOS, CONTA
   // ==========================================
-  const searchIndex = useMemo<SearchEntry[]>(() => {
-    const entries: SearchEntry[] = [];
-    subjects.forEach((x) =>
-      entries.push({ id: `s-${x.id}`, label: x.name || x.code || 'Disciplina', sublabel: 'Faculdade · Disciplina', href: `/faculdade/${x.id}` })
-    );
-    assessments.forEach((a) =>
-      entries.push({ id: `a-${a.id}`, label: a.title || 'Avaliação', sublabel: 'Faculdade · Prazo', href: `/faculdade/${a.subject_id}` })
-    );
-    workProjects.forEach((p) => entries.push({ id: `p-${p.id}`, label: p.name, sublabel: 'Trabalho · Projeto', href: '/trabalho' }));
-    workTasks.forEach((t) => entries.push({ id: `t-${t.id}`, label: t.title, sublabel: 'Trabalho · Tarefa', href: '/trabalho' }));
-    return entries;
+  const searchIndex = useMemo<SearchHit[]>(() => {
+    const hits: SearchHit[] = [];
+    subjects.forEach((x) => hits.push({ id: `s-${x.id}`, label: x.name || x.code || 'Disciplina', sublabel: 'Faculdade · Disciplina', href: `/faculdade/${x.id}` }));
+    assessments.forEach((a) => hits.push({ id: `a-${a.id}`, label: a.title || 'Avaliação', sublabel: 'Faculdade · Prazo', href: `/faculdade/${a.subject_id}#avaliacao` }));
+    workProjects.forEach((p) => hits.push({ id: `p-${p.id}`, label: p.name, sublabel: 'Trabalho · Projeto', href: '/trabalho' }));
+    workTasks.forEach((t) => hits.push({ id: `t-${t.id}`, label: t.title, sublabel: 'Trabalho · Tarefa', href: '/trabalho' }));
+    return hits;
   }, [subjects, assessments, workProjects, workTasks]);
+
+  const goTo = useCallback((id: string) => {
+    setActive(id);
+    scrollToId(id);
+  }, []);
+  const focusTask = useCallback(() => {
+    goTo('dia');
+    window.setTimeout(() => taskInputRef.current?.focus(), 250);
+  }, [goTo]);
+  const focusEvent = useCallback(() => {
+    goTo('mes');
+    window.setTimeout(() => eventTitleRef.current?.focus(), 250);
+  }, [goTo]);
+
+  const onShortcut = useCallback(
+    (key: string) => {
+      if (key === 'escape') {
+        setHelpOpen(false);
+        return true;
+      }
+      if (SECTION_KEYS[key]) goTo(SECTION_KEYS[key]);
+      else if (key === 'n') focusTask();
+      else if (key === 'e') focusEvent();
+      else if (key === 'c') captureRef.current?.focus();
+      else if (key === 'f') toggleFocus();
+      else if (key === '?') setHelpOpen((v) => !v);
+      else return false;
+      return true;
+    },
+    [goTo, focusTask, focusEvent, toggleFocus]
+  );
+  const focusSearch = useCallback(() => searchRef.current?.focus(), []);
+  useShortcuts(onShortcut, focusSearch);
+
+  const shortcutItems: ShortcutItem[] = [
+    { id: 'dia', key: '1', label: 'Página do dia' },
+    { id: 'semana', key: '2', label: 'Semana', badge: String(weekBlocks) },
+    { id: 'prazos', key: '3', label: 'Prazos', badge: String(deadlines.length) },
+    { id: 'mes', key: '4', label: 'Mês' },
+    { id: 'balanco', key: '5', label: 'Balanço', badge: `${fmtNum(MOCK_BILLABLE_HOURS.done + MOCK_STUDY_HOURS.done)} h` },
+  ];
 
   const profileUser = user
     ? {
@@ -424,96 +476,81 @@ export default function HomePage() {
   }, [supabase, router]);
 
   const monthName = MONTHS_PT[today.getMonth()];
-  const dateLabel = `${WEEKDAY_LONG_PT[today.getDay()]}, ${today.getDate()} de ${monthName}`;
-  const indexLabel = `${WEEKDAY_LONG_PT[today.getDay()].replace('-feira', '').toLowerCase()}, ${today.getDate()}`;
+  const weekdayShort = WEEKDAY_LONG_PT[today.getDay()].replace('-feira', '');
+  const clock = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
   return (
-    <div className={s.root}>
-      <TopStrip
-        focusLabel={focusLabel}
-        nextLabel={loading ? 'A carregar horário…' : nextLabel}
-        quote={MOCK_QUOTE}
-        focusRunning={focusRunning}
-        onToggleFocus={toggleFocus}
-      />
+    <div className={d.root}>
+      <TopStripB focusLabel={focusLabel} nextLabel={loading ? 'A carregar horário…' : nextLabel} quote={MOCK_QUOTE} focusRunning={focusRunning} onToggleFocus={toggleFocus} />
 
-      <PainelHeader
-        location={MOCK_LOCATION}
-        editionNumber={dayOfYear(today)}
-        dateLabel={dateLabel}
-        mode={mode}
-        onModeChange={setMode}
-        ctx={ctx}
-        onCtxChange={setCtx}
+      <DensoHeader
+        active="home"
+        inset
+        brandNote={`${MOCK_LOCATION} · N.º ${dayOfYear(today)}`}
         searchIndex={searchIndex}
+        searchRef={searchRef}
+        searchPlaceholder="Pesquisar em tudo…"
         userName={user?.name ?? null}
         userEmail={user?.email ?? null}
         onOpenProfile={() => setIsProfileOpen(true)}
         onLogout={handleLogout}
       />
 
+      <DayTitle
+        title={`${weekdayShort}, ${today.getDate()}`}
+        monthLine={`de ${monthName}, semana ${isoWeek(today)}`}
+        subjectsCount={subjects.length}
+        onAddTask={focusTask}
+        onAddEvent={focusEvent}
+      />
+
+      <ShortcutBar
+        items={shortcutItems}
+        active={active}
+        onPick={setActive}
+        help={HELP}
+        helpOpen={helpOpen}
+        onToggleHelp={() => setHelpOpen((v) => !v)}
+        hint="Passa o rato para ver detalhes · clica para fixar"
+      />
+
       {loading ? (
-        <p className={`${s.inner} ${s.muted}`} style={{ paddingTop: 96, paddingBottom: 96, fontSize: 16 }}>
-          A carregar agenda…
-        </p>
+        <p className={`${d.inner} ${d.muted}`} style={{ paddingTop: 48, paddingBottom: 48 }}>A carregar agenda…</p>
       ) : (
-        <>
-          <PainelHero
-            weekdayLabel={WEEKDAY_HERO_PT[today.getDay()]}
-            dayNumber={today.getDate()}
-            monthLine={`de ${monthName}, semana ${isoWeek(today)}`}
-            mode={mode}
-            todayClasses={todayClasses}
-            nextClass={nextClassOtherDay}
-            tiles={tiles}
-            subjectsCount={subjects.length}
-            focusRunning={focusRunning}
-            onToggleFocus={toggleFocus}
-            onCapture={addNote}
-          />
-
-          <main className={`${s.inner} ${s.grid12}`} style={{ paddingTop: 64 }}>
-            <div className={s.colMain}>
-              <DayIndex events={todayEvents} nowMinutes={nowMinutes} ctx={ctx} dayLabel={indexLabel} />
+        <div className={`${d.inner} ${d.split48}`} style={{ paddingTop: 28, paddingBottom: 36 }}>
+          <aside id="dia" className={`${d.col4} ${d.aside}`} style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 28, scrollMarginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+              <span className={d.serif} style={{ fontStyle: 'italic', fontSize: 28 }}>A página de hoje</span>
+              <span style={{ fontSize: 12, color: 'var(--mut2)' }}>{clock}</span>
             </div>
-            <div className={s.colSide}>
-              <WeekGrid columns={weekColumns} today={today} weekNumber={isoWeek(today)} ctx={ctx} />
-            </div>
-          </main>
+            <SessionCard todayClasses={todayClasses} nextClass={nextClassOtherDay} focusRunning={focusRunning} onToggleFocus={toggleFocus} />
+            <DayIndexB events={todayEvents} nowMinutes={nowMinutes} today={today} bind={bind} />
+            <PlanB
+              tasks={planTasks}
+              projects={workProjects}
+              today={today}
+              pendingIds={pendingTaskIds}
+              onToggle={handleToggleTask}
+              onAdd={handleAddTask}
+              inputRef={taskInputRef}
+              bind={bind}
+            />
+            <NotesB notes={notes} onAdd={addNote} onClear={() => setNotes([])} />
+          </aside>
 
-          <PainelMonth today={today} getEvents={getEvents} onAddEvent={handleAddEvent} onRemoveEvent={handleRemoveEvent} />
-
-          <Deadlines items={deadlineItems} today={today} ctx={ctx} />
-
-          <div className={`${s.inner} ${s.grid12}`} style={{ paddingTop: 80 }}>
-            <div className={s.colMain}>
-              <ActionPlan
-                tasks={planTasks}
-                projects={workProjects}
-                classHours={classHoursWeek}
-                taskHours={taskHoursWeek}
-                today={today}
-                pendingIds={pendingTaskIds}
-                onToggle={handleToggleTask}
-                onAdd={handleAddTask}
-              />
+          <div className={d.col8} style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+            <CaptureAndVolumes tiles={tiles} onCapture={addNote} captureRef={captureRef} bind={bind} />
+            <WeekB columns={weekColumns} today={today} weekNumber={isoWeek(today)} bind={bind} />
+            <div className={d.two}>
+              <DeadlinesB items={deadlines} today={today} bind={bind} />
+              <MonthB today={today} getEvents={getEvents} onAddEvent={handleAddEvent} onRemoveEvent={handleRemoveEvent} titleRef={eventTitleRef} bind={bind} />
             </div>
-            <div className={s.colSide}>
-              <Balance notes={notes} onAddNote={addNote} onClearNotes={() => setNotes([])} />
-            </div>
+            <BalanceB billable={MOCK_BILLABLE_HOURS} study={MOCK_STUDY_HOURS} expenses={MOCK_EXPENSES} monthName={monthName} />
           </div>
-        </>
+        </div>
       )}
 
-      <PainelFooter />
-
-      <svg aria-hidden="true" className={s.grain}>
-        <filter id="painel-grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
-        <rect width="100%" height="100%" filter="url(#painel-grain)" />
-      </svg>
+      <FooterB />
 
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
     </div>

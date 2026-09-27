@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Anton, Hanken_Grotesk, Newsreader, Space_Mono } from 'next/font/google';
+import { Anton, Hanken_Grotesk, Instrument_Sans, Newsreader, Space_Mono } from 'next/font/google';
 import './globals.css';
 import SWRegister from '@/components/SWRegister';
 import OfflineIndicator from '@/components/OfflineIndicator';
@@ -25,6 +25,13 @@ const newsreader = Newsreader({
   display: 'swap',
 });
 
+// Sans da página de cada disciplina (design "SSC — denso").
+const instrument = Instrument_Sans({
+  subsets: ['latin'],
+  variable: '--font-instrument',
+  display: 'swap',
+});
+
 const spaceMono = Space_Mono({
   weight: ['400', '700'],
   subsets: ['latin'],
@@ -45,7 +52,7 @@ export default function RootLayout({
   return (
     <html
       lang="pt"
-      className={`${anton.variable} ${hanken.variable} ${newsreader.variable} ${spaceMono.variable}`}
+      className={`${anton.variable} ${hanken.variable} ${newsreader.variable} ${instrument.variable} ${spaceMono.variable}`}
     >
       <body className="bg-[#FCF9F2] text-[#111111] font-sans antialiased">
         <SWRegister />

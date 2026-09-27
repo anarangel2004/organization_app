@@ -1,0 +1,496 @@
+/* ===================================================
+   DISCIPLINA — página de cada cadeira (design "SSC — denso v2")
+   Uma só vista densa: resumo "Agora", tarefas, cadernos,
+   horário, docentes, avaliação e biblioteca à direita.
+   =================================================== */
+
+.root {
+  --bg: #0d0d0d;
+  --panel: #111111;
+  --panel2: #121212;
+  --ink: #efe9df;
+  --mut: #a7a29a;
+  --mut2: #8a857d;
+  --faint: #6b675f;
+  --line: #2a2a2a;
+  --line2: #222222;
+  --line3: #1c1c1c;
+  --box: #3a3a3a;
+  --box2: #4a4a4a;
+  --bone: #e4ded3;
+  --sky: #7fb0cb;
+  --ice: #93b6c8;
+  --deep: #386a86;
+  --accent: #5b93b0;
+  --onfill: #f3efe7;
+  --gutter: clamp(16px, 3.3vw, 48px);
+
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-instrument), 'Instrument Sans', system-ui, sans-serif;
+  font-size: 14px;
+  overflow-x: clip;
+}
+
+.root *,
+.root *::before,
+.root *::after {
+  box-sizing: border-box;
+}
+
+.root a {
+  color: var(--ink);
+  text-decoration: none;
+}
+.root a:hover {
+  color: var(--sky);
+}
+
+.root button,
+.root input,
+.root select {
+  font: inherit;
+  color: inherit;
+}
+
+.root button {
+  cursor: pointer;
+}
+
+.root input::placeholder {
+  color: var(--mut2);
+}
+
+.root :focus-visible {
+  outline: 1px dashed var(--sky);
+  outline-offset: 2px;
+}
+
+.inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.serif {
+  font-family: var(--font-newsreader), 'Newsreader', Georgia, serif;
+}
+
+.muted {
+  color: var(--mut);
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.kbd {
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--mut);
+  border: 1px solid var(--box);
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+/* ---------- botões ---------- */
+.btnFill,
+.btnLine,
+.btnGhost {
+  height: 38px;
+  padding: 0 14px;
+  border: 0;
+  font-size: 14px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btnFill {
+  background: var(--bone);
+  color: var(--bg) !important;
+  font-weight: 500;
+}
+.btnLine {
+  background: transparent;
+  border: 1px solid var(--box2);
+}
+.btnGhost {
+  background: transparent;
+  color: var(--mut);
+  border: 1px solid var(--box);
+}
+.sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.xs {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+/* ---------- secções ---------- */
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+  min-height: 32px;
+}
+.h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--mut);
+}
+.row {
+  border-bottom: 1px solid var(--line2);
+  min-height: 32px;
+  font-size: 13px;
+}
+.ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- barra de atalhos ---------- */
+.shortcuts {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.shortcut {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  color: var(--mut) !important;
+  border-bottom: 2px solid transparent;
+}
+.shortcut:hover {
+  color: var(--ink) !important;
+}
+.shortcutOn {
+  color: var(--ink) !important;
+  border-bottom-color: var(--accent);
+}
+
+/* ---------- corpo 7 + 5 ---------- */
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+  padding-top: 20px;
+  padding-bottom: 32px;
+}
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+}
+.pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px 28px;
+}
+.agora {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.libWrap {
+  position: relative;
+  min-width: 0;
+  min-height: 560px;
+}
+.lib {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  height: 100%;
+  background: var(--panel2);
+  border: 1px solid #262626;
+  padding: 14px 16px;
+}
+.libFull {
+  position: fixed;
+  inset: 16px;
+  z-index: 80;
+  height: auto;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.7);
+}
+.libList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.docRow {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 48px 44px 20px;
+  gap: 10px;
+  align-items: center;
+  min-height: 29px;
+  border-bottom: 1px solid var(--line3);
+  font-size: 13px;
+}
+.pin {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.docRow:hover .pin,
+.docRow:focus-within .pin,
+.pinOn {
+  opacity: 1;
+}
+.pinOn {
+  color: var(--sky);
+}
+.dropZone {
+  flex-shrink: 0;
+  height: 34px;
+  border: 1px dashed var(--box);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--mut2);
+  white-space: nowrap;
+  background: transparent;
+  width: 100%;
+}
+.dropActive {
+  border-color: var(--sky);
+  color: var(--sky);
+  background: rgba(127, 176, 203, 0.08);
+}
+
+.chk {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--sky);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* Painel "Gerir": os editores existentes, em papel claro. */
+.manage {
+  background: #fcf9f2;
+  color: #111111;
+  margin-top: 8px;
+}
+.manage a {
+  color: inherit;
+}
+
+.popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  background: var(--bone);
+  color: var(--bg);
+  padding: 12px 14px;
+  min-width: 240px;
+  font-size: 12px;
+  box-shadow: 5px 5px 0 var(--deep);
+}
+
+/* O globals.css força cantos retos em tudo; o design usa círculos. */
+.round {
+  border-radius: 50% !important;
+}
+
+@media (min-width: 720px) {
+  .agora {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1100px) {
+  .body {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: stretch;
+  }
+  .left {
+    grid-column: span 7;
+  }
+  .libWrap {
+    grid-column: span 5;
+  }
+  /* A biblioteca acompanha a altura da coluna esquerda sem a esticar. */
+  .libWrap > .lib:not(.libFull) {
+    position: absolute;
+    inset: 0;
+  }
+}
+
+/* ===================================================
+   PARTILHADO PELAS PÁGINAS DENSAS (painel, faculdade)
+   =================================================== */
+.root {
+  --amber: #e3a857;
+  --amberdk: #b8791f;
+  --paper: #efe9df;
+  --papermut: #57534c;
+}
+
+/* Faixa osso no topo do painel */
+.topStrip {
+  background: var(--bone);
+  color: var(--bg);
+  font-size: 12px;
+}
+
+/* Cartão de detalhes (passar o rato / clicar para fixar) */
+.pop {
+  position: absolute;
+  z-index: 60;
+  background: var(--paper);
+  color: var(--bg);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  text-align: left;
+  white-space: normal;
+  cursor: default;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+}
+.pop a {
+  color: var(--bg) !important;
+}
+.popLine {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  border-top: 1px solid rgba(13, 13, 13, 0.12);
+  padding-top: 7px;
+}
+.popKey {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--papermut);
+}
+.tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: var(--amber);
+  color: var(--bg);
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+/* Em ecrãs estreitos os cartões abrem por baixo do elemento. */
+@media (max-width: 1099px) {
+  .pop {
+    left: 0 !important;
+    right: auto !important;
+    top: calc(100% + 6px) !important;
+    bottom: auto !important;
+    width: min(320px, calc(100vw - 32px)) !important;
+  }
+}
+
+.hoverable {
+  position: relative;
+}
+
+/* Grelhas das páginas densas */
+.split48 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px 36px;
+  align-items: start;
+}
+.split84 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px 28px;
+  align-items: stretch;
+}
+.col4,
+.col8 {
+  min-width: 0;
+}
+.two {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px 36px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1100px) {
+  .split48,
+  .split84 {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+  .split48 > .col4 {
+    grid-column: span 4;
+  }
+  .split48 > .col8 {
+    grid-column: span 8;
+  }
+  .split84 > .col8 {
+    grid-column: span 8;
+  }
+  .split84 > .col4 {
+    grid-column: span 4;
+  }
+}
+
+.aside {
+  background: var(--panel2);
+  border: 1px solid #262626;
+}
+
+.h2lg {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.hideSm {
+  display: none;
+}
+@media (min-width: 1100px) {
+  .hideSm {
+    display: inline;
+  }
+}

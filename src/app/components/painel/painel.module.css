@@ -80,7 +80,7 @@
 }
 
 .inner {
-  max-width: 1440px;
+  max-width: var(--inner-max, 1440px);
   margin: 0 auto;
   padding: 0 var(--gutter);
 }
@@ -430,5 +430,99 @@
   .tile .sub,
   .dimmable {
     transition: none;
+  }
+}
+
+/* ===================================================
+   ESCALA COMPACTA (painel principal, design v2)
+   Reduz ~17% os tamanhos base; a página da faculdade
+   mantém a escala original.
+   =================================================== */
+.dense {
+  --gutter: clamp(16px, 3.7vw, 53px);
+}
+.dense .sectionTitle {
+  font-size: clamp(30px, 3.1vw, 45px);
+}
+.dense .sectionHead {
+  padding-top: 15px;
+  margin-bottom: 5px;
+}
+.dense .seg {
+  padding: 6px 13px !important;
+  font-size: 12px;
+}
+.dense .segSm {
+  padding: 4px 9px !important;
+  font-size: 11px;
+}
+.dense .btnBone {
+  padding: 9px 17px !important;
+  font-size: 12px;
+}
+.dense .btnDark {
+  padding: 8px 15px !important;
+  font-size: 12px;
+}
+.dense .btnOutlineDark {
+  padding: 7px 15px !important;
+  font-size: 12px;
+}
+.dense .lineInput {
+  padding: 7px 0;
+  font-size: 12px;
+}
+.dense .boxInput {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.dense .tip {
+  width: 250px;
+  max-width: min(290px, calc(100vw - 32px));
+  padding: 17px 18px 18px;
+  box-shadow: 7px 7px 0 var(--tc, var(--gelo));
+}
+.dense .tipTitle {
+  font-size: 22px;
+}
+.dense .tipBody {
+  font-size: 12px;
+  margin-top: 8px;
+}
+.dense .menu {
+  top: calc(100% + 8px);
+  padding: 13px 15px;
+  min-width: 180px;
+  box-shadow: 5px 5px 0 var(--hair2);
+}
+.dense .chk {
+  width: 18px;
+  height: 18px;
+}
+
+/* Etiquetas das notas efémeras */
+.chip {
+  font-size: 11px;
+  padding: 5px 8px;
+  border: 1px solid var(--hair);
+  overflow-wrap: anywhere;
+}
+
+/* ===================================================
+   ESCALA DOS DESIGNS (v3)
+   Os artboards v3 reduzem tudo (painel ×0,8, faculdade
+   ×0,67); aplica-se exatamente essa escala. Zoom
+   uniforme só em ecrãs
+   largos (no telemóvel ficaria ilegível). A largura
+   máxima compensa o zoom para ocupar o mesmo espaço.
+   =================================================== */
+@media (min-width: 1100px) {
+  .zoomPainel {
+    zoom: 0.8;
+    --inner-max: 1800px;
+  }
+  .zoomFac {
+    zoom: 0.67;
+    --inner-max: 2150px;
   }
 }

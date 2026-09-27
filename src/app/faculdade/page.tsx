@@ -1,57 +1,38 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
-import { getAllMirror, reconcileMirror } from '@/lib/offline/db';
-import { isNetworkError } from '@/lib/offline/sync';
+import { getAllMirror, putMirror, generateLocalId, reconcileMirror } from '@/lib/offline/db';
+import { isNetworkError, queueMutation } from '@/lib/offline/sync';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { formatRelativeDate, getItemEffectiveGrade } from '@/lib/utils';
 import { getWorkProjects, getWorkTasks, WorkProject, WorkTask } from '@/lib/workData';
 import type { AssessmentItem } from '@/types';
 import ProfileModal from '@/components/ui/ProfileModal';
-import s from '@/app/components/painel/painel.module.css';
-import { SiteHeader } from '@/app/components/painel/PainelTop';
+import d from '@/app/components/denso/denso.module.css';
+import { DensoHeader, SearchHit, ShortcutBar, ShortcutItem, scrollToId, useShortcuts } from '@/app/components/denso/DensoChrome';
 import { useNow } from '@/app/components/painel/useLocalState';
-import type { SearchEntry } from '@/app/components/types';
-import {
-  ClassOccurrence,
-  collectClasses,
-  computeSubjectHours,
-  parseDueDate,
-  parseMinutes,
-} from '@/app/components/homeAgenda';
-import {
-  MONTHS_PT,
-  WEEKDAY_LONG_PT,
-  addDays,
-  classTypeLabel,
-  daysBetween,
-  fmtNum,
-  isoKey,
-  isoWeek,
-  mondayOf,
-  shortDate,
-  startOfDay,
-} from '@/app/components/painel/painelData';
+import { collectClasses, computeSubjectHours, parseDueDate, parseMinutes } from '@/app/components/homeAgenda';
+import { MONTHS_PT, WEEKDAY_LONG_PT, addDays, classTypeLabel, daysBetween, fmtNum, isoKey, isoWeek, mondayOf, shortDate, startOfDay } from '@/app/components/painel/painelData';
+import { currentAverage, teacherName, type Teacher } from './[id]/components/disciplinaData';
 import { AddSubjectForm } from './components/AddSubjectForm';
 import {
   ClassSlot,
-  EnterAgenda,
-  FacHero,
-  FacStat,
+  DeadlineRow,
+  FAC_TONES,
+  FacAgora,
+  FacDeadlines,
+  FacHeading,
+  FacSubjects,
+  FacWeek,
   OVERFLOW_TONE,
-  SUBJECT_TONES,
-  SubjectCardView,
-  SubjectGrid,
-  SubjectTone,
-  TimetableBlock,
-  Upcoming,
-  UpcomingItem,
-  WeekTimetable,
-} from './components/FaculdadePainel';
-
-type Teacher = string | { name?: string | null } | null | undefined;
+  SubjectJumps,
+  SubjectRowView,
+  Tone,
+  WeekBlock,
+  WeekMarker,
+} from './components/FaculdadeDenso';
 
 interface FacSubject {
   id: string;
@@ -62,32 +43,51 @@ interface FacSubject {
   degree_year?: number | null;
   academic_year?: string | null;
   teacher_teorica?: Teacher;
+  teacher_pratica?: Teacher;
   regente?: Teacher;
   schedules: unknown;
+  theoretical_weight?: number | null;
+  practical_weight?: number | null;
 }
 
-interface ChapterRef {
-  id: string;
-  subject_id: string;
+const HELP: [string, string][] = [
+  ['1–3, P', 'Ir para a secção'],
+  ['N', 'Novo prazo'],
+  ['D', 'Nova disciplina'],
+  ['Ctrl K', 'Pesquisa global'],
+  ['?', 'Mostrar/esconder esta ajuda'],
+  ['Esc', 'Fechar'],
+];
+
+const SECTION_KEYS: Record<string, string> = { '1': 'agora', '2': 'semana', '3': 'disciplinas', p: 'prazos' };
+
+const MONTH_INDEX: Record<string, number> = {
+  jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11,
+};
+
+// Lê uma data escrita à mão ("20 nov", "20/11", "20-11-2026"); sem ano, usa a próxima ocorrência.
+function parseLooseDate(text: string, today: Date): { date: Date; match: string } | null {
+  const named = text.match(/\b(\d{1,2})\s*(?:de\s+)?(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-zç]*\.?(?:\s+(\d{4}))?/i);
+  const numeric = text.match(/\b(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\b/);
+  let day: number, month: number, year: number | null;
+  let match: string;
+  if (named) {
+    day = Number(named[1]);
+    month = MONTH_INDEX[named[2].toLowerCase()];
+    year = named[3] ? Number(named[3]) : null;
+    match = named[0];
+  } else if (numeric) {
+    day = Number(numeric[1]);
+    month = Number(numeric[2]) - 1;
+    year = numeric[3] ? Number(numeric[3].length === 2 ? `20${numeric[3]}` : numeric[3]) : null;
+    match = numeric[0];
+  } else return null;
+  let date = new Date(year ?? today.getFullYear(), month, day);
+  if (Number.isNaN(date.getTime()) || date.getMonth() !== month) return null;
+  if (year === null && date < today) date = new Date(today.getFullYear() + 1, month, day);
+  return { date, match };
 }
 
-const WORK_DOT: SubjectTone = { bg: 'var(--bone)', fg: 'var(--inkdark)', tc: 'var(--bone)' };
-
-function teacherName(t: Teacher): string | null {
-  if (!t) return null;
-  if (typeof t === 'string') return t.trim() || null;
-  return t.name?.trim() || null;
-}
-
-function typeShort(type: string): string {
-  const t = type.toUpperCase();
-  if (t.startsWith('TEÓRICO-P') || t.startsWith('TEORICO-P') || t === 'TP') return 'TP';
-  if (t.startsWith('P')) return 'P';
-  if (t.startsWith('T')) return 'T';
-  return t.slice(0, 2);
-}
-
-// Tolera leituras falhadas por falta de rede, caindo para o espelho local.
 async function readTable<T extends { id: string }>(
   table: string,
   query: () => PromiseLike<{ data: T[] | null; error: unknown }>
@@ -104,6 +104,14 @@ async function readTable<T extends { id: string }>(
   }
 }
 
+function typeShort(type: string): string {
+  const t = type.toUpperCase();
+  if (t.startsWith('TEÓRICO-P') || t.startsWith('TEORICO-P') || t === 'TP') return 'TP';
+  if (t.startsWith('P')) return 'P';
+  if (t.startsWith('T')) return 'T';
+  return t.slice(0, 2);
+}
+
 export default function FaculdadePage() {
   const router = useRouter();
   const { user } = useCurrentUser();
@@ -111,26 +119,30 @@ export default function FaculdadePage() {
 
   const [subjects, setSubjects] = useState<FacSubject[]>([]);
   const [assessments, setAssessments] = useState<AssessmentItem[]>([]);
-  const [chapters, setChapters] = useState<ChapterRef[]>([]);
   const [workTasks, setWorkTasks] = useState<WorkTask[]>([]);
   const [workProjects, setWorkProjects] = useState<WorkProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [active, setActive] = useState('agora');
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  const deadlineInputRef = useRef<HTMLInputElement>(null);
 
   const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
       // O Supabase aplica a RLS e traz apenas as disciplinas do utilizador.
-      const [subs, assess, chaps, tasks, projects] = await Promise.all([
+      const [subs, assess, tasks, projects] = await Promise.all([
         readTable<FacSubject>('subjects', () => supabase.from('subjects').select('*')),
         readTable<AssessmentItem>('assessments', () => supabase.from('assessments').select('*')),
-        readTable<ChapterRef>('chapters', () => supabase.from('chapters').select('id, subject_id')).catch(() => []),
         getWorkTasks().catch(() => []),
         getWorkProjects().catch(() => []),
       ]);
       setSubjects(subs);
       setAssessments(assess);
-      setChapters(chaps);
       setWorkTasks(tasks);
       setWorkProjects(projects);
     } catch (err) {
@@ -141,8 +153,7 @@ export default function FaculdadePage() {
   }, [supabase]);
 
   useEffect(() => {
-    // Pedido inicial de dados ao montar.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- pedido inicial de dados
     fetchAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- correr apenas uma vez ao montar
   }, []);
@@ -153,89 +164,134 @@ export default function FaculdadePage() {
   const today = useMemo(() => startOfDay(now), [todayKey]);
   const monday = useMemo(() => mondayOf(today), [today]);
 
+  // Tom fixo por disciplina, pela ordem do código.
+  const sortedSubjects = useMemo(
+    () => [...subjects].sort((a, b) => (a.code || a.name || '').localeCompare(b.code || b.name || '')),
+    [subjects]
+  );
+  const toneOf = useMemo(() => {
+    const map = new Map<string, Tone>();
+    sortedSubjects.forEach((x, i) => map.set(x.id, FAC_TONES[i] ?? OVERFLOW_TONE));
+    return map;
+  }, [sortedSubjects]);
   const subjectById = useMemo(() => new Map(subjects.map((x) => [x.id, x])), [subjects]);
   const projectById = useMemo(() => new Map(workProjects.map((p) => [p.id, p])), [workProjects]);
-
-  // Tom fixo por disciplina, pela ordem do código.
-  const toneOf = useMemo(() => {
-    const sorted = [...subjects].sort((a, b) => (a.code || a.name || '').localeCompare(b.code || b.name || ''));
-    const map = new Map<string, SubjectTone>();
-    sorted.forEach((x, i) => map.set(x.id, SUBJECT_TONES[i] ?? OVERFLOW_TONE));
-    return map;
-  }, [subjects]);
-
-  const classes = useMemo<ClassOccurrence[]>(() => collectClasses(subjects), [subjects]);
+  const codeOf = useCallback((id: string) => {
+    const x = subjectById.get(id);
+    return x?.code || (x?.name || '?').slice(0, 3).toUpperCase();
+  }, [subjectById]);
   const nameOf = useCallback((id: string) => {
     const x = subjectById.get(id);
     return x?.name || x?.code || 'Disciplina';
   }, [subjectById]);
 
+  const classes = useMemo(() => collectClasses(subjects), [subjects]);
   const slots = useMemo<ClassSlot[]>(
     () =>
       classes.map((c) => ({
         subjectId: c.subjectId,
         subjectName: nameOf(c.subjectId),
+        code: codeOf(c.subjectId),
         typeLabel: classTypeLabel(c.type),
+        typeShort: c.type ? typeShort(c.type) : '',
         dayNum: c.dayNum,
         start: c.startTime,
         end: c.endTime,
         room: c.room,
       })),
-    [classes, nameOf]
+    [classes, nameOf, codeOf]
+  );
+  const todaySlots = useMemo(
+    () => slots.filter((s) => s.dayNum === today.getDay()).sort((a, b) => parseMinutes(a.start) - parseMinutes(b.start)),
+    [slots, today]
   );
 
   // ==========================================
-  // NÚMEROS DA ABERTURA
+  // CABEÇALHO
   // ==========================================
-  const stats = useMemo<FacStat[]>(() => {
-    const ects = subjects.reduce((sum, x) => sum + (Number(x.ects) || 0), 0);
-    const hours = computeSubjectHours(classes).reduce((sum, x) => sum + x.hours, 0);
-
-    const upcomingDays = assessments
-      .map((a) => parseDueDate(a.due_date))
-      .filter((d): d is Date => d !== null && d >= today)
-      .map((d) => daysBetween(today, d));
-    const nextDeadline = upcomingDays.length ? Math.min(...upcomingDays) : null;
-
-    let weighted = 0;
-    let weights = 0;
-    assessments.forEach((a) => {
-      const g = getItemEffectiveGrade(a);
-      if (typeof g !== 'number') return;
-      const w = a.weight_percent || 1;
-      weighted += g * w;
-      weights += w;
+  const ects = subjects.reduce((sum, x) => sum + (Number(x.ects) || 0), 0);
+  const weekHours = computeSubjectHours(classes).reduce((sum, x) => sum + x.hours, 0);
+  // Semestre mais comum entre as disciplinas (não há "semestre atual" guardado).
+  const semester = useMemo(() => {
+    const counts = new Map<number, number>();
+    subjects.forEach((x) => {
+      if (x.semester) counts.set(x.semester, (counts.get(x.semester) || 0) + 1);
     });
-
-    return [
-      { value: String(ects), label: 'ECTS em curso' },
-      { value: fmtNum(hours), label: 'horas de aula por semana' },
-      {
-        value: nextDeadline === null ? '—' : String(nextDeadline),
-        label: nextDeadline === 0 ? 'prazo para hoje' : 'dias até ao próximo prazo',
-      },
-      { value: weights ? fmtNum(weighted / weights) : '—', label: 'nota média atual' },
-    ];
-  }, [subjects, classes, assessments, today]);
+    let best: number | null = null;
+    counts.forEach((n, sem) => {
+      if (best === null || n > (counts.get(best) || 0)) best = sem;
+    });
+    return best;
+  }, [subjects]);
+  const periodLabel = `${semester ? `${semester}.º semestre, ` : ''}semana ${isoWeek(today)}`;
+  const meta = `${subjects.length} ${subjects.length === 1 ? 'disciplina' : 'disciplinas'} · ${ects} ECTS · ${fmtNum(weekHours)} h de aula por semana`;
 
   // ==========================================
-  // PRÓXIMOS 7 DIAS (avaliações + tarefas de trabalho)
+  // AGORA
   // ==========================================
-  const upcoming = useMemo<UpcomingItem[]>(() => {
-    const limit = addDays(today, 6);
-    const items: UpcomingItem[] = [];
+  const averageLabel = useMemo(() => {
+    const avgs = subjects
+      .map((x) =>
+        currentAverage(
+          assessments.filter((a) => a.subject_id === x.id),
+          typeof x.theoretical_weight === 'number' ? x.theoretical_weight : 50,
+          typeof x.practical_weight === 'number' ? x.practical_weight : 50
+        )
+      )
+      .filter((v): v is number => v !== null);
+    return avgs.length ? fmtNum(avgs.reduce((a, b) => a + b, 0) / avgs.length) : '—';
+  }, [subjects, assessments]);
+
+  // ==========================================
+  // SEMANA
+  // ==========================================
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(monday, i)), [monday]);
+  const todayIndex = weekDays.findIndex((x) => isoKey(x) === todayKey);
+  const blocks = useMemo<WeekBlock[]>(
+    () =>
+      slots.map((sl, i) => ({
+        id: `b-${sl.subjectId}-${sl.start}-${i}`,
+        dayIndex: (sl.dayNum + 6) % 7,
+        start: sl.start,
+        end: sl.end,
+        label: [sl.code, sl.typeShort || null, sl.room || null].filter(Boolean).join(' · '),
+        title: `${sl.subjectName} · ${sl.typeLabel} · ${sl.start}${sl.end ? `–${sl.end}` : ''}${sl.room ? ` · Sala ${sl.room}` : ''}`,
+        tone: toneOf.get(sl.subjectId) ?? OVERFLOW_TONE,
+        href: `/faculdade/${sl.subjectId}`,
+      })),
+    [slots, toneOf]
+  );
+  const markers = useMemo<WeekMarker[]>(() => {
+    const out: WeekMarker[] = [];
     assessments.forEach((a) => {
       const due = parseDueDate(a.due_date);
-      if (!due || due < today || due > limit) return;
-      const weight = typeof a.weight_percent === 'number' ? ` Peso: ${a.weight_percent}%.` : '';
-      items.push({
+      if (!due) return;
+      const idx = daysBetween(monday, due);
+      if (idx >= 0 && idx < 7) out.push({ id: `m-${a.id}`, dayIndex: idx, title: `${a.title} (${codeOf(a.subject_id)})`, href: `/faculdade/${a.subject_id}` });
+    });
+    return out;
+  }, [assessments, monday, codeOf]);
+  const legend = sortedSubjects.map((x) => ({ label: codeOf(x.id), tone: toneOf.get(x.id) ?? OVERFLOW_TONE }));
+
+  // ==========================================
+  // PRAZOS (14 dias)
+  // ==========================================
+  const deadlineRows = useMemo<DeadlineRow[]>(() => {
+    const limit = addDays(today, 14);
+    const rows: DeadlineRow[] = [];
+    assessments.forEach((a) => {
+      const due = parseDueDate(a.due_date);
+      if (!due || due < today || due > limit || getItemEffectiveGrade(a) !== null) return;
+      const tone = toneOf.get(a.subject_id) ?? OVERFLOW_TONE;
+      rows.push({
         id: `a-${a.id}`,
-        date: due,
+        kind: 'F',
+        days: daysBetween(today, due),
         title: a.title || 'Avaliação',
-        subtitle: nameOf(a.subject_id),
-        desc: `${a.title || 'Avaliação'}, ${shortDate(due)}.${weight}`,
-        tone: toneOf.get(a.subject_id) ?? OVERFLOW_TONE,
-        href: `/faculdade/${a.subject_id}`,
+        source: nameOf(a.subject_id),
+        date: shortDate(due),
+        dot: tone.bg === 'transparent' ? tone.bd : tone.bg,
+        href: `/faculdade/${a.subject_id}#avaliacao`,
       });
     });
     workTasks
@@ -244,150 +300,187 @@ export default function FaculdadePage() {
         const due = parseDueDate(t.due_date);
         if (!due || due < today || due > limit) return;
         const project = t.project_id ? projectById.get(t.project_id) : undefined;
-        items.push({
+        rows.push({
           id: `t-${t.id}`,
-          date: due,
+          kind: 'T',
+          days: daysBetween(today, due),
           title: t.title,
-          subtitle: project?.name || 'Trabalho',
-          desc: `Tarefa de trabalho com prazo a ${shortDate(due)}.`,
-          tone: WORK_DOT,
+          source: project?.name || 'Trabalho',
+          date: shortDate(due),
+          dot: '#8a857d',
           href: '/trabalho',
         });
       });
-    return items.sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [assessments, workTasks, today, nameOf, toneOf, projectById]);
+    return rows.sort((a, b) => a.days - b.days);
+  }, [assessments, workTasks, today, toneOf, nameOf, projectById]);
 
-  // ==========================================
-  // SEMANA: aulas recorrentes + prazos do dia (22:30–23:00)
-  // ==========================================
-  const blocks = useMemo<TimetableBlock[]>(() => {
-    const out: TimetableBlock[] = [];
-    for (let i = 0; i < 7; i++) {
-      const date = addDays(monday, i);
-      classes
-        .filter((c) => c.dayNum === date.getDay())
-        .forEach((c) => {
-          const room = c.room ? `Sala ${c.room}` : 'Sala a definir';
-          out.push({
-            id: `c-${c.subjectId}-${c.startTime}-${i}`,
-            date,
-            start: c.startTime,
-            end: c.endTime,
-            label: [c.subjectCode, c.type ? typeShort(c.type) : null, c.room || null].filter(Boolean).join(' · '),
-            title: nameOf(c.subjectId),
-            desc: `${classTypeLabel(c.type)}. ${room}. ${c.startTime}${c.endTime ? ` às ${c.endTime}` : ''}.`,
-            tone: toneOf.get(c.subjectId) ?? OVERFLOW_TONE,
-            href: `/faculdade/${c.subjectId}`,
-          });
-        });
-      assessments.forEach((a) => {
-        const due = parseDueDate(a.due_date);
-        if (!due || isoKey(due) !== isoKey(date)) return;
-        out.push({
-          id: `p-${a.id}`,
-          date,
-          start: '22:30',
-          end: '23:00',
-          label: `Prazo · ${a.title || 'Avaliação'}`,
-          title: `Prazo: ${a.title || 'Avaliação'}`,
-          desc: `${nameOf(a.subject_id)}. Entrega até ao fim do dia.`,
-          tone: toneOf.get(a.subject_id) ?? OVERFLOW_TONE,
-          href: `/faculdade/${a.subject_id}`,
-        });
-      });
-    }
-    return out;
-  }, [monday, classes, assessments, nameOf, toneOf]);
-
-  const legend = useMemo(
-    () =>
-      [...subjects]
-        .sort((a, b) => (a.code || a.name || '').localeCompare(b.code || b.name || ''))
-        .map((x) => ({ label: x.name || x.code || 'Disciplina', tone: toneOf.get(x.id) ?? OVERFLOW_TONE })),
-    [subjects, toneOf]
+  // "TP3 SD 20 nov" → avaliação "TP3" da disciplina SD a 20 de novembro.
+  const createDeadline = useCallback(
+    async (text: string): Promise<boolean> => {
+      setCreateError(null);
+      const parsed = parseLooseDate(text, today);
+      if (!parsed) {
+        setCreateError('Falta a data (ex.: 20 nov ou 20/11).');
+        return false;
+      }
+      let rest = text.replace(parsed.match, ' ');
+      const words = rest.split(/\s+/).filter(Boolean);
+      const subject =
+        subjects.find((x) => x.code && words.some((w) => w.toLowerCase() === x.code!.toLowerCase())) ||
+        subjects.find((x) => x.name && rest.toLowerCase().includes(x.name.toLowerCase()));
+      if (!subject) {
+        setCreateError('Indica o código da disciplina (ex.: SD).');
+        return false;
+      }
+      rest = subject.code
+        ? words.filter((w) => w.toLowerCase() !== subject.code!.toLowerCase()).join(' ')
+        : rest.replace(new RegExp(subject.name || '', 'i'), ' ');
+      const title = rest.replace(/\s+/g, ' ').trim() || 'Prazo';
+      const payload = {
+        subject_id: subject.id,
+        title: title.toUpperCase(),
+        category: /^(tp|lab|pl|projeto|trabalho|relat)/i.test(title) ? 'PRATICA' : 'TEORICA',
+        weight_percent: 0,
+        due_date: isoKey(parsed.date),
+        volume_ref: null,
+        file_name: null,
+        file_url: null,
+        has_defense: false,
+        grade: null,
+        defense_grade: null,
+        defense_date: null,
+      };
+      setCreating(true);
+      try {
+        const { data, error } = await supabase.from('assessments').insert([payload]).select().single();
+        if (error) throw error;
+        await putMirror('assessments', data as AssessmentItem);
+        setAssessments((prev) => [...prev, data as AssessmentItem]);
+        return true;
+      } catch (err) {
+        if (isNetworkError(err)) {
+          const optimistic = { id: generateLocalId(), ...payload } as unknown as AssessmentItem;
+          await putMirror('assessments', optimistic);
+          await queueMutation({ table: 'assessments', op: 'insert', tempId: optimistic.id, payload });
+          setAssessments((prev) => [...prev, optimistic]);
+          return true;
+        }
+        console.error('Erro ao criar prazo:', err);
+        setCreateError('Não foi possível guardar o prazo.');
+        return false;
+      } finally {
+        setCreating(false);
+      }
+    },
+    [subjects, supabase, today]
   );
 
   // ==========================================
-  // CARTÕES DAS DISCIPLINAS (ordenados pela próxima aula)
+  // TABELA DE DISCIPLINAS (ordenada pela próxima aula)
   // ==========================================
-  const cards = useMemo<SubjectCardView[]>(() => {
+  const subjectRows = useMemo<SubjectRowView[]>(() => {
     const nowMin = now.getHours() * 60 + now.getMinutes();
     const withNext = subjects.map((x) => {
-      let best: { offset: number; start: number; c: ClassOccurrence } | null = null;
-      classes
-        .filter((c) => c.subjectId === x.id)
-        .forEach((c) => {
-          const start = parseMinutes(c.startTime);
-          const end = c.endTime ? parseMinutes(c.endTime) : start + 90;
-          let offset = (c.dayNum - today.getDay() + 7) % 7;
-          if (offset === 0 && nowMin >= end) offset = 7;
-          if (!best || offset < best.offset || (offset === best.offset && start < best.start)) best = { offset, start, c };
-        });
-      return { x, best: best as { offset: number; start: number; c: ClassOccurrence } | null };
+      let best: { offset: number; start: number; s: ClassSlot } | null = null;
+      for (const s of slots.filter((sl) => sl.subjectId === x.id)) {
+        const start = parseMinutes(s.start);
+        const end = s.end ? parseMinutes(s.end) : start + 90;
+        let offset = (s.dayNum - today.getDay() + 7) % 7;
+        if (offset === 0 && nowMin >= end) offset = 7;
+        if (!best || offset < best.offset || (offset === best.offset && start < best.start)) best = { offset, start, s };
+      }
+      return { x, best };
     });
     withNext.sort((a, b) => (a.best ? a.best.offset * 1440 + a.best.start : Infinity) - (b.best ? b.best.offset * 1440 + b.best.start : Infinity));
 
     return withNext.map(({ x, best }) => {
-      const code = x.code || '';
-      const initials = (code || (x.name || '?').split(/\s+/).map((w) => w[0]).join('')).slice(0, 3).toUpperCase();
-      const teacher = teacherName(x.teacher_teorica) || teacherName(x.regente);
-      const meta = [teacher, code || null, x.ects ? `${x.ects} ECTS` : null].filter(Boolean).join(' · ');
+      const regent = teacherName(x.regente);
+      const theory = teacherName(x.teacher_teorica);
+      const teacher = regent || theory || teacherName(x.teacher_pratica) || '—';
+      const roles = [regent === teacher ? 'Regente' : null, theory === teacher ? 'Teórica' : null, teacherName(x.teacher_pratica) === teacher ? 'Prática' : null].filter(Boolean);
 
-      const chapterCount = chapters.filter((c) => c.subject_id === x.id).length;
-      const nextAssessment = assessments
-        .filter((a) => a.subject_id === x.id)
+      const nextDue = assessments
+        .filter((a) => a.subject_id === x.id && getItemEffectiveGrade(a) === null)
         .map((a) => ({ a, due: parseDueDate(a.due_date) }))
         .filter((r): r is { a: AssessmentItem; due: Date } => r.due !== null && r.due >= today)
         .sort((p, q) => p.due.getTime() - q.due.getTime())[0];
-      const period = [
-        x.degree_year ? `${x.degree_year}.º ano` : null,
-        x.semester ? `${x.semester}.º semestre` : null,
-        x.academic_year || null,
-      ]
-        .filter(Boolean)
-        .join(', ');
-      const summary = [
-        period || null,
-        `${chapterCount} ${chapterCount === 1 ? 'capítulo' : 'capítulos'} nos notebooks`,
-        nextAssessment ? `próxima avaliação: ${nextAssessment.a.title || 'avaliação'}, ${shortDate(nextAssessment.due)}` : null,
-      ]
-        .filter(Boolean)
-        .join(' · ');
 
-      let nextLabel = 'sem aulas no horário';
+      let next = 'Sem aulas no horário';
+      let nextWhere = '';
       if (best) {
-        const day =
-          best.offset === 0
-            ? 'hoje'
-            : best.offset === 1
-              ? 'amanhã'
-              : WEEKDAY_LONG_PT[best.c.dayNum].replace('-feira', '').toLowerCase();
-        const range = best.c.endTime ? `${best.c.startTime}–${best.c.endTime}` : best.c.startTime;
-        nextLabel = `${day}, ${range}${best.c.room ? `, Sala ${best.c.room}` : ''}`;
+        const day = best.offset === 0 ? 'Hoje' : best.offset === 1 ? 'Amanhã' : WEEKDAY_LONG_PT[best.s.dayNum].replace('-feira', '');
+        next = `${day}, ${best.s.start}${best.s.end ? `–${best.s.end}` : ''}`;
+        nextWhere = best.s.room ? `Sala ${best.s.room}` : best.s.typeLabel;
       }
+      const dueDays = nextDue ? daysBetween(today, nextDue.due) : 0;
 
       return {
         id: x.id,
-        initials: initials || '?',
+        code: codeOf(x.id),
         name: x.name || x.code || 'Disciplina',
-        meta,
-        summary: summary.charAt(0).toUpperCase() + summary.slice(1) + '.',
-        nextLabel,
+        ref: [x.code, x.ects ? `${x.ects} ECTS` : null].filter(Boolean).join(' · '),
+        teacher,
+        teacherRole: roles.join(' · ') || '',
+        next,
+        nextWhere,
+        nextToday: best?.offset === 0,
+        due: nextDue ? nextDue.a.title || 'Avaliação' : '—',
+        dueWhen: nextDue ? `${shortDate(nextDue.due)} · ${dueDays === 0 ? 'hoje' : `em ${dueDays} ${dueDays === 1 ? 'dia' : 'dias'}`}` : 'sem prazos',
         tone: toneOf.get(x.id) ?? OVERFLOW_TONE,
       };
     });
-  }, [subjects, classes, chapters, assessments, today, now, toneOf]);
+  }, [subjects, slots, assessments, today, now, toneOf, codeOf]);
 
-  const searchIndex = useMemo<SearchEntry[]>(() => {
-    const entries: SearchEntry[] = [];
-    subjects.forEach((x) =>
-      entries.push({ id: `s-${x.id}`, label: x.name || x.code || 'Disciplina', sublabel: 'Disciplina', href: `/faculdade/${x.id}` })
-    );
-    assessments.forEach((a) =>
-      entries.push({ id: `a-${a.id}`, label: a.title || 'Avaliação', sublabel: `Avaliação · ${nameOf(a.subject_id)}`, href: `/faculdade/${a.subject_id}` })
-    );
-    return entries;
+  // ==========================================
+  // PESQUISA, ATALHOS, CONTA
+  // ==========================================
+  const searchIndex = useMemo<SearchHit[]>(() => {
+    const hits: SearchHit[] = [];
+    subjects.forEach((x) => hits.push({ id: `s-${x.id}`, label: x.name || x.code || 'Disciplina', sublabel: 'Disciplina', href: `/faculdade/${x.id}` }));
+    assessments.forEach((a) => hits.push({ id: `a-${a.id}`, label: a.title || 'Avaliação', sublabel: `Avaliação · ${nameOf(a.subject_id)}`, href: `/faculdade/${a.subject_id}#avaliacao` }));
+    return hits;
   }, [subjects, assessments, nameOf]);
+
+  const goTo = useCallback((id: string) => {
+    setActive(id);
+    scrollToId(id);
+  }, []);
+  const focusDeadline = useCallback(() => {
+    goTo('prazos');
+    window.setTimeout(() => deadlineInputRef.current?.focus(), 250);
+  }, [goTo]);
+  const goNewSubject = useCallback(() => scrollToId('nova-disciplina'), []);
+
+  const onShortcut = useCallback(
+    (key: string) => {
+      if (key === 'escape') {
+        setHelpOpen(false);
+        return true;
+      }
+      if (SECTION_KEYS[key]) goTo(SECTION_KEYS[key]);
+      else if (key === 'n') focusDeadline();
+      else if (key === 'd') goNewSubject();
+      else if (key === '?') setHelpOpen((v) => !v);
+      else return false;
+      return true;
+    },
+    [goTo, focusDeadline, goNewSubject]
+  );
+  const focusSearch = useCallback(() => searchRef.current?.focus(), []);
+  useShortcuts(onShortcut, focusSearch);
+
+  const shortcutItems: ShortcutItem[] = [
+    { id: 'agora', key: '1', label: 'Agora' },
+    { id: 'semana', key: '2', label: 'Semana' },
+    { id: 'disciplinas', key: '3', label: 'Disciplinas', badge: String(subjects.length) },
+    { id: 'prazos', key: 'P', label: 'Prazos', badge: String(deadlineRows.length) },
+  ];
+
+  const handleLogout = useCallback(async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  }, [supabase, router]);
 
   const profileUser = user
     ? {
@@ -400,54 +493,60 @@ export default function FaculdadePage() {
       }
     : null;
 
-  const handleLogout = useCallback(async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
-  }, [supabase, router]);
-
   const dateLabel = `${WEEKDAY_LONG_PT[today.getDay()]}, ${today.getDate()} de ${MONTHS_PT[today.getMonth()]}`;
+  const todayLabel = `${WEEKDAY_LONG_PT[today.getDay()].slice(0, 3)}, ${shortDate(today)}`;
 
   return (
-    <div className={s.root}>
-      <SiteHeader
+    <div className={d.root}>
+      <DensoHeader
         active="faculdade"
         dateLabel={dateLabel}
         searchIndex={searchIndex}
-        searchPlaceholder="Pesquisar índice…"
-        newDossierHref="#nova-disciplina"
+        searchRef={searchRef}
         userName={user?.name ?? null}
         userEmail={user?.email ?? null}
         onOpenProfile={() => setIsProfileOpen(true)}
         onLogout={handleLogout}
       />
 
-      {loading ? (
-        <p className={`${s.inner} ${s.muted}`} style={{ paddingTop: 96, paddingBottom: 96, fontSize: 16 }}>
-          A carregar disciplinas…
-        </p>
+      <FacHeading periodLabel={periodLabel} meta={meta} onAddDeadline={focusDeadline} onAddSubject={goNewSubject} />
+
+      <ShortcutBar
+        items={shortcutItems}
+        active={active}
+        onPick={setActive}
+        help={HELP}
+        helpOpen={helpOpen}
+        onToggleHelp={() => setHelpOpen((v) => !v)}
+        extra={<SubjectJumps subjects={sortedSubjects.map((x) => ({ id: x.id, code: codeOf(x.id), tone: toneOf.get(x.id) ?? OVERFLOW_TONE }))} />}
+      />
+
+      {loading && subjects.length === 0 ? (
+        <p className={`${d.inner} ${d.muted}`} style={{ paddingTop: 48, paddingBottom: 48 }}>A carregar disciplinas…</p>
       ) : (
-        <>
-          <FacHero stats={stats} slots={slots} />
-          <Upcoming items={upcoming} today={today} />
-          <WeekTimetable monday={monday} today={today} weekNumber={isoWeek(today)} blocks={blocks} legend={legend} />
-          <SubjectGrid subjects={cards} />
-        </>
+        <div className={`${d.inner} ${d.split84}`} style={{ paddingTop: 20, paddingBottom: 32 }}>
+          <div className={d.col8} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+            <FacAgora slots={slots} average={averageLabel} todaySlots={todaySlots} />
+            <FacWeek weekNumber={isoWeek(today)} days={weekDays} todayIndex={todayIndex} blocks={blocks} markers={markers} legend={legend} />
+            <FacSubjects rows={subjectRows} />
+          </div>
+          <div className={d.col4}>
+            <FacDeadlines
+              rows={deadlineRows}
+              todaySlots={todaySlots}
+              todayLabel={todayLabel}
+              inputRef={deadlineInputRef}
+              onCreate={createDeadline}
+              createError={createError}
+              creating={creating}
+            />
+          </div>
+        </div>
       )}
 
-      <section id="nova-disciplina" className={s.inner} style={{ paddingTop: 32, scrollMarginTop: 24 }}>
+      <section id="nova-disciplina" className={d.inner} style={{ paddingBottom: 48, scrollMarginTop: 16 }}>
         <AddSubjectForm onSubjectAdded={fetchAll} />
       </section>
-
-      <EnterAgenda />
-
-      <svg aria-hidden="true" className={s.grain}>
-        <filter id="faculdade-grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
-        <rect width="100%" height="100%" filter="url(#faculdade-grain)" />
-      </svg>
 
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
     </div>

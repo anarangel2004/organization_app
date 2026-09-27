@@ -109,17 +109,16 @@ export function FacHero({ stats, slots }: { stats: FacStat[]; slots: ClassSlot[]
           display: 'flex',
           flexWrap: 'wrap',
           justifyContent: 'space-between',
-          alignItems: 'flex-end',
           gap: 40,
           borderTop: '1px solid var(--hair)',
           paddingTop: 28,
         }}
       >
-        <div style={{ minWidth: 0 }}>
+        <div style={{ flex: '1 1 480px', maxWidth: 640, minWidth: 0 }}>
           <h1 className={s.display} style={{ fontSize: 'clamp(56px, 10.5vw, 152px)', lineHeight: 0.86, letterSpacing: '-.04em' }}>
             FACULDADE
           </h1>
-          <div style={{ display: 'flex', gap: '24px 48px', flexWrap: 'wrap', marginTop: 32 }}>
+          <div style={{ display: 'flex', gap: '24px 40px', flexWrap: 'wrap', marginTop: 32 }}>
             {stats.map((st) => (
               <div key={st.label}>
                 <span className={s.serif} style={{ display: 'block', fontWeight: 600, fontSize: 38, lineHeight: 1, color: 'var(--acc)' }}>
@@ -131,7 +130,7 @@ export function FacHero({ stats, slots }: { stats: FacStat[]; slots: ClassSlot[]
           </div>
         </div>
 
-        <div style={{ width: 'min(520px, 100%)', background: 'var(--bone)', color: 'var(--inkdark)', padding: 'clamp(22px, 2.2vw, 32px)' }}>
+        <div style={{ width: 'min(620px, 100%)', background: 'var(--bone)', color: 'var(--inkdark)', padding: 'clamp(22px, 2.2vw, 32px)' }}>
           {next ? (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>

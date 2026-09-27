@@ -22,10 +22,6 @@ export const MOCK_DEADLINE_PREP: { prep: number; state: string }[] = [
   { prep: 60, state: 'Em curso' },
 ];
 
-// Plano de ação: as tarefas não têm duração, por isso cada tarefa
-// pendente conta como esta estimativa no balanceador de carga.
-export const MOCK_TASK_HOURS = 1;
-
 // Balanço: não há registo de horas nem de despesas.
 export const MOCK_BILLABLE_HOURS = { done: 24.5, target: 30 };
 export const MOCK_STUDY_HOURS = { done: 17.8, target: 20 };

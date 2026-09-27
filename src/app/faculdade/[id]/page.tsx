@@ -1,264 +1,196 @@
 'use client';
 
-import { useState, useEffect, use, useCallback } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { SubjectData } from '@/types';
 import { getAllMirror, putAllMirror, reconcileMirror } from '@/lib/offline/db';
 import { isNetworkError } from '@/lib/offline/sync';
-import { ChapterData } from './components/NotebooksSection';
-import { SubjectHeader } from './components/SubjectHeader';
-import { PrazosSection } from './components/PrazosSection';
-import { HeroSection } from './components/HeroSection';
-import { VisaoGeralSection } from './components/VisaoGeralSection';
-import { NotebooksSection } from './components/NotebooksSection';
+import { useCurrentUser } from '@/lib/useCurrentUser';
+import { formatRelativeDate, getItemEffectiveGrade } from '@/lib/utils';
+import type { AssessmentItem } from '@/types';
+import ProfileModal from '@/components/ui/ProfileModal';
+import { useLocalState, useNow } from '@/app/components/painel/useLocalState';
+import { parseDueDate } from '@/app/components/homeAgenda';
 import { HorarioSection } from './components/HorarioSection';
 import { AvaliacaoSection } from './components/avaliacao/AvaliacaoSection';
 import { BibliotecaSection } from './components/BibliotecaSection';
-import { SubjectFooter } from './components/SubjectFooter';
+import d from '@/app/components/denso/denso.module.css';
+import {
+  AgoraCards,
+  AssessmentTable,
+  DHeading,
+  Library,
+  NotebookStat,
+  NotebooksPanel,
+  SchedulePanel,
+  TasksPanel,
+  TeachersPanel,
+} from './components/DisciplinaView';
+import { DensoHeader, SearchHit, ShortcutBar, ShortcutItem } from '@/app/components/denso/DensoChrome';
 
-// Formas mínimas dos registos crus devolvidos pelo Supabase (sem tipos gerados
-// para a base de dados; só os campos que esta página efetivamente lê).
-interface RawSubjectRow {
-  id: string | number;
-  code?: string;
-  name?: string;
-  teacher_teorica?: string | { name?: string } | null;
-  regente?: string | { name?: string } | null;
-  ects?: number;
-  academic_year?: string;
-  degree_year?: number;
-  semester?: number;
-  schedules?: unknown;
-  theoretical_weight?: number | null;
-  practical_weight?: number | null;
-  updated_at?: string | null;
-}
-
-interface RawScheduleEntry {
-  id?: string | number;
-  day?: string;
-  dayOfWeek?: string;
-  startTime?: string;
-  start_time?: string;
-  endTime?: string;
-  end_time?: string;
-  room?: string;
-  sala?: string;
-  type?: string;
-  tipo?: string;
-}
-
-interface RawChapterRow {
-  id: string | number;
-  subject_id?: string | number;
-  category?: string;
-  updated_at?: string;
-  content?: string;
-  pdf_url?: string;
-  is_completed?: boolean;
-}
-
-interface RawAssessmentRow {
-  id: string | number;
-  subject_id?: string | number;
-  due_date?: string;
-  title?: string;
-  category?: string;
-}
+const SHORTCUT_HELP: [string, string][] = [
+  ['1–5, B', 'Ir para a secção'],
+  ['N', 'Nova tarefa'],
+  ['/', 'Pesquisar na biblioteca'],
+  ['Ctrl K', 'Pesquisa global'],
+  ['F', 'Biblioteca em ecrã inteiro'],
+  ['?', 'Mostrar/esconder esta ajuda'],
+  ['Esc', 'Fechar'],
+];
+import {
+  ChapterRow,
+  FileRow,
+  LibCategory,
+  LocalTask,
+  MONTHS_LONG,
+  SubjectFull,
+  WEEKDAY_LONG,
+  currentAverage,
+  effectiveWeight,
+  fmtGrade,
+  nextSlot,
+  parseSlots,
+  startOfDay,
+  teacherName,
+  toLibDoc,
+} from './components/disciplinaData';
 
 function cleanSlug(text: string): string {
   return text
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .replace(/&/g, 'e')
     .replace(/[^a-z0-9]/g, '');
 }
 
-function formatTeacher(teacher: string | { name?: string } | null | undefined): string {
-  if (!teacher) return 'N/D';
-  if (typeof teacher === 'string') return teacher;
-  if (typeof teacher === 'object' && teacher.name) return teacher.name;
-  return 'N/D';
+// Aceita o id, o código ou o nome da disciplina no URL (como antes).
+function findSubject(rows: SubjectFull[], rawId: string): SubjectFull | undefined {
+  const target = cleanSlug(rawId);
+  return rows.find((s) => {
+    const id = cleanSlug(String(s.id || ''));
+    const code = cleanSlug(String(s.code || ''));
+    const name = cleanSlug(String(s.name || ''));
+    return (
+      id === target ||
+      code === target ||
+      name === target ||
+      (name.length > 3 && target.includes(name)) ||
+      (target.length > 3 && name.includes(target))
+    );
+  });
 }
 
-function calculateDaysRemaining(dueDateStr?: string): number {
-  if (!dueDateStr) return 0;
-
-  const cleanDateStr = dueDateStr.split('T')[0];
-  const parts = cleanDateStr.split('-');
-
-  let target: Date;
-  if (parts.length === 3) {
-    const [year, month, day] = parts.map(Number);
-    target = new Date(year, month - 1, day);
-  } else {
-    target = new Date(dueDateStr);
+// Leitura filtrada por disciplina, com recurso ao espelho local sem rede.
+async function readSubjectRows<T extends { id: string | number; subject_id?: string | number }>(
+  table: string,
+  subjectId: string,
+  query: () => PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<T[]> {
+  try {
+    const { data, error } = await query();
+    if (error) throw error;
+    const rows = data ?? [];
+    await putAllMirror(table, rows);
+    return rows;
+  } catch (err) {
+    if (!isNetworkError(err)) throw err;
+    return (await getAllMirror<T>(table)).filter((r) => String(r.subject_id ?? '') === subjectId);
   }
-
-  const today = new Date();
-  target.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-
-  const diffTime = target.getTime() - today.getTime();
-  return Math.round(diffTime / (1000 * 60 * 60 * 24));
 }
 
-export default function SubjectDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+type ManagePanel = 'horario' | 'avaliacao' | 'biblioteca';
+
+const MANAGE_TABS: [ManagePanel, string][] = [
+  ['horario', 'Horário'],
+  ['avaliacao', 'Avaliação e pesos'],
+  ['biblioteca', 'Biblioteca'],
+];
+
+const SECTION_KEYS: Record<string, string> = {
+  '1': 'agora',
+  '2': 'tarefas',
+  '3': 'cadernos',
+  '4': 'horario',
+  '5': 'avaliacao',
+  b: 'biblioteca',
+};
+
+export default function SubjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const rawId = decodeURIComponent(resolvedParams.id || '');
+  const router = useRouter();
+  const { user } = useCurrentUser();
 
-  const [subject, setSubject] = useState<SubjectData | null>(null);
-  const [chapters, setChapters] = useState<ChapterData[]>([]);
+  const [allSubjects, setAllSubjects] = useState<SubjectFull[]>([]);
+  const [subject, setSubject] = useState<SubjectFull | null>(null);
+  const [assessments, setAssessments] = useState<AssessmentItem[]>([]);
+  const [chapters, setChapters] = useState<ChapterRow[]>([]);
+  const [files, setFiles] = useState<FileRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  const fetchSubject = useCallback(async () => {
+  const [active, setActive] = useState('agora');
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [libFull, setLibFull] = useState(false);
+  const [manage, setManage] = useState<ManagePanel | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  const globalSearchRef = useRef<HTMLInputElement>(null);
+  const librarySearchRef = useRef<HTMLInputElement>(null);
+  const taskInputRef = useRef<HTMLInputElement>(null);
+  const manageRef = useRef<HTMLDivElement>(null);
+
+  const subjectId = subject?.id ?? '';
+  // Sem tabela no Supabase para tarefas por disciplina nem para "fixados".
+  const [tasks, setTasks] = useLocalState<LocalTask[]>(`disciplina:${subjectId}:tasks`, []);
+  const [pins, setPins] = useLocalState<string[]>(`disciplina:${subjectId}:pins`, []);
+
+  const fetchAll = useCallback(async () => {
     if (!rawId) return;
-
     try {
       setLoading(true);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mantém o comportamento solto já existente neste ficheiro (sem tipos gerados da BD)
-      let dbSubjects: any[] | null = null;
+      let rows: SubjectFull[];
       try {
         const { data, error } = await supabase.from('subjects').select('*');
         if (error) throw error;
-        dbSubjects = data;
-        await reconcileMirror('subjects', data ?? []);
-      } catch (fetchErr) {
-        if (!isNetworkError(fetchErr)) throw fetchErr;
-        // Sem rede: usa a última cópia das disciplinas guardada localmente.
-        dbSubjects = await getAllMirror<RawSubjectRow>('subjects');
+        rows = data ?? [];
+        await reconcileMirror('subjects', rows);
+      } catch (err) {
+        if (!isNetworkError(err)) throw err;
+        rows = await getAllMirror<SubjectFull>('subjects');
       }
+      setAllSubjects(rows);
 
-      if (!dbSubjects) {
-        setLoading(false);
+      const found = findSubject(rows, rawId);
+      if (!found) {
+        setNotFound(true);
         return;
       }
+      const id = String(found.id);
+      setSubject({ ...found, id });
+      setNotFound(false);
 
-      const searchTarget = cleanSlug(rawId);
-
-      const found = dbSubjects.find((s: RawSubjectRow) => {
-        const sId = cleanSlug(String(s.id || ''));
-        const sCode = cleanSlug(String(s.code || ''));
-        const sName = cleanSlug(String(s.name || ''));
-
-        return (
-          sId === searchTarget ||
-          sCode === searchTarget ||
-          sName === searchTarget ||
-          (sName.length > 3 && searchTarget.includes(sName)) ||
-          (searchTarget.length > 3 && sName.includes(searchTarget))
-        );
-      });
-
-      if (found) {
-        const subId = String(found.id);
-
-        // 1. CARREGAR AVALIAÇÕES / PRAZOS REAIS (Tabela 'assessments')
-        let assessmentsData: RawAssessmentRow[] = [];
-        try {
-          const { data, error: assessErr } = await supabase
-            .from('assessments')
-            .select('*')
-            .eq('subject_id', subId);
-          if (assessErr) throw assessErr;
-          assessmentsData = data ?? [];
-          await putAllMirror('assessments', assessmentsData);
-        } catch (assessErr) {
-          if (!isNetworkError(assessErr)) throw assessErr;
-          assessmentsData = (await getAllMirror<RawAssessmentRow>('assessments')).filter(
-            (a) => String(a.subject_id ?? '') === subId
-          );
-        }
-
-        // 2. CARREGAR CAPÍTULOS (Tabela 'chapters')
-        let chaptersData: RawChapterRow[] = [];
-        try {
-          const { data, error: chapErr } = await supabase
-            .from('chapters')
-            .select('*')
-            .eq('subject_id', subId);
-          if (chapErr) throw chapErr;
-          chaptersData = data ?? [];
-          await putAllMirror('chapters', chaptersData);
-        } catch (chapErr) {
-          if (!isNetworkError(chapErr)) throw chapErr;
-          chaptersData = (await getAllMirror<RawChapterRow>('chapters')).filter(
-            (c) => String(c.subject_id ?? '') === subId
-          );
-        }
-
-        // Parse dos Horários
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mantém o comportamento solto já existente (sem tipos gerados da BD)
-        let rawSchedules: any = found.schedules || [];
-        if (typeof rawSchedules === 'string') {
-          try {
-            rawSchedules = JSON.parse(rawSchedules);
-          } catch {
-            rawSchedules = [];
-          }
-        }
-        if (!Array.isArray(rawSchedules)) rawSchedules = [];
-
-        const parsedSchedules = rawSchedules.map((s: RawScheduleEntry, idx: number) => ({
-          id: String(s.id || idx + 1),
-          day: s.day || s.dayOfWeek || 'A definir',
-          dayOfWeek: s.day || s.dayOfWeek || 'A definir',
-          startTime: s.startTime || s.start_time || '00:00',
-          endTime: s.endTime || s.end_time || '00:00',
-          room: s.room || s.sala || 'A definir',
-          type: s.type || s.tipo || 'Teórica',
-        }));
-
-        // Mapeamento dos Capítulos
-        setChapters(
-          (chaptersData || []).map((c: RawChapterRow) => ({
-            id: String(c.id),
-            tab: (c.category || 'TEORICAS').toUpperCase() as ChapterData['tab'],
-            updatedAt: c.updated_at,
-            hasContent: Boolean((c.content || '').replace(/<[^>]*>/g, '').trim()),
-            pdfUrl: c.pdf_url,
-            isCompleted: Boolean(c.is_completed),
-          }))
-        );
-
-        // Mapeamento da Disciplina + Avaliações filtradas como Prazos
-        setSubject({
-          id: subId,
-          name: found.name || 'Sem Nome',
-          code: found.code || '---',
-          teacherTeorica: formatTeacher(found.teacher_teorica || found.regente),
-          ects: found.ects || 6,
-          academicYear: found.academic_year || '2025/2026',
-          degreeYear: found.degree_year || 1,
-          semester: found.semester || 1,
-          evaluation: {
-            teoricaWeight: found.theoretical_weight ?? 50,
-            praticaWeight: found.practical_weight ?? 50,
-            requiresAttendance: false,
-          },
-          updatedAt: found.updated_at ?? null,
-          schedules: parsedSchedules,
-          deadlines: (assessmentsData || [])
-            .filter((a: RawAssessmentRow) => a.due_date)
-            .map((a: RawAssessmentRow) => {
-              const daysLeft = calculateDaysRemaining(a.due_date);
-              return {
-                id: String(a.id),
-                title: a.title || 'AVALIAÇÃO',
-                date: a.due_date ?? '',
-                daysRemaining: daysLeft,
-                location: `AVALIAÇÃO ${a.category || 'GERAL'}`,
-                isCritical: daysLeft >= 0 && daysLeft <= 7,
-              };
-            }),
-        });
-      }
+      const [assess, chaps, fileRows] = await Promise.all([
+        readSubjectRows<AssessmentItem>('assessments', id, () =>
+          supabase.from('assessments').select('*').eq('subject_id', id).order('created_at', { ascending: true })
+        ),
+        readSubjectRows<ChapterRow>('chapters', id, () =>
+          supabase.from('chapters').select('id, subject_id, category, title, is_completed, updated_at').eq('subject_id', id)
+        ),
+        readSubjectRows<FileRow>('subject_files', id, () =>
+          supabase.from('subject_files').select('*').eq('subject_id', id).order('created_at', { ascending: false })
+        ).catch((err) => {
+          console.error('Erro ao carregar a biblioteca:', err);
+          return [] as FileRow[];
+        }),
+      ]);
+      setAssessments(assess);
+      setChapters(chaps);
+      setFiles(fileRows);
     } catch (err) {
       console.error('Erro ao carregar disciplina:', err);
     } finally {
@@ -267,51 +199,383 @@ export default function SubjectDetailPage({
   }, [rawId]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchSubject();
-  }, [fetchSubject]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- pedido inicial de dados
+    fetchAll();
+  }, [fetchAll]);
+
+  const now = useNow(60_000);
+  const todayKey = now.toDateString();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- só muda quando muda o dia
+  const today = useMemo(() => startOfDay(now), [todayKey]);
+
+  // ==========================================
+  // DADOS DERIVADOS
+  // ==========================================
+  const theory = typeof subject?.theoretical_weight === 'number' ? subject.theoretical_weight : 50;
+  const practice = typeof subject?.practical_weight === 'number' ? subject.practical_weight : 50;
+
+  const slots = useMemo(() => parseSlots(subject?.schedules), [subject]);
+  const next = useMemo(() => nextSlot(slots, now), [slots, now]);
+
+  const upcoming = useMemo(
+    () =>
+      assessments
+        .filter((a) => getItemEffectiveGrade(a) === null)
+        .map((a) => ({ a, due: parseDueDate(a.due_date) }))
+        .filter((r): r is { a: AssessmentItem; due: Date } => r.due !== null && r.due >= today)
+        .sort((x, y) => x.due.getTime() - y.due.getTime())
+        .map((r) => r.a),
+    [assessments, today]
+  );
+
+  const average = useMemo(() => currentAverage(assessments, theory, practice), [assessments, theory, practice]);
+  const gradedCount = assessments.filter((a) => getItemEffectiveGrade(a) !== null).length;
+
+  const notebookStats = useMemo<NotebookStat[]>(() => {
+    const tabs: [NotebookStat['tab'], string][] = [
+      ['TEORICAS', 'Teóricas'],
+      ['PRATICAS', 'Práticas'],
+      ['TESTES', 'Testes'],
+    ];
+    return tabs.map(([tab, label]) => {
+      const inTab = chapters.filter((c) => (c.category || 'TEORICAS').toUpperCase() === tab);
+      return { tab, label, total: inTab.length, done: inTab.filter((c) => c.is_completed).length };
+    });
+  }, [chapters]);
+  const chaptersTotal = notebookStats.reduce((n, x) => n + x.total, 0);
+  const chaptersDone = notebookStats.reduce((n, x) => n + x.done, 0);
+
+  const teachers = useMemo(() => {
+    if (!subject) return [];
+    const byName = new Map<string, string[]>();
+    const add = (name: string | null, role: string) => {
+      if (!name) return;
+      byName.set(name, [...(byName.get(name) || []), role]);
+    };
+    add(teacherName(subject.regente), 'Regente');
+    add(teacherName(subject.teacher_teorica), 'Teórica');
+    add(teacherName(subject.teacher_pratica), 'Prática');
+    return Array.from(byName.entries()).map(([name, roles]) => ({ name, role: roles.join(' · ') }));
+  }, [subject]);
+
+  const docs = useMemo(() => files.map(toLibDoc), [files]);
+  const pendingTasks = tasks.filter((t) => !t.done).length;
+
+  const shortcutItems: ShortcutItem[] = [
+    { id: 'agora', key: '1', label: 'Agora' },
+    { id: 'tarefas', key: '2', label: 'Tarefas', badge: pendingTasks ? String(pendingTasks) : undefined },
+    { id: 'cadernos', key: '3', label: 'Cadernos', badge: chaptersTotal ? `${Math.round((chaptersDone / chaptersTotal) * 100)}%` : undefined },
+    { id: 'horario', key: '4', label: 'Horário' },
+    { id: 'avaliacao', key: '5', label: 'Avaliação', badge: average !== null ? fmtGrade(average) : undefined },
+    { id: 'biblioteca', key: 'B', label: 'Biblioteca', badge: String(docs.length) },
+  ];
+
+  const searchIndex = useMemo<SearchHit[]>(() => {
+    const hits: SearchHit[] = [];
+    allSubjects.forEach((x) =>
+      hits.push({ id: `s-${x.id}`, label: x.name || x.code || 'Disciplina', sublabel: 'Disciplina', href: `/faculdade/${x.id}` })
+    );
+    assessments.forEach((a) =>
+      hits.push({ id: `a-${a.id}`, label: a.title || 'Avaliação', sublabel: 'Avaliação desta disciplina', href: '#avaliacao' })
+    );
+    docs.forEach((doc) =>
+      hits.push({ id: `f-${doc.id}`, label: doc.title, sublabel: `Biblioteca · ${doc.type}`, href: doc.url || '#biblioteca', external: Boolean(doc.url) })
+    );
+    return hits;
+  }, [allSubjects, assessments, docs]);
+
+  // ==========================================
+  // AÇÕES
+  // ==========================================
+  const goTo = useCallback((id: string) => {
+    setActive(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const openManage = useCallback((panel: ManagePanel) => {
+    setLibFull(false);
+    setManage(panel);
+    window.setTimeout(() => manageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  }, []);
+
+  const closeManage = useCallback(() => {
+    setManage(null);
+    // Os editores gravam diretamente no Supabase: recarrega a vista densa.
+    fetchAll();
+  }, [fetchAll]);
+
+  const focusNewTask = useCallback(() => {
+    goTo('tarefas');
+    window.setTimeout(() => taskInputRef.current?.focus(), 250);
+  }, [goTo]);
+
+  const handleUpload = useCallback(
+    async (list: File[], category: LibCategory) => {
+      if (!subjectId) return;
+      setUploading(true);
+      setUploadError(null);
+      try {
+        const inserted: FileRow[] = [];
+        for (const file of list) {
+          const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin';
+          const path = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`;
+          const { error: upErr } = await supabase.storage.from('academic_materials').upload(path, file);
+          if (upErr) throw upErr;
+          const { data: pub } = supabase.storage.from('academic_materials').getPublicUrl(path);
+          const { data: row, error: dbErr } = await supabase
+            .from('subject_files')
+            .insert([
+              {
+                subject_id: subjectId,
+                title: file.name.replace(/\.[^.]+$/, ''),
+                file_name: file.name,
+                category,
+                file_url: pub.publicUrl,
+              },
+            ])
+            .select()
+            .single();
+          if (dbErr) throw dbErr;
+          if (row) inserted.push(row as FileRow);
+        }
+        setFiles((prev) => [...inserted, ...prev]);
+      } catch (err) {
+        console.error('Erro ao enviar ficheiros:', err);
+        setUploadError(`Não foi possível enviar: ${err instanceof Error ? err.message : 'erro desconhecido'}`);
+      } finally {
+        setUploading(false);
+      }
+    },
+    [subjectId]
+  );
+
+  const togglePin = useCallback(
+    (id: string) => setPins((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id])),
+    [setPins]
+  );
+
+  // Atalhos de teclado (ignorados enquanto se escreve, exceto Esc e Ctrl+K).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        globalSearchRef.current?.focus();
+        return;
+      }
+      if (e.key === 'Escape') {
+        setLibFull(false);
+        setHelpOpen(false);
+        if (typing) el?.blur();
+        return;
+      }
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+      if (SECTION_KEYS[key]) {
+        e.preventDefault();
+        goTo(SECTION_KEYS[key]);
+      } else if (key === 'n') {
+        e.preventDefault();
+        focusNewTask();
+      } else if (key === '/') {
+        e.preventDefault();
+        librarySearchRef.current?.focus();
+      } else if (key === 'f') {
+        e.preventDefault();
+        setLibFull((v) => !v);
+      } else if (e.key === '?') {
+        e.preventDefault();
+        setHelpOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [goTo, focusNewTask]);
+
+  const handleLogout = useCallback(async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  }, [router]);
+
+  const profileUser = user
+    ? {
+        name: user.name.toUpperCase(),
+        email: user.email,
+        role: '—',
+        institution: '—',
+        code: `USR-${user.id.slice(0, 8).toUpperCase()}`,
+        lastAccess: formatRelativeDate(user.lastSignInAt),
+      }
+    : null;
+
+  const dateLabel = `${WEEKDAY_LONG[today.getDay()]}${today.getDay() === 0 || today.getDay() === 6 ? '' : '-feira'}, ${today.getDate()} de ${MONTHS_LONG[today.getMonth()]}`;
+
+  const meta = subject
+    ? [
+        subject.degree_year ? `${subject.degree_year}.º ano` : null,
+        subject.semester ? `${subject.semester}.º sem` : null,
+        teacherName(subject.regente) || teacherName(subject.teacher_teorica),
+        subject.ects ? `${subject.ects} ECTS` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
+
+  // Formato esperado pelo editor de horário existente.
+  const editorSchedules = useMemo(
+    () =>
+      slots.map((sl) => ({
+        id: sl.key,
+        day: WEEKDAY_LONG[sl.dayNum].toUpperCase() + (sl.dayNum === 0 || sl.dayNum === 6 ? '' : '-FEIRA'),
+        dayOfWeek: WEEKDAY_LONG[sl.dayNum].toUpperCase() + (sl.dayNum === 0 || sl.dayNum === 6 ? '' : '-FEIRA'),
+        startTime: sl.start,
+        endTime: sl.end || '00:00',
+        room: sl.room || 'A definir',
+        type: sl.typeLabel,
+      })),
+    [slots]
+  );
 
   return (
-    <div className="min-h-screen bg-[#FCF9F2] text-[#111111] font-sans selection:bg-[#111111] selection:text-[#FCF9F2]">
-      <SubjectHeader subject={subject} />
+    <div className={d.root}>
+      <DensoHeader
+        active="faculdade"
+        dateLabel={dateLabel}
+        searchIndex={searchIndex}
+        searchRef={globalSearchRef}
+        userName={user?.name ?? null}
+        userEmail={user?.email ?? null}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onLogout={handleLogout}
+      />
 
-      <main className="max-w-7xl mx-auto px-6 pt-6 space-y-16">
-        {/* SECÇÃO 01: VISÃO GERAL (PRAZOS NO TOPO + HERO) */}
-        <div id="visao-geral" className="space-y-8 scroll-mt-24">
-          <PrazosSection deadlines={subject?.deadlines} />
-          <HeroSection subject={subject} loading={loading} />
-          <VisaoGeralSection subject={subject} />
+      {loading && !subject ? (
+        <p className={`${d.inner} ${d.muted}`} style={{ paddingTop: 64, paddingBottom: 64 }}>A carregar disciplina…</p>
+      ) : notFound || !subject ? (
+        <div className={d.inner} style={{ paddingTop: 64, paddingBottom: 64 }}>
+          <p style={{ fontSize: 18, margin: 0 }}>Disciplina não encontrada.</p>
+          <Link href="/faculdade" style={{ display: 'inline-block', marginTop: 12, color: 'var(--sky)' }}>← Voltar à Faculdade</Link>
         </div>
-
-        {/* SECÇÃO 02: NOTEBOOKS */}
-        <div id="notebooks" className="scroll-mt-24">
-          <NotebooksSection chapters={chapters} subjectId={subject?.id} />
-        </div>
-
-        {/* SECÇÃO 03: HORÁRIO */}
-        <div id="horario" className="scroll-mt-24">
-          <HorarioSection
-            subjectId={subject?.id}
-            schedules={subject?.schedules}
-            onRefresh={fetchSubject}
+      ) : (
+        <>
+          <DHeading
+            code={subject.code || '—'}
+            name={subject.name || 'Disciplina'}
+            meta={meta}
+            onAddNote={() => router.push(`/faculdade/${subjectId}/notebook?tab=TEORICAS`)}
+            onAddTask={focusNewTask}
+            onAddResource={() => openManage('biblioteca')}
           />
-        </div>
 
-        {/* SECÇÃO 04: BIBLIOTECA */}
-        <div id="biblioteca" className="scroll-mt-24">
-          <BibliotecaSection subjectId={subject?.id} />
-        </div>
-
-        {/* SECÇÃO 05: AVALIAÇÃO */}
-        <div className="scroll-mt-24">
-          <AvaliacaoSection
-            subjectId={subject?.id}
-            onRefresh={fetchSubject}
+          <ShortcutBar
+            items={shortcutItems}
+            active={active}
+            onPick={setActive}
+            help={SHORTCUT_HELP}
+            helpOpen={helpOpen}
+            onToggleHelp={() => setHelpOpen((v) => !v)}
           />
-        </div>
 
-        <SubjectFooter subjectName={subject?.name} />
-      </main>
+          <div className={`${d.inner} ${d.body}`}>
+            <div className={d.left}>
+              <AgoraCards
+                next={next}
+                deadline={upcoming[0] ?? null}
+                deadlineAfter={upcoming[1] ?? null}
+                deadlineWeight={upcoming[0] ? effectiveWeight(upcoming[0], theory, practice) : null}
+                today={today}
+                average={average}
+                gradedCount={gradedCount}
+                totalCount={assessments.length}
+                theory={theory}
+                practice={practice}
+                weekSlots={slots}
+              />
+
+              <div className={d.pair}>
+                <TasksPanel
+                  tasks={tasks}
+                  inputRef={taskInputRef}
+                  onToggle={(id) => setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)))}
+                  onAdd={(text) => setTasks((prev) => [...prev, { id: `${Date.now()}`, text, done: false }])}
+                  onClearDone={() => setTasks((prev) => prev.filter((t) => !t.done))}
+                />
+                <NotebooksPanel subjectId={subjectId} stats={notebookStats} />
+              </div>
+
+              <div className={d.pair}>
+                <SchedulePanel slots={slots} onManage={() => openManage('horario')} />
+                <TeachersPanel teachers={teachers} />
+              </div>
+
+              <AssessmentTable
+                items={assessments}
+                theory={theory}
+                practice={practice}
+                today={today}
+                onEditWeights={() => openManage('avaliacao')}
+                onAddGrade={() => openManage('avaliacao')}
+              />
+            </div>
+
+            <div className={d.libWrap}>
+              <Library
+                docs={docs}
+                loading={loading}
+                pins={pins}
+                onTogglePin={togglePin}
+                onUpload={handleUpload}
+                uploading={uploading}
+                uploadError={uploadError}
+                fullscreen={libFull}
+                onToggleFullscreen={() => setLibFull((v) => !v)}
+                onManage={() => openManage('biblioteca')}
+                searchRef={librarySearchRef}
+              />
+            </div>
+          </div>
+
+          {/* GERIR: os editores completos já existentes (horário, avaliação, biblioteca) */}
+          <div ref={manageRef} className={d.inner} style={{ paddingBottom: 48, scrollMarginTop: 16 }}>
+            <div className={d.sectionHead} style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                <h2 className={d.h2}>GERIR</h2>
+                {MANAGE_TABS.map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => (manage === id ? closeManage() : openManage(id))}
+                    aria-pressed={manage === id}
+                    className={`${manage === id ? d.btnFill : d.btnLine} ${d.sm}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {manage && (
+                <button type="button" className={`${d.btnGhost} ${d.sm}`} onClick={closeManage}>
+                  Fechar e atualizar
+                </button>
+              )}
+            </div>
+            {manage && (
+              <div className={d.manage} style={{ padding: 'clamp(12px, 2vw, 24px)' }}>
+                {manage === 'horario' && (
+                  <HorarioSection subjectId={subjectId} schedules={editorSchedules} onRefresh={fetchAll} />
+                )}
+                {manage === 'avaliacao' && <AvaliacaoSection subjectId={subjectId} onRefresh={fetchAll} />}
+                {manage === 'biblioteca' && <BibliotecaSection subjectId={subjectId} />}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
     </div>
   );
 }

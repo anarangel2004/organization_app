@@ -32,6 +32,7 @@ export interface PainelEvent {
 export interface AssessmentFull extends AssessmentLite {
   weight_percent?: number | null;
   category?: string | null;
+  grade?: number | null;
 }
 
 export interface ChapterLite {

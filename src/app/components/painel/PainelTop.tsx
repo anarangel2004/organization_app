@@ -6,7 +6,6 @@ import s from './painel.module.css';
 import type { SearchEntry } from '../types';
 
 export type CtxFilter = 'all' | 'trab';
-export type ViewMode = 'revue' | 'cahier';
 
 // Faixa osso no topo: foco de hoje, próxima aula, citação e botão de foco.
 export function TopStrip({
@@ -31,17 +30,17 @@ export function TopStrip({
           flexWrap: 'wrap',
           justifyContent: 'space-between',
           alignItems: 'center',
-          gap: '8px 24px',
-          minHeight: 46,
-          paddingTop: 6,
-          paddingBottom: 6,
-          fontSize: 14,
+          gap: '6px 20px',
+          minHeight: 38,
+          paddingTop: 5,
+          paddingBottom: 5,
+          fontSize: 12,
           fontWeight: 500,
         }}
       >
         <span>{focusLabel}</span>
         <span>{nextLabel}</span>
-        <span className={`${s.serif} ${s.hideSm}`} style={{ fontStyle: 'italic', fontWeight: 500, fontSize: 17 }}>
+        <span className={`${s.serif} ${s.hideSm}`} style={{ fontStyle: 'italic', fontWeight: 500, fontSize: 14 }}>
           {quote}
         </span>
         <button type="button" onClick={onToggleFocus} className={s.btnDark} aria-pressed={focusRunning}>
@@ -59,8 +58,25 @@ export interface AccountProps {
   onLogout: () => void;
 }
 
+// Medidas que mudam entre o painel compacto e as páginas de secção.
+interface Scale {
+  text: number;
+  small: number;
+  brand: number;
+  avatar: number;
+  navGap: number;
+  gap: number;
+  rowMargin: number;
+  rowPadding: number;
+  searchWidth: number;
+}
+
+const REGULAR: Scale = { text: 15, small: 13, brand: 30, avatar: 40, navGap: 36, gap: 16, rowMargin: 24, rowPadding: 14, searchWidth: 260 };
+const COMPACT: Scale = { text: 12, small: 11, brand: 25, avatar: 33, navGap: 30, gap: 13, rowMargin: 20, rowPadding: 12, searchWidth: 216 };
+
 // Pesquisa + "Novo dossiê" + menu da conta, partilhados pelos cabeçalhos.
 function HeaderTools({
+  scale,
   searchIndex,
   searchPlaceholder,
   newDossierHref,
@@ -68,13 +84,14 @@ function HeaderTools({
   userEmail,
   onOpenProfile,
   onLogout,
-}: AccountProps & { searchIndex: SearchEntry[]; searchPlaceholder: string; newDossierHref?: string }) {
+}: AccountProps & { scale: Scale; searchIndex: SearchEntry[]; searchPlaceholder: string; newDossierHref?: string }) {
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
   const results = q ? searchIndex.filter((e) => e.label.toLowerCase().includes(q)).slice(0, 6) : [];
+  const menuLink = { display: 'block', fontSize: scale.small + 1 } as const;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: scale.gap, flexWrap: 'wrap' }}>
       <div style={{ position: 'relative' }}>
         <label style={{ display: 'block' }}>
           <span className={s.sr}>Pesquisar</span>
@@ -84,7 +101,7 @@ function HeaderTools({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={searchPlaceholder}
             className={s.boxInput}
-            style={{ width: 'min(260px, 70vw)' }}
+            style={{ width: `min(${scale.searchWidth}px, 70vw)` }}
           />
         </label>
         {q && (
@@ -131,10 +148,10 @@ function HeaderTools({
             Novo dossiê
           </button>
           <div className={s.menu} role="menu">
-            <Link className={s.nl} href="/faculdade#nova-disciplina" style={{ display: 'block', fontSize: 14 }}>
+            <Link className={s.nl} href="/faculdade#nova-disciplina" style={menuLink}>
               Nova disciplina
             </Link>
-            <Link className={s.nl} href="/trabalho" style={{ display: 'block', marginTop: 10, fontSize: 14 }}>
+            <Link className={s.nl} href="/trabalho" style={{ ...menuLink, marginTop: 8 }}>
               Novo projeto ou tarefa
             </Link>
           </div>
@@ -147,31 +164,31 @@ function HeaderTools({
           aria-label="A minha conta"
           className={s.round}
           style={{
-            width: 40,
-            height: 40,
+            width: scale.avatar,
+            height: scale.avatar,
             background: 'var(--bone)',
             color: 'var(--inkdark)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontWeight: 700,
-            fontSize: 15,
+            fontSize: scale.text,
             textAlign: 'center',
           }}
         >
           {(userName || '·').charAt(0).toUpperCase()}
         </button>
         <div className={s.menu} role="menu">
-          <span className={s.serif} style={{ display: 'block', fontWeight: 600, fontSize: 19, lineHeight: 1.1 }}>
+          <span className={s.serif} style={{ display: 'block', fontWeight: 600, fontSize: scale.text + 4, lineHeight: 1.1 }}>
             {userName || 'A conta'}
           </span>
           {userEmail && (
-            <span style={{ display: 'block', marginTop: 2, fontSize: 13, color: 'var(--subdark)' }}>{userEmail}</span>
+            <span style={{ display: 'block', marginTop: 2, fontSize: scale.small, color: 'var(--subdark)' }}>{userEmail}</span>
           )}
-          <button type="button" className={s.nl} onClick={onOpenProfile} style={{ display: 'block', marginTop: 14, fontSize: 14 }}>
+          <button type="button" className={s.nl} onClick={onOpenProfile} style={{ ...menuLink, marginTop: 12 }}>
             Perfil
           </button>
-          <button type="button" className={s.nl} onClick={onLogout} style={{ display: 'block', marginTop: 10, fontSize: 14 }}>
+          <button type="button" className={s.nl} onClick={onLogout} style={{ ...menuLink, marginTop: 8 }}>
             Terminar sessão
           </button>
         </div>
@@ -180,20 +197,22 @@ function HeaderTools({
   );
 }
 
-const headerRow = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 16,
-  marginTop: 24,
-  borderTop: '1px solid var(--hair)',
-  paddingTop: 14,
-} as const;
+function headerRow(scale: Scale) {
+  return {
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: scale.gap,
+    marginTop: scale.rowMargin,
+    borderTop: '1px solid var(--hair)',
+    paddingTop: scale.rowPadding,
+  } as const;
+}
 
-function Brand() {
+function Brand({ size }: { size: number }) {
   return (
-    <Link href="/" className={s.display} style={{ fontSize: 30, letterSpacing: '-.03em' }}>
+    <Link href="/" className={s.display} style={{ fontSize: size, letterSpacing: '-.03em' }}>
       Organiza-me
     </Link>
   );
@@ -203,58 +222,27 @@ interface HeaderProps extends AccountProps {
   location: string;
   editionNumber: number;
   dateLabel: string;
-  mode: ViewMode;
-  onModeChange: (m: ViewMode) => void;
   ctx: CtxFilter;
   onCtxChange: (c: CtxFilter) => void;
   searchIndex: SearchEntry[];
 }
 
-// Cabeçalho da página principal: modo Revue/Cahier e filtro de contexto.
-export function PainelHeader({
-  location,
-  editionNumber,
-  dateLabel,
-  mode,
-  onModeChange,
-  ctx,
-  onCtxChange,
-  searchIndex,
-  ...account
-}: HeaderProps) {
+// Cabeçalho da página principal (escala compacta) com filtro de contexto.
+export function PainelHeader({ location, editionNumber, dateLabel, ctx, onCtxChange, searchIndex, ...account }: HeaderProps) {
+  const sc = COMPACT;
   return (
-    <header className={s.inner} style={{ paddingTop: 28 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 28, flexWrap: 'wrap' }}>
-          <Brand />
-          <span className={s.muted} style={{ fontSize: 15 }}>{location}</span>
-          <span className={s.muted} style={{ fontSize: 15 }}>N.º {editionNumber}</span>
+    <header className={s.inner} style={{ paddingTop: 23 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: sc.gap }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 23, flexWrap: 'wrap' }}>
+          <Brand size={sc.brand} />
+          <span className={s.muted} style={{ fontSize: sc.text }}>{location}</span>
+          <span className={s.muted} style={{ fontSize: sc.text }}>N.º {editionNumber}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 15 }}>{dateLabel}</span>
-          <div role="group" aria-label="Modo de visualização" className={s.segGroup}>
-            {(
-              [
-                ['revue', 'Revue'],
-                ['cahier', 'Cahier'],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className={`${s.seg} ${mode === id ? s.segOn : ''}`}
-                aria-pressed={mode === id}
-                onClick={() => onModeChange(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <span style={{ fontSize: sc.text }}>{dateLabel}</span>
       </div>
 
-      <div style={headerRow}>
-        <nav aria-label="Contexto" style={{ display: 'flex', gap: 36, fontSize: 15, flexWrap: 'wrap' }}>
+      <div style={headerRow(sc)}>
+        <nav aria-label="Contexto" style={{ display: 'flex', gap: sc.navGap, fontSize: sc.text, flexWrap: 'wrap' }}>
           {(
             [
               ['all', 'Visão Geral'],
@@ -274,7 +262,7 @@ export function PainelHeader({
           <Link className={s.nl} href="/faculdade">Faculdade</Link>
           <Link className={s.nl} href="/trabalho">Projetos</Link>
         </nav>
-        <HeaderTools searchIndex={searchIndex} searchPlaceholder="Pesquisar em tudo" {...account} />
+        <HeaderTools scale={sc} searchIndex={searchIndex} searchPlaceholder="Pesquisar em tudo" {...account} />
       </div>
     </header>
   );
@@ -282,7 +270,7 @@ export function PainelHeader({
 
 export type SiteSection = 'faculdade' | 'trabalho';
 
-// Cabeçalho das páginas de secção (Faculdade, …), no mesmo estilo do painel.
+// Cabeçalho das páginas de secção (Faculdade, …), na escala original.
 export function SiteHeader({
   active,
   dateLabel,
@@ -297,6 +285,7 @@ export function SiteHeader({
   searchPlaceholder: string;
   newDossierHref?: string;
 }) {
+  const sc = REGULAR;
   const links: [SiteSection | 'home', string, string][] = [
     ['home', 'Visão Geral', '/'],
     ['trabalho', 'Trabalho', '/trabalho'],
@@ -304,12 +293,12 @@ export function SiteHeader({
   ];
   return (
     <header className={s.inner} style={{ paddingTop: 28 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 16 }}>
-        <Brand />
-        <span style={{ fontSize: 15 }}>{dateLabel}</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: sc.gap }}>
+        <Brand size={sc.brand} />
+        <span style={{ fontSize: sc.text }}>{dateLabel}</span>
       </div>
-      <div style={headerRow}>
-        <nav aria-label="Secções" style={{ display: 'flex', gap: 36, fontSize: 15, flexWrap: 'wrap' }}>
+      <div style={headerRow(sc)}>
+        <nav aria-label="Secções" style={{ display: 'flex', gap: sc.navGap, fontSize: sc.text, flexWrap: 'wrap' }}>
           {links.map(([id, label, href]) => (
             <Link
               key={id}
@@ -322,6 +311,7 @@ export function SiteHeader({
           ))}
         </nav>
         <HeaderTools
+          scale={sc}
           searchIndex={searchIndex}
           searchPlaceholder={searchPlaceholder}
           newDossierHref={newDossierHref}
