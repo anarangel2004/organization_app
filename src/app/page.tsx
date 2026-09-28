@@ -255,6 +255,9 @@ export default function HomePage() {
     const latest = new Map<string, ChapterLite>();
     const counts = new Map<string, { chapters: number; notebooks: Set<string> }>();
     chapters.forEach((ch) => {
+      // Só os cadernos contam (fica de fora, p.ex., o "Programa" da cadeira).
+      const cat = (ch.category || 'TEORICAS').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      if (cat !== 'TEORICAS' && cat !== 'PRATICAS' && cat !== 'TESTES') return;
       const cur = latest.get(ch.subject_id);
       if (!cur || (ch.updated_at || '') > (cur.updated_at || '')) latest.set(ch.subject_id, ch);
       const c = counts.get(ch.subject_id) || { chapters: 0, notebooks: new Set<string>() };

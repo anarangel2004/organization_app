@@ -28,6 +28,14 @@ import {
   TeachersPanel,
 } from './components/DisciplinaView';
 import { DensoHeader, SearchHit, ShortcutBar, ShortcutItem } from '@/app/components/denso/DensoChrome';
+import {
+  PhoneTabBar,
+  ProfileMenu,
+  SectionChips,
+  TabletHeader,
+  layoutClasses,
+  useDensoLayout,
+} from '@/app/components/denso/DensoTouch';
 
 const SHORTCUT_HELP: [string, string][] = [
   ['1–5, B', 'Ir para a secção'],
@@ -138,6 +146,8 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [avatarMenu, setAvatarMenu] = useState(false);
+  const layout = useDensoLayout();
 
   const globalSearchRef = useRef<HTMLInputElement>(null);
   const librarySearchRef = useRef<HTMLInputElement>(null);
@@ -269,6 +279,11 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
     { id: 'avaliacao', key: '5', label: 'Avaliação', badge: average !== null ? fmtGrade(average) : undefined },
     { id: 'biblioteca', key: 'B', label: 'Biblioteca', badge: String(docs.length) },
   ];
+  // No iPad vertical e no iPhone a biblioteca vem logo a seguir aos cadernos.
+  const chipItems =
+    layout === 'phone' || layout === 'tabletV'
+      ? ['agora', 'tarefas', 'cadernos', 'biblioteca', 'horario', 'avaliacao'].map((id) => shortcutItems.find((s) => s.id === id)!)
+      : shortcutItems;
 
   const searchIndex = useMemo<SearchHit[]>(() => {
     const hits: SearchHit[] = [];
@@ -287,10 +302,20 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
   // ==========================================
   // AÇÕES
   // ==========================================
-  const goTo = useCallback((id: string) => {
-    setActive(id);
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
+  const goTo = useCallback(
+    (id: string) => {
+      setActive(id);
+      const el = document.getElementById(id);
+      if (!el) return;
+      // No iPad vertical e no iPhone os botões de secção ficam colados ao topo.
+      if (layout === 'phone' || layout === 'tabletV') {
+        window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 64, behavior: 'smooth' });
+      } else {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    },
+    [layout]
+  );
 
   const openManage = useCallback((panel: ManagePanel) => {
     setLibFull(false);
@@ -440,6 +465,217 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
     [slots]
   );
 
+  // ==========================================
+  // PEÇAS (a ordem muda entre computador, iPad e iPhone)
+  // ==========================================
+  const touch = layout !== 'desktop';
+  const oneColumn = layout === 'phone' || layout === 'tabletV';
+
+  const agoraEl = (
+    <AgoraCards
+      next={next}
+      deadline={upcoming[0] ?? null}
+      deadlineAfter={upcoming[1] ?? null}
+      deadlineWeight={upcoming[0] ? effectiveWeight(upcoming[0], theory, practice) : null}
+      today={today}
+      average={average}
+      gradedCount={gradedCount}
+      totalCount={assessments.length}
+      theory={theory}
+      practice={practice}
+      weekSlots={slots}
+    />
+  );
+  const tasksEl = (
+    <TasksPanel
+      tasks={tasks}
+      inputRef={taskInputRef}
+      onToggle={(id) => setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)))}
+      onAdd={(text) => setTasks((prev) => [...prev, { id: `${Date.now()}`, text, done: false }])}
+      onClearDone={() => setTasks((prev) => prev.filter((t) => !t.done))}
+    />
+  );
+  const notebooksEl = <NotebooksPanel subjectId={subjectId} stats={notebookStats} />;
+  const scheduleEl = <SchedulePanel slots={slots} onManage={() => openManage('horario')} />;
+  const teachersEl = <TeachersPanel teachers={teachers} />;
+  const assessmentEl = (
+    <AssessmentTable
+      items={assessments}
+      theory={theory}
+      practice={practice}
+      today={today}
+      onEditWeights={() => openManage('avaliacao')}
+      onAddGrade={() => openManage('avaliacao')}
+      layout={layout}
+    />
+  );
+  const libraryEl = (
+    <Library
+      layout={layout}
+      docs={docs}
+      loading={loading}
+      pins={pins}
+      onTogglePin={togglePin}
+      onUpload={handleUpload}
+      uploading={uploading}
+      uploadError={uploadError}
+      fullscreen={libFull}
+      onToggleFullscreen={() => setLibFull((v) => !v)}
+      onManage={() => openManage('biblioteca')}
+      searchRef={librarySearchRef}
+    />
+  );
+
+  // GERIR: os editores completos já existentes (horário, avaliação, biblioteca)
+  const manageEl = (
+    <div ref={manageRef} className={layout === 'tabletH' ? undefined : d.inner} style={{ paddingBottom: 48, scrollMarginTop: 16 }}>
+      <div className={d.sectionHead} style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <h2 className={d.h2}>GERIR</h2>
+          {MANAGE_TABS.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => (manage === id ? closeManage() : openManage(id))}
+              aria-pressed={manage === id}
+              className={`${manage === id ? d.btnFill : d.btnLine} ${d.sm}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {manage && (
+          <button type="button" className={`${d.btnGhost} ${d.sm}`} onClick={closeManage}>
+            Fechar e atualizar
+          </button>
+        )}
+      </div>
+      {manage && (
+        <div className={d.manage} style={{ padding: 'clamp(12px, 2vw, 24px)' }}>
+          {manage === 'horario' && <HorarioSection subjectId={subjectId} schedules={editorSchedules} onRefresh={fetchAll} />}
+          {manage === 'avaliacao' && <AvaliacaoSection subjectId={subjectId} onRefresh={fetchAll} />}
+          {manage === 'biblioteca' && <BibliotecaSection subjectId={subjectId} />}
+        </div>
+      )}
+    </div>
+  );
+
+  const avatarEl = (
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        aria-label="Perfil"
+        aria-expanded={avatarMenu}
+        onClick={() => setAvatarMenu((v) => !v)}
+        className={d.round}
+        style={{ width: 36, height: 36, background: 'var(--ink)', color: 'var(--bg)', border: 0, fontWeight: 600, fontSize: 14 }}
+      >
+        {(user?.name || '·').charAt(0).toUpperCase()}
+      </button>
+      {avatarMenu && (
+        <ProfileMenu
+          userName={user?.name ?? null}
+          userEmail={user?.email ?? null}
+          onOpenProfile={() => setIsProfileOpen(true)}
+          onLogout={handleLogout}
+          onClose={() => setAvatarMenu(false)}
+        />
+      )}
+    </div>
+  );
+
+  if (touch) {
+    return (
+      <div className={`${d.root} ${layoutClasses(layout)}`}>
+        {layout !== 'phone' && (
+          <TabletHeader
+            active="faculdade"
+            searchIndex={searchIndex}
+            userName={user?.name ?? null}
+            userEmail={user?.email ?? null}
+            onOpenProfile={() => setIsProfileOpen(true)}
+            onLogout={handleLogout}
+          />
+        )}
+
+        {loading && !subject ? (
+          <p className={`${d.inner} ${d.muted}`} style={{ paddingTop: 48, paddingBottom: 48 }}>A carregar disciplina…</p>
+        ) : notFound || !subject ? (
+          <div className={d.inner} style={{ paddingTop: 48, paddingBottom: 48 }}>
+            <p style={{ fontSize: 18, margin: 0 }}>Disciplina não encontrada.</p>
+            <Link href="/faculdade" style={{ display: 'inline-block', marginTop: 12, color: 'var(--sky)' }}>← Voltar à Faculdade</Link>
+          </div>
+        ) : (
+          <>
+            <DHeading
+              layout={layout}
+              avatar={avatarEl}
+              code={subject.code || '—'}
+              name={subject.name || 'Disciplina'}
+              meta={meta}
+              onAddNote={() => router.push(`/faculdade/${subjectId}/notebook?tab=TEORICAS`)}
+              onAddTask={focusNewTask}
+              onAddResource={() => openManage('biblioteca')}
+            />
+            <SectionChips items={chipItems} active={active} onPick={goTo} />
+
+            {oneColumn ? (
+              <div className={`${d.inner} ${d.body}`}>
+                {agoraEl}
+                {layout === 'phone' ? (
+                  <>
+                    {tasksEl}
+                    {notebooksEl}
+                  </>
+                ) : (
+                  <div className={d.pair}>
+                    {tasksEl}
+                    {notebooksEl}
+                  </div>
+                )}
+                {libraryEl}
+                {layout === 'phone' ? (
+                  <>
+                    {scheduleEl}
+                    {teachersEl}
+                  </>
+                ) : (
+                  <div className={d.pair}>
+                    {scheduleEl}
+                    {teachersEl}
+                  </div>
+                )}
+                {assessmentEl}
+              </div>
+            ) : (
+              <div className={`${d.inner} ${d.body}`}>
+                <div className={d.left}>
+                  {agoraEl}
+                  <div className={d.pair}>
+                    {tasksEl}
+                    {notebooksEl}
+                  </div>
+                  <div className={d.pair}>
+                    {scheduleEl}
+                    {teachersEl}
+                  </div>
+                  {assessmentEl}
+                  {manageEl}
+                </div>
+                <div className={d.libWrap}>{libraryEl}</div>
+              </div>
+            )}
+
+            {oneColumn && manageEl}
+          </>
+        )}
+
+        {layout === 'phone' && <PhoneTabBar active="faculdade" searchIndex={searchIndex} />}
+        <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
+      </div>
+    );
+  }
+
   return (
     <div className={d.root}>
       <DensoHeader
@@ -482,96 +718,21 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
 
           <div className={`${d.inner} ${d.body}`}>
             <div className={d.left}>
-              <AgoraCards
-                next={next}
-                deadline={upcoming[0] ?? null}
-                deadlineAfter={upcoming[1] ?? null}
-                deadlineWeight={upcoming[0] ? effectiveWeight(upcoming[0], theory, practice) : null}
-                today={today}
-                average={average}
-                gradedCount={gradedCount}
-                totalCount={assessments.length}
-                theory={theory}
-                practice={practice}
-                weekSlots={slots}
-              />
-
+              {agoraEl}
               <div className={d.pair}>
-                <TasksPanel
-                  tasks={tasks}
-                  inputRef={taskInputRef}
-                  onToggle={(id) => setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)))}
-                  onAdd={(text) => setTasks((prev) => [...prev, { id: `${Date.now()}`, text, done: false }])}
-                  onClearDone={() => setTasks((prev) => prev.filter((t) => !t.done))}
-                />
-                <NotebooksPanel subjectId={subjectId} stats={notebookStats} />
+                {tasksEl}
+                {notebooksEl}
               </div>
-
               <div className={d.pair}>
-                <SchedulePanel slots={slots} onManage={() => openManage('horario')} />
-                <TeachersPanel teachers={teachers} />
+                {scheduleEl}
+                {teachersEl}
               </div>
-
-              <AssessmentTable
-                items={assessments}
-                theory={theory}
-                practice={practice}
-                today={today}
-                onEditWeights={() => openManage('avaliacao')}
-                onAddGrade={() => openManage('avaliacao')}
-              />
+              {assessmentEl}
             </div>
-
-            <div className={d.libWrap}>
-              <Library
-                docs={docs}
-                loading={loading}
-                pins={pins}
-                onTogglePin={togglePin}
-                onUpload={handleUpload}
-                uploading={uploading}
-                uploadError={uploadError}
-                fullscreen={libFull}
-                onToggleFullscreen={() => setLibFull((v) => !v)}
-                onManage={() => openManage('biblioteca')}
-                searchRef={librarySearchRef}
-              />
-            </div>
+            <div className={d.libWrap}>{libraryEl}</div>
           </div>
 
-          {/* GERIR: os editores completos já existentes (horário, avaliação, biblioteca) */}
-          <div ref={manageRef} className={d.inner} style={{ paddingBottom: 48, scrollMarginTop: 16 }}>
-            <div className={d.sectionHead} style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                <h2 className={d.h2}>GERIR</h2>
-                {MANAGE_TABS.map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => (manage === id ? closeManage() : openManage(id))}
-                    aria-pressed={manage === id}
-                    className={`${manage === id ? d.btnFill : d.btnLine} ${d.sm}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {manage && (
-                <button type="button" className={`${d.btnGhost} ${d.sm}`} onClick={closeManage}>
-                  Fechar e atualizar
-                </button>
-              )}
-            </div>
-            {manage && (
-              <div className={d.manage} style={{ padding: 'clamp(12px, 2vw, 24px)' }}>
-                {manage === 'horario' && (
-                  <HorarioSection subjectId={subjectId} schedules={editorSchedules} onRefresh={fetchAll} />
-                )}
-                {manage === 'avaliacao' && <AvaliacaoSection subjectId={subjectId} onRefresh={fetchAll} />}
-                {manage === 'biblioteca' && <BibliotecaSection subjectId={subjectId} />}
-              </div>
-            )}
-          </div>
+          {manageEl}
         </>
       )}
 

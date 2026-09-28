@@ -71,6 +71,13 @@ function toTab(raw: string | null | undefined): NotebookTab {
   return t === 'PRATICAS' || t === 'TESTES' ? t : 'TEORICAS';
 }
 
+// Só estas categorias são cadernos. Outras linhas da tabela (ex.: "Programa",
+// o programa da cadeira importado à parte) não são capítulos e ficam de fora.
+function isNotebookRow(row: ChapterDbRow): boolean {
+  const t = (row.category || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return t === 'TEORICAS' || t === 'PRATICAS' || t === 'TESTES';
+}
+
 function toChapter(row: ChapterDbRow): Chapter {
   return {
     id: String(row.id),
@@ -123,7 +130,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
       ]);
       if (chaps.error) throw chaps.error;
       setSubjects(((subj.data ?? []) as SubjectRow[]).map((s) => ({ ...s, id: String(s.id) })));
-      setChapters(((chaps.data ?? []) as ChapterDbRow[]).map(toChapter));
+      setChapters(((chaps.data ?? []) as ChapterDbRow[]).filter(isNotebookRow).map(toChapter));
       setAssessments((assess.data ?? []) as AssessmentItem[]);
       setFiles((fileRows.data ?? []) as FileRow[]);
     } catch (err) {

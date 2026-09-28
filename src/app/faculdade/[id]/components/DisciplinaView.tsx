@@ -6,6 +6,8 @@ import type { AssessmentItem } from '@/types';
 import { getItemEffectiveGrade } from '@/lib/utils';
 import { parseDueDate } from '@/app/components/homeAgenda';
 import d from '@/app/components/denso/denso.module.css';
+import type { DensoLayout } from '@/app/components/denso/DensoTouch';
+import { assessmentTag } from '../notebook/components/types';
 import {
   DocType,
   LibCategory,
@@ -35,6 +37,8 @@ export function DHeading({
   onAddNote,
   onAddTask,
   onAddResource,
+  layout = 'desktop',
+  avatar,
 }: {
   code: string;
   name: string;
@@ -42,7 +46,46 @@ export function DHeading({
   onAddNote: () => void;
   onAddTask: () => void;
   onAddResource: () => void;
+  layout?: DensoLayout;
+  // Só no iPhone: o botão de perfil (não há cabeçalho da app).
+  avatar?: ReactNode;
 }) {
+  if (layout === 'phone') {
+    return (
+      <section className={d.inner} style={{ paddingTop: 12, paddingBottom: 14, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <Link href="/faculdade" style={{ fontSize: 15, color: 'var(--sky)' }}>‹ Faculdade</Link>
+          {avatar}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          <h1 style={{ margin: 0, fontSize: 40, lineHeight: 1, fontWeight: 700, letterSpacing: '-0.04em' }}>{code}</h1>
+          <span className={d.serif} style={{ fontStyle: 'italic', fontSize: 19, color: 'var(--sky)', lineHeight: 1.15 }}>{name}</span>
+        </div>
+        {meta && <span className={d.muted} style={{ fontSize: 13 }}>{meta}</span>}
+      </section>
+    );
+  }
+
+  if (layout !== 'desktop') {
+    const big = layout === 'tabletH';
+    return (
+      <section className={d.inner} style={{ minHeight: 76, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, whiteSpace: 'nowrap', minWidth: 0 }}>
+          <Link href="/faculdade" style={{ fontSize: 13, color: 'var(--mut2)' }}>Faculdade {'//'}</Link>
+          <h1 style={{ margin: 0, fontSize: big ? 40 : 36, lineHeight: 1, fontWeight: 700, letterSpacing: '-0.04em' }}>{code}</h1>
+          <span className={`${d.serif} ${d.ellipsis}`} style={{ fontStyle: 'italic', fontSize: big ? 21 : 19, color: 'var(--sky)', minWidth: 0 }} title={meta}>
+            {name}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button type="button" className={d.btnFill} onClick={onAddNote}>+ Nota</button>
+          <button type="button" className={d.btnLine} onClick={onAddTask}>+ Tarefa</button>
+          <button type="button" className={d.btnLine} onClick={onAddResource}>+ Recurso</button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       className={d.inner}
@@ -70,7 +113,7 @@ export function DHeading({
 // ==========================================
 function BorderCard({ children }: { children: ReactNode }) {
   return (
-    <div style={{ borderTop: '2px solid var(--accent)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92, minWidth: 0 }}>
+    <div className={d.agoraCard} style={{ borderTop: '2px solid var(--accent)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92, minWidth: 0 }}>
       {children}
     </div>
   );
@@ -127,7 +170,7 @@ export function AgoraCards({
         )}
       </BorderCard>
 
-      <div style={{ background: 'var(--ice)', color: 'var(--bg)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92, minWidth: 0 }}>
+      <div className={`${d.deadline} ${d.agoraCard}`} style={{ color: 'var(--bg)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92, minWidth: 0 }}>
         <div className={d.label} style={{ color: 'var(--bg)', fontWeight: 600 }}>PRÓXIMO PRAZO</div>
         {deadline && due && days !== null ? (
           <>
@@ -210,7 +253,7 @@ export function TasksPanel({
           <span className={d.ellipsis}>{t.text}</span>
         </label>
       ))}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34, borderBottom: '1px solid var(--line)' }}>
+      <label className={d.taskInput} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34, fontSize: 13, borderBottom: '1px solid var(--line)' }}>
         <span className={d.sr}>Nova tarefa</span>
         <input
           ref={inputRef}
@@ -225,9 +268,9 @@ export function TasksPanel({
             setDraft('');
           }}
           placeholder="+ nova tarefa"
-          style={{ flexGrow: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', fontSize: 13 }}
+          style={{ flexGrow: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', fontSize: 'inherit' }}
         />
-        <kbd className={d.kbd}>N</kbd>
+        <kbd className={`${d.kbd} ${d.hideTouch}`}>N</kbd>
       </label>
       <p className={d.muted} style={{ margin: '6px 0 0', fontSize: 10 }}>Guardadas só neste browser.</p>
     </section>
@@ -268,13 +311,14 @@ export function NotebooksPanel({ subjectId, stats }: { subjectId: string; stats:
           <Link
             key={st.tab}
             href={`/faculdade/${subjectId}/notebook?tab=${st.tab}`}
-            style={{ background: sty.bg, color: sty.fg, padding: '9px 12px', display: 'grid', gridTemplateColumns: '76px minmax(0, 1fr) 44px', alignItems: 'center', columnGap: 10, rowGap: 6 }}
+            className={d.nbCard}
+            style={{ background: sty.bg, color: sty.fg, display: 'grid', alignItems: 'center', columnGap: 10, rowGap: 6 }}
           >
             <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em' }}>{st.label.toUpperCase()}</span>
-            <span className={d.ellipsis} style={{ fontSize: 12 }}>
+            <span className={`${d.ellipsis} ${d.nbText}`} style={{ fontSize: 12 }}>
               {st.total ? `${st.done} de ${st.total} capítulos concluídos` : 'Abrir caderno'} →
             </span>
-            <span className={d.serif} style={{ fontSize: 18, textAlign: 'right' }}>{st.total ? `${pct}%` : '—'}</span>
+            <span className={`${d.serif} ${d.nbPct}`} style={{ fontSize: 18, textAlign: 'right' }}>{st.total ? `${pct}%` : '—'}</span>
             <span style={{ gridColumn: '1 / -1', display: 'flex', height: 3, background: sty.track }}>
               <span style={{ width: `${pct}%`, background: sty.bar }} />
             </span>
@@ -299,7 +343,7 @@ export function SchedulePanel({ slots, onManage }: { slots: Slot[]; onManage: ()
       </div>
       {slots.length === 0 && <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 13 }}>Sem sessões no horário.</p>}
       {slots.map((sl) => (
-        <div key={sl.key} className={d.row} style={{ display: 'grid', gridTemplateColumns: '92px 1fr 86px minmax(56px, auto)', alignItems: 'center', whiteSpace: 'nowrap', columnGap: 6 }}>
+        <div key={sl.key} className={`${d.row} ${d.slotRow}`} style={{ display: 'grid', alignItems: 'center', whiteSpace: 'nowrap', columnGap: 6 }}>
           <span className={d.ellipsis} style={{ color: BRANCH_COLOR[sl.branch], fontSize: 12 }}>{sl.typeLabel}</span>
           <span>{WEEKDAY_LONG[sl.dayNum]}</span>
           <span className={d.muted}>{sl.start}{sl.end ? `–${sl.end}` : ''}</span>
@@ -318,11 +362,11 @@ export function TeachersPanel({ teachers }: { teachers: { name: string; role: st
       </div>
       {teachers.length === 0 && <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 13 }}>Sem docentes registados.</p>}
       {teachers.map((t) => (
-        <div key={t.name} className={d.row} style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+        <div key={t.name} className={`${d.row} ${d.teacherRow}`} style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
           <span
-            className={d.round}
+            className={`${d.round} ${d.avatar}`}
             aria-hidden="true"
-            style={{ width: 22, height: 22, flex: 'none', background: 'var(--ice)', color: 'var(--bg)', fontSize: 9, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ flex: 'none', background: 'var(--ice)', color: 'var(--bg)', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             {initials(t.name)}
           </span>
@@ -344,6 +388,7 @@ export function AssessmentTable({
   today,
   onEditWeights,
   onAddGrade,
+  layout = 'desktop',
 }: {
   items: AssessmentItem[];
   theory: number;
@@ -351,7 +396,9 @@ export function AssessmentTable({
   today: Date;
   onEditWeights: () => void;
   onAddGrade: () => void;
+  layout?: DensoLayout;
 }) {
+  const touch = layout !== 'desktop';
   const nextId = useMemo(() => {
     const upcoming = items
       .filter((a) => getItemEffectiveGrade(a) === null)
@@ -370,18 +417,60 @@ export function AssessmentTable({
   const th = { fontWeight: 500, padding: '7px 8px 4px 0', textAlign: 'left' } as const;
   const td = { padding: '8px 8px 8px 0' } as const;
 
+  const rowInfo = (a: AssessmentItem) => {
+    const grade = getItemEffectiveGrade(a);
+    const due = parseDueDate(a.due_date);
+    const theoretical = a.category !== 'PRATICA';
+    let state = 'Sem data';
+    let stateColor = 'var(--mut)';
+    if (grade !== null) state = 'Avaliado';
+    else if (due) {
+      const days = daysBetween(today, due);
+      if (days > 0) state = `Daqui a ${days} ${days === 1 ? 'dia' : 'dias'}`;
+      else if (days === 0) state = 'Hoje';
+      else state = 'Por classificar';
+      // No iPad/iPhone o próximo prazo é âmbar, como no cartão "Próximo prazo".
+      if (a.id === nextId) stateColor = touch ? 'var(--amber)' : 'var(--sky)';
+    }
+    return { grade, due, theoretical, state, stateColor };
+  };
+
   return (
     <section id="avaliacao" style={{ display: 'flex', flexDirection: 'column', scrollMarginTop: 16, minWidth: 0 }}>
       <div className={d.sectionHead}>
         <h2 className={d.h2}>AVALIAÇÃO</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap', fontSize: 12 }}>
           <span className={d.muted}>Pesos <span style={{ color: 'var(--ink)' }}>{theory} / {practice}</span></span>
-          <button type="button" className={`${d.btnLine} ${d.sm}`} onClick={onEditWeights}>Editar pesos</button>
+          {layout !== 'phone' && <button type="button" className={`${d.btnLine} ${d.sm}`} onClick={onEditWeights}>Editar pesos</button>}
           <button type="button" className={`${d.btnFill} ${d.sm}`} onClick={onAddGrade}>+ Nota</button>
         </div>
       </div>
       {rows.length === 0 ? (
         <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 13 }}>Sem componentes de avaliação. Usa “+ Nota” para adicionar.</p>
+      ) : layout === 'phone' ? (
+        <div>
+          {rows.map((a) => {
+            const r = rowInfo(a);
+            return (
+              <div key={a.id} className={d.gradeCard}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, minWidth: 0 }}>
+                  <span className={d.ellipsis}>{a.title}</span>
+                  {r.grade === null && <span className={d.tag} style={{ padding: '2px 6px' }}>{assessmentTag(a.title || '')}</span>}
+                </span>
+                <span className={d.serif} style={{ fontSize: 20, textAlign: 'right', color: r.grade !== null ? 'var(--ink)' : 'var(--faint)' }}>
+                  {r.grade !== null ? fmtGrade(r.grade) : '—'}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--mut)' }}>
+                  <span style={{ color: r.theoretical ? 'var(--sky)' : 'var(--bone)' }}>{r.theoretical ? 'Teórico' : 'Prático'}</span>
+                  {' · '}
+                  {fmtPercent(effectiveWeight(a, theory, practice))}
+                  {r.due ? ` · ${shortDate(r.due)}` : ''}
+                </span>
+                <span style={{ fontSize: 12, textAlign: 'right', color: r.stateColor }}>{r.state}</span>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 520 }}>
@@ -397,22 +486,19 @@ export function AssessmentTable({
             </thead>
             <tbody>
               {rows.map((a) => {
-                const grade = getItemEffectiveGrade(a);
-                const due = parseDueDate(a.due_date);
-                const theoretical = a.category !== 'PRATICA';
-                let state = 'Sem data';
-                let stateColor = 'var(--mut)';
-                if (grade !== null) state = 'Avaliado';
-                else if (due) {
-                  const days = daysBetween(today, due);
-                  if (days > 0) state = `Daqui a ${days} ${days === 1 ? 'dia' : 'dias'}`;
-                  else if (days === 0) state = 'Hoje';
-                  else state = 'Por classificar';
-                  if (a.id === nextId) stateColor = 'var(--sky)';
-                }
+                const { grade, due, theoretical, state, stateColor } = rowInfo(a);
                 return (
-                  <tr key={a.id} style={{ borderTop: '1px solid var(--line2)', borderBottom: '1px solid var(--line2)' }}>
-                    <td style={td}>{a.title}</td>
+                  <tr key={a.id} style={{ borderTop: '1px solid var(--line2)', borderBottom: '1px solid var(--line2)', height: touch ? 44 : undefined }}>
+                    <td style={td}>
+                      {touch && grade === null ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {a.title}
+                          <span className={d.tag} style={{ padding: '2px 6px' }}>{assessmentTag(a.title || '')}</span>
+                        </span>
+                      ) : (
+                        a.title
+                      )}
+                    </td>
                     <td style={{ ...td, color: theoretical ? 'var(--sky)' : 'var(--bone)' }}>{theoretical ? 'Teórico' : 'Prático'}</td>
                     <td style={{ ...td, color: 'var(--mut)' }} title={`${a.weight_percent || 0}% do ramo ${theoretical ? 'teórico' : 'prático'}`}>
                       {fmtPercent(effectiveWeight(a, theory, practice))}
@@ -494,7 +580,9 @@ export function Library({
   onToggleFullscreen,
   onManage,
   searchRef,
+  layout = 'desktop',
 }: {
+  layout?: DensoLayout;
   docs: LibDoc[];
   loading: boolean;
   pins: string[];
@@ -535,6 +623,122 @@ export function Library({
     const files = list ? Array.from(list) : [];
     if (files.length) onUpload(files, uploadCategory);
   };
+
+  // ==========================================
+  // IPAD / IPHONE (design "SSC — iPad / iPhone")
+  // ==========================================
+  if (layout !== 'desktop') {
+    const phone = layout === 'phone';
+    // No iPhone mostra 6 recentes; o resto abre em ecrã inteiro.
+    const recent = phone && !fullscreen ? shown.slice(0, 6) : shown;
+    const touchRow = (doc: LibDoc, isPinned: boolean) => {
+      const created = new Date(doc.createdAt);
+      return (
+        <div key={`${isPinned ? 'p' : 'r'}-${doc.id}`} className={d.touchDoc}>
+          <span style={{ fontSize: 10, color: TYPE_COLOR[doc.type], border: '1px solid #333', textAlign: 'center', padding: '1px 0' }}>{doc.type}</span>
+          {doc.url ? (
+            <a href={doc.url} target="_blank" rel="noreferrer" className={d.ellipsis} title={doc.title}>{doc.title}</a>
+          ) : (
+            <span className={d.ellipsis}>{doc.title}</span>
+          )}
+          <span style={{ fontSize: 12, color: 'var(--mut)', whiteSpace: 'nowrap' }}>
+            {SECTION_SHORT[doc.category]}
+            {Number.isNaN(created.getTime()) ? '' : ` · ${shortDate(created)}`}
+          </span>
+          <button
+            type="button"
+            className={`${d.pin} ${pins.includes(doc.id) ? d.pinOn : ''}`}
+            onClick={() => onTogglePin(doc.id)}
+            aria-pressed={pins.includes(doc.id)}
+            aria-label={pins.includes(doc.id) ? `Desafixar ${doc.title}` : `Fixar ${doc.title}`}
+          >
+            {pins.includes(doc.id) ? '●' : '○'}
+          </button>
+        </div>
+      );
+    };
+
+    return (
+      <section id="biblioteca" className={`${d.lib} ${fullscreen ? d.libFull : ''}`} style={{ scrollMarginTop: 60, gap: 0 }}>
+        <div className={d.sectionHead} style={{ flexShrink: 0 }}>
+          <h2 className={d.h2}>BIBLIOTECA</h2>
+          <span style={{ display: 'flex', gap: 6 }}>
+            {fullscreen && (
+              <button type="button" className={`${d.btnLine} ${d.sm}`} onClick={onToggleFullscreen}>Fechar ✕</button>
+            )}
+            <button type="button" className={`${d.btnFill} ${d.sm}`} onClick={() => fileInput.current?.click()} disabled={uploading}>
+              {uploading ? 'A enviar…' : '+ Adicionar'}
+            </button>
+          </span>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, flexShrink: 0, border: '1px solid var(--box)', padding: '0 10px', background: 'var(--bg)', marginTop: 10 }}>
+          <span className={d.sr}>Pesquisar na biblioteca</span>
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Pesquisar por nome, secção ou tipo…"
+            style={{ flexGrow: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', fontSize: 16 }}
+          />
+        </label>
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '10px 0 6px', flexShrink: 0, scrollbarWidth: 'none' }}>
+          {FILTERS.map(([id, label]) => {
+            const on = filter === id;
+            const count = id === 'todos' ? docs.length : docs.filter((x) => x.category === id).length;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setFilter(id)}
+                aria-pressed={on}
+                style={{ height: 32, padding: '0 12px', fontSize: 13, whiteSpace: 'nowrap', flexShrink: 0, background: on ? 'var(--bone)' : 'transparent', color: on ? 'var(--bg)' : 'var(--ink)', border: `1px solid ${on ? 'var(--bone)' : 'var(--box2)'}` }}
+              >
+                {label} <span style={{ opacity: 0.7 }}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+        {uploadError && <p style={{ margin: '4px 0 0', fontSize: 12, color: '#e38b7a' }}>{uploadError}</p>}
+
+        {pinned.length > 0 && (
+          <>
+            <div className={d.libGroup} style={{ color: 'var(--sky)', paddingTop: 14 }}>FIXADOS</div>
+            <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>{pinned.map((doc) => touchRow(doc, true))}</div>
+          </>
+        )}
+        <div className={d.libGroup} style={{ color: 'var(--mut2)' }}>{q || filter !== 'todos' ? `${shown.length} A MOSTRAR` : 'MAIS RECENTES'}</div>
+        <div className={phone && !fullscreen ? undefined : d.libList}>
+          {loading && <p className={d.muted} style={{ margin: '12px 0', fontSize: 13 }}>A carregar ficheiros…</p>}
+          {!loading && shown.length === 0 && (
+            <p className={d.muted} style={{ margin: '12px 0', fontSize: 13 }}>
+              {docs.length === 0 ? 'Esta biblioteca ainda não tem ficheiros.' : 'Nenhum documento corresponde à pesquisa.'}
+            </p>
+          )}
+          {recent.map((doc) => touchRow(doc, false))}
+        </div>
+        {phone && !fullscreen && shown.length > recent.length && (
+          <button
+            type="button"
+            onClick={onToggleFullscreen}
+            style={{ minHeight: 44, background: 'none', border: 0, fontSize: 14, color: 'var(--sky)' }}
+          >
+            Ver os {shown.length} documentos →
+          </button>
+        )}
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            handleFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+      </section>
+    );
+  }
 
   return (
     <section id="biblioteca" className={`${d.lib} ${fullscreen ? d.libFull : ''}`} style={{ scrollMarginTop: 16 }}>
