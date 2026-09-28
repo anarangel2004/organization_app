@@ -466,7 +466,7 @@ export function FacDeadlines({
     <aside id="prazos" className={d.aside} style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, padding: '14px 16px', scrollMarginTop: 16, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
         <h2 className={d.h2}>PRAZOS</h2>
-        <span className={d.muted} style={{ fontSize: 12 }}>próximos 14 dias</span>
+        <span className={d.muted} style={{ fontSize: 12 }}>{rows.length} por cumprir</span>
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {chips.map(([id, label]) => {
@@ -486,7 +486,7 @@ export function FacDeadlines({
         })}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {visible.length === 0 && <p className={d.muted} style={{ margin: '8px 0', fontSize: 13 }}>Sem prazos nos próximos 14 dias.</p>}
+        {visible.length === 0 && <p className={d.muted} style={{ margin: '8px 0', fontSize: 13 }}>Sem prazos marcados.</p>}
         {visible.map((p) => {
           const urgent = p.days <= 3;
           return (

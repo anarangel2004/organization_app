@@ -274,14 +274,13 @@ export default function FaculdadePage() {
   const legend = sortedSubjects.map((x) => ({ label: codeOf(x.id), tone: toneOf.get(x.id) ?? OVERFLOW_TONE }));
 
   // ==========================================
-  // PRAZOS (14 dias)
+  // PRAZOS (todos os futuros ainda por classificar)
   // ==========================================
   const deadlineRows = useMemo<DeadlineRow[]>(() => {
-    const limit = addDays(today, 14);
     const rows: DeadlineRow[] = [];
     assessments.forEach((a) => {
       const due = parseDueDate(a.due_date);
-      if (!due || due < today || due > limit || getItemEffectiveGrade(a) !== null) return;
+      if (!due || due < today || getItemEffectiveGrade(a) !== null) return;
       const tone = toneOf.get(a.subject_id) ?? OVERFLOW_TONE;
       rows.push({
         id: `a-${a.id}`,
@@ -298,7 +297,7 @@ export default function FaculdadePage() {
       .filter((t) => !t.completed)
       .forEach((t) => {
         const due = parseDueDate(t.due_date);
-        if (!due || due < today || due > limit) return;
+        if (!due || due < today) return;
         const project = t.project_id ? projectById.get(t.project_id) : undefined;
         rows.push({
           id: `t-${t.id}`,

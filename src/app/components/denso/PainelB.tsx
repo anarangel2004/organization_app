@@ -695,8 +695,8 @@ export interface DeadlineB {
 export function DeadlinesB({ items, today, bind }: { items: DeadlineB[]; today: Date; bind: Bind }) {
   return (
     <section id="prazos" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, scrollMarginTop: 16 }}>
-      <SectionHeadB title="PRAZOS" aside="próximos 14 dias" />
-      {items.length === 0 && <p className={d.muted} style={{ margin: '12px 0 0', fontSize: 13 }}>Sem prazos nos próximos 14 dias.</p>}
+      <SectionHeadB title="PRAZOS" aside="os mais próximos" />
+      {items.length === 0 && <p className={d.muted} style={{ margin: '12px 0 0', fontSize: 13 }}>Sem prazos marcados.</p>}
       {items.map((p) => {
         const days = daysBetween(today, p.date);
         const b = bind(`p-${p.id}`);

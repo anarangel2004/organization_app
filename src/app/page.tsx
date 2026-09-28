@@ -308,14 +308,13 @@ export default function HomePage() {
   const weekBlocks = weekColumns.reduce((n, c) => n + c.events.length, 0);
 
   // ==========================================
-  // PRAZOS (avaliações por classificar + tarefas, próximos 14 dias)
+  // PRAZOS (os 3 mais próximos: avaliações por classificar + tarefas)
   // ==========================================
   const deadlines = useMemo<DeadlineB[]>(() => {
-    const limit = addDays(today, 14);
     const items: Omit<DeadlineB, 'pct' | 'status'>[] = [];
     assessments.forEach((a) => {
       const due = parseDueDate(a.due_date);
-      if (!due || due < today || due > limit || typeof a.grade === 'number') return;
+      if (!due || due < today || typeof a.grade === 'number') return;
       const subj = subjectLookup.get(a.subject_id);
       items.push({
         id: `a-${a.id}`,
@@ -331,7 +330,7 @@ export default function HomePage() {
       .filter((t) => !t.completed)
       .forEach((t) => {
         const due = parseDueDate(t.due_date);
-        if (!due || due < today || due > limit) return;
+        if (!due || due < today) return;
         const project = t.project_id ? projectLookup.get(t.project_id) : undefined;
         items.push({
           id: `t-${t.id}`,
