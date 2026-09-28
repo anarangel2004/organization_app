@@ -29,6 +29,7 @@ export function DensoHeader({
   onOpenProfile,
   onLogout,
   inset = false,
+  compact = false,
 }: {
   active: DensoSection;
   brandNote?: string;
@@ -42,6 +43,8 @@ export function DensoHeader({
   onLogout: () => void;
   // true: a linha inferior fica dentro das margens (painel); false: a toda a largura do conteúdo.
   inset?: boolean;
+  // true: versão baixa (48px) e a toda a largura, para ecrãs de trabalho como o caderno.
+  compact?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -55,27 +58,27 @@ export function DensoHeader({
   ];
 
   return (
-    <div className={d.inner}>
+    <div className={compact ? undefined : d.inner} style={compact ? { padding: '0 16px' } : undefined}>
       <header
         style={{
-          minHeight: inset ? 60 : 56,
+          minHeight: compact ? 48 : inset ? 60 : 56,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: '12px 24px',
           flexWrap: 'wrap',
-          padding: '9px 0',
+          padding: compact ? '6px 0' : '9px 0',
           borderBottom: '1px solid var(--line)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px 40px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: compact ? '8px 36px' : '12px 40px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, whiteSpace: 'nowrap' }}>
-            <Link href="/" style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em' }}>
+            <Link href="/" style={{ fontSize: compact ? 19 : 22, fontWeight: 600, letterSpacing: '-0.02em' }}>
               Organiza-me
             </Link>
             {brandNote && <span style={{ fontSize: 12, color: 'var(--mut2)' }}>{brandNote}</span>}
           </div>
-          <nav style={{ display: 'flex', gap: 28, fontSize: 14, whiteSpace: 'nowrap' }}>
+          <nav style={{ display: 'flex', gap: compact ? 24 : 28, fontSize: compact ? 13 : 14, whiteSpace: 'nowrap' }}>
             {links.map(([id, label, href]) => (
               <Link
                 key={id}
@@ -92,10 +95,20 @@ export function DensoHeader({
             ))}
           </nav>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {dateLabel && <span className={d.muted} style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{dateLabel}</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 10 : 12, flexWrap: 'wrap' }}>
+          {dateLabel && <span className={d.muted} style={{ fontSize: compact ? 12 : 13, whiteSpace: 'nowrap' }}>{dateLabel}</span>}
           <div style={{ position: 'relative' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, width: 'min(250px, 80vw)', height: 38, border: '1px solid var(--box)', padding: '0 10px' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                width: compact ? 'min(220px, 80vw)' : 'min(250px, 80vw)',
+                height: compact ? 30 : 38,
+                border: '1px solid var(--box)',
+                padding: compact ? '0 8px' : '0 10px',
+              }}
+            >
               <span className={d.sr}>Pesquisa global</span>
               <input
                 ref={searchRef}
@@ -106,7 +119,7 @@ export function DensoHeader({
                   if (e.key === 'Escape') setQuery('');
                 }}
                 placeholder={searchPlaceholder}
-                style={{ flexGrow: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', fontSize: 14 }}
+                style={{ flexGrow: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', fontSize: compact ? 12 : 14 }}
               />
               <kbd className={d.kbd} style={{ fontSize: 11 }}>Ctrl K</kbd>
             </label>
@@ -130,7 +143,11 @@ export function DensoHeader({
               </div>
             )}
           </div>
-          <Link href="/faculdade#nova-disciplina" className={d.btnFill} style={{ padding: '0 16px' }}>
+          <Link
+            href="/faculdade#nova-disciplina"
+            className={d.btnFill}
+            style={compact ? { height: 30, padding: '0 12px', fontSize: 12 } : { padding: '0 16px' }}
+          >
             Novo dossiê
           </Link>
           <div style={{ position: 'relative' }}>
@@ -140,7 +157,15 @@ export function DensoHeader({
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((v) => !v)}
               className={d.round}
-              style={{ width: 38, height: 38, background: 'var(--ink)', color: 'var(--bg)', border: 0, fontWeight: 600 }}
+              style={{
+                width: compact ? 30 : 38,
+                height: compact ? 30 : 38,
+                fontSize: compact ? 12 : undefined,
+                background: 'var(--ink)',
+                color: 'var(--bg)',
+                border: 0,
+                fontWeight: 600,
+              }}
             >
               {(userName || '·').charAt(0).toUpperCase()}
             </button>

@@ -52,9 +52,11 @@ export default function RootLayout({
   return (
     <html
       lang="pt"
+      // Extensões do browser acrescentam atributos ao <html> antes do React carregar.
+      suppressHydrationWarning
       className={`${anton.variable} ${hanken.variable} ${newsreader.variable} ${instrument.variable} ${spaceMono.variable}`}
     >
-      <body className="bg-[#FCF9F2] text-[#111111] font-sans antialiased">
+      <body className="bg-[#FCF9F2] text-[#111111] font-sans antialiased" suppressHydrationWarning>
         <SWRegister />
         {children}
         <OfflineIndicator />
