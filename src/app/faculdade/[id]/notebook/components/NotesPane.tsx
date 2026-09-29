@@ -715,6 +715,8 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
             eraserType={eraserType}
             penOnly={layout !== 'desktop'}
             onSelectionChange={setSelectedCount}
+            onPenDetected={() => setTool('PEN')}
+            zoom={zoom}
             placeholder="Continua a escrever, ou pega na caneta…"
             onUpdateContent={(html) => {
               onUpdateContent(html);

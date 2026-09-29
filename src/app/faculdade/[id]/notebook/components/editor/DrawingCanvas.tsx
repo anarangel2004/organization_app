@@ -15,6 +15,8 @@ import { EraserType, MARKER_INKS, NoteMode, PEN_INKS, Tool } from '../types';
 interface Point {
   x: number;
   y: number;
+  // Pressão da caneta (0–1); ausente em traços de rato e nos antigos.
+  p?: number;
 }
 
 interface Stroke {
@@ -57,6 +59,10 @@ interface DrawingCanvasProps {
   penOnly?: boolean;
   // Laço: número de traços selecionados (0 = nenhum).
   onSelectionChange?: (count: number) => void;
+  // Tátil: a caneta tocou na folha com a ferramenta Texto; o traço é desenhado e a ferramenta passa a Caneta.
+  onPenDetected?: () => void;
+  // Zoom da folha, para ajustar a resolução do canvas.
+  zoom?: number;
 }
 
 const MIN_HEIGHT = 640;
@@ -124,6 +130,23 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   } else {
     ctx.strokeStyle = ctx.fillStyle = stroke.color;
     ctx.lineWidth = stroke.size;
+    // Caneta com pressão: cada troço tem a espessura da pressão nesse ponto.
+    if (pts.length > 2 && pts.some((pt) => pt.p !== undefined)) {
+      const width = (pt: Point) => stroke.size * (0.45 + 1.1 * (pt.p ?? 0.5));
+      let from = pts[0];
+      for (let i = 1; i < pts.length; i++) {
+        const last = i === pts.length - 1;
+        const to = last ? pts[i] : { x: (pts[i].x + pts[i + 1].x) / 2, y: (pts[i].y + pts[i + 1].y) / 2 };
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, to.x, to.y);
+        ctx.lineWidth = width(pts[i]);
+        ctx.stroke();
+        from = to;
+      }
+      ctx.restore();
+      return;
+    }
   }
 
   ctx.beginPath();
@@ -165,9 +188,13 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     onEditorMouseLeave,
     penOnly = false,
     onSelectionChange,
+    onPenDetected,
+    zoom = 1,
   },
   ref
 ) {
+  // Traço de caneta começado com a ferramenta Texto (ver onPenDetected): desenha como Caneta.
+  const forcedPenRef = useRef(false);
   // Arrastar com o dedo quando só a caneta desenha: desliza o contentor da folha.
   const fingerRef = useRef<{ id: number; x: number; y: number; box: HTMLElement | null } | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -187,6 +214,8 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   const dragRef = useRef<{ last: Point; snapshot: Stroke[]; moved: boolean } | null>(null);
   // Tamanho lógico da folha (px sem zoom) em que os pontos são guardados.
   const logicalRef = useRef({ w: 0, h: 0 });
+  // Pixels do canvas por px lógico da folha.
+  const ratioRef = useRef(1);
 
   const updateHistoryStatus = useCallback(() => {
     onHistoryChange?.(undoStackRef.current.length > 0, redoStackRef.current.length > 0);
@@ -196,7 +225,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = ratioRef.current;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, logicalRef.current.w, logicalRef.current.h);
     strokesRef.current.forEach((s) => drawStroke(ctx, s));
@@ -251,12 +280,21 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     const w = container.offsetWidth;
     const h = container.offsetHeight;
     if (w === 0 || h === 0) return;
-    if (logicalRef.current.w === w && logicalRef.current.h === h) return;
+    // Tamanho a que a folha aparece de facto (zoom da folha incluído) e zoom com dois dedos.
+    const shown = canvas.getBoundingClientRect().width / w || 1;
+    const pinch = window.visualViewport?.scale || 1;
+    let ratio = (window.devicePixelRatio || 1) * shown * Math.min(pinch, 3);
+    // O Safari do iPad recusa canvas acima de ~16,7 M pixels: baixa a resolução se for preciso.
+    const MAX_PIXELS = 16_000_000;
+    if (w * h * ratio * ratio > MAX_PIXELS) ratio = Math.sqrt(MAX_PIXELS / (w * h));
+    ratio = Math.round(ratio * 100) / 100;
+
+    if (logicalRef.current.w === w && logicalRef.current.h === h && ratioRef.current === ratio) return;
 
     logicalRef.current = { w, h };
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+    ratioRef.current = ratio;
+    canvas.width = Math.round(w * ratio);
+    canvas.height = Math.round(h * ratio);
     redrawCanvas();
   }, [redrawCanvas]);
 
@@ -329,7 +367,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       .map((st, i) => ({
         ...st,
         id: `${stamp}-${i}-${Math.random().toString(36).slice(2, 7)}`,
-        points: st.points.map((pt) => ({ x: pt.x + OFFSET, y: pt.y + OFFSET })),
+        points: st.points.map((pt) => ({ ...pt, x: pt.x + OFFSET, y: pt.y + OFFSET })),
       }));
     undoStackRef.current.push(cloneStrokes(strokesRef.current));
     redoStackRef.current = [];
@@ -421,6 +459,22 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     setupCanvas();
   }, [chapterId, chapterContent, drawingDataRaw, setupCanvas, updateHistoryStatus]);
 
+  // Zoom do browser ou com dois dedos: a resolução acompanha.
+  useEffect(() => {
+    const onZoom = () => setupCanvas();
+    window.addEventListener('resize', onZoom);
+    window.visualViewport?.addEventListener('resize', onZoom);
+    return () => {
+      window.removeEventListener('resize', onZoom);
+      window.visualViewport?.removeEventListener('resize', onZoom);
+    };
+  }, [setupCanvas]);
+
+  // Zoom da folha (−/+): o tamanho em CSS não muda, só a escala; volta a medir.
+  useEffect(() => {
+    setupCanvas();
+  }, [zoom, setupCanvas]);
+
   // O texto cresce, a janela muda, o split abre: o canvas acompanha.
   useEffect(() => {
     const container = containerRef.current;
@@ -431,12 +485,24 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   }, [setupCanvas]);
 
   // Ponto do ponteiro em coordenadas da folha (independente do zoom).
-  const localPoint = (e: { clientX: number; clientY: number }): Point | null => {
+  const localPoint = (e: { clientX: number; clientY: number; pointerType?: string; pressure?: number }): Point | null => {
     const canvas = canvasRef.current;
     if (!canvas || logicalRef.current.w === 0) return null;
     const rect = canvas.getBoundingClientRect();
     const scale = rect.width / logicalRef.current.w || 1;
-    return { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+    const pt: Point = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+    if (e.pointerType === 'pen' && typeof e.pressure === 'number' && e.pressure > 0) pt.p = Math.round(e.pressure * 100) / 100;
+    return pt;
+  };
+
+  // Junta um ponto ao traço, ignorando os que estão a menos de ~0,6 px do anterior.
+  const pushPoint = (stroke: Stroke, p: Point) => {
+    const prev = stroke.points[stroke.points.length - 1];
+    if (prev && (prev.x - p.x) ** 2 + (prev.y - p.y) ** 2 < 0.36) {
+      if (p.p !== undefined) prev.p = Math.max(prev.p ?? 0, p.p);
+      return;
+    }
+    stroke.points.push(p);
   };
 
   const checkObjectErase = (p: Point) => {
@@ -461,9 +527,30 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   };
 
   const drawingActive = mode === 'EDIT' && tool !== 'TEXT';
+  const toolNow = (): Tool => (forcedPenRef.current ? 'PEN' : tool);
 
-  const startDrawing = (e: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (!drawingActive) return;
+  // Scribble do iPad: se a página trava o toque da caneta, o iPad não converte a letra em texto.
+  useEffect(() => {
+    const box = containerRef.current;
+    if (!box || !penOnly) return;
+    const onTouch = (e: TouchEvent) => {
+      if (mode !== 'EDIT') return;
+      const stylus = Array.from(e.touches).some((t) => (t as Touch & { touchType?: string }).touchType === 'stylus');
+      if (stylus) e.preventDefault();
+    };
+    box.addEventListener('touchstart', onTouch, { passive: false });
+    box.addEventListener('touchmove', onTouch, { passive: false });
+    return () => {
+      box.removeEventListener('touchstart', onTouch);
+      box.removeEventListener('touchmove', onTouch);
+    };
+  }, [penOnly, mode]);
+
+  const startDrawing = (e: ReactPointerEvent<HTMLElement>) => {
+    if (!drawingActive && !forcedPenRef.current) return;
+    // A caneta nunca deve acionar o Scribble nem selecionar texto.
+    if (e.pointerType === 'pen') e.preventDefault();
+    const tool = toolNow();
     if (penOnly && e.pointerType === 'touch') {
       e.currentTarget.setPointerCapture?.(e.pointerId);
       fingerRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY, box: e.currentTarget.closest('[data-scroll]') };
@@ -502,7 +589,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     redrawCanvas();
   };
 
-  const draw = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+  const draw = (e: ReactPointerEvent<HTMLElement>) => {
     const finger = fingerRef.current;
     if (finger && finger.id === e.pointerId) {
       finger.box?.scrollBy(finger.x - e.clientX, finger.y - e.clientY);
@@ -510,7 +597,8 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       finger.y = e.clientY;
       return;
     }
-    if (!isDrawingRef.current || !drawingActive) return;
+    if (!isDrawingRef.current || (!drawingActive && !forcedPenRef.current)) return;
+    const tool = toolNow();
     if (tool === 'LASSO') {
       const p = localPoint(e);
       if (!p) return;
@@ -540,13 +628,15 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       const p = localPoint(ev);
       if (!p) continue;
       if (tool === 'ERASER' && eraserType === 'OBJECT') checkObjectErase(p);
-      else currentStrokeRef.current?.points.push(p);
+      else if (currentStrokeRef.current) pushPoint(currentStrokeRef.current, p);
     }
     if (currentStrokeRef.current) redrawCanvas();
   };
 
   const stopDrawing = () => {
     fingerRef.current = null;
+    const tool = toolNow();
+    forcedPenRef.current = false;
     if (!isDrawingRef.current) return;
     isDrawingRef.current = false;
 
@@ -595,10 +685,30 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   };
 
   return (
-    <div ref={containerRef} className={c.inkWrap}>
+    <div
+      ref={containerRef}
+      className={c.inkWrap}
+      onPointerDownCapture={(e) => {
+        if (!penOnly || mode !== 'EDIT' || tool !== 'TEXT' || e.pointerType !== 'pen') return;
+        e.preventDefault();
+        e.stopPropagation();
+        forcedPenRef.current = true;
+        onPenDetected?.();
+        startDrawing(e);
+      }}
+      onPointerMove={(e) => {
+        if (forcedPenRef.current) draw(e);
+      }}
+      onPointerUp={() => {
+        if (forcedPenRef.current) stopDrawing();
+      }}
+      onPointerCancel={() => {
+        if (forcedPenRef.current) stopDrawing();
+      }}
+    >
       <div
         ref={editorRef}
-        contentEditable={mode === 'EDIT'}
+        contentEditable={mode === 'EDIT' && (tool === 'TEXT' || !penOnly)}
         suppressContentEditableWarning
         spellCheck
         // Sem Grammarly na folha (ele mexe no HTML do editor).
