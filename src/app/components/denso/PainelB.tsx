@@ -1044,7 +1044,8 @@ export function MonthB({
                     width: 400,
                     padding: '20px 22px',
                     gap: 10,
-                    ...(c.col <= 3 ? { left: 0 } : { right: 0 }),
+                    // Seg/Ter abrem para a direita, Sáb/Dom para a esquerda, o meio fica centrado no dia.
+                    ...(c.col <= 1 ? { left: 0 } : c.col >= 5 ? { right: 0 } : { left: '50%', transform: 'translateX(-50%)' }),
                     ...(c.row >= 3 ? { bottom: 'calc(100% + 6px)' } : { top: 'calc(100% + 6px)' }),
                   }}
                 >
