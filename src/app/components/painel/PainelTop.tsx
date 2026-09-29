@@ -7,19 +7,13 @@ import type { SearchEntry } from '../types';
 
 export type CtxFilter = 'all' | 'trab';
 
-// Faixa osso no topo: foco de hoje, próxima aula, citação e botão de foco.
+// Faixa osso no topo: próxima aula e citação.
 export function TopStrip({
-  focusLabel,
   nextLabel,
   quote,
-  focusRunning,
-  onToggleFocus,
 }: {
-  focusLabel: string;
   nextLabel: string;
   quote: string;
-  focusRunning: boolean;
-  onToggleFocus: () => void;
 }) {
   return (
     <div style={{ background: 'var(--bone)', color: 'var(--inkdark)' }}>
@@ -38,14 +32,10 @@ export function TopStrip({
           fontWeight: 500,
         }}
       >
-        <span>{focusLabel}</span>
         <span>{nextLabel}</span>
         <span className={`${s.serif} ${s.hideSm}`} style={{ fontStyle: 'italic', fontWeight: 500, fontSize: 14 }}>
           {quote}
         </span>
-        <button type="button" onClick={onToggleFocus} className={s.btnDark} aria-pressed={focusRunning}>
-          {focusRunning ? 'Pausar foco' : 'Iniciar foco'}
-        </button>
       </div>
     </div>
   );

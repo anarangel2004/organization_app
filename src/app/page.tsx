@@ -80,18 +80,12 @@ import {
   subjectShortName,
 } from './components/painel/painelData';
 
-interface FocusState {
-  date: string;
-  ms: number;
-  since: number | null;
-}
 
 const HELP: [string, string][] = [
   ['1–5', 'Ir para a secção'],
   ['N', 'Nova tarefa'],
   ['E', 'Novo evento'],
   ['C', 'Captura rápida'],
-  ['F', 'Iniciar/pausar foco'],
   ['Ctrl K', 'Pesquisa global'],
   ['?', 'Mostrar/esconder esta ajuda'],
   ['Esc', 'Fechar detalhes fixados'],
@@ -119,7 +113,6 @@ export default function HomePage() {
   // Sem tabela no Supabase: guardado só neste browser.
   const [notes, setNotes] = useLocalState<string[]>('painel:notes', []);
   const [localEvents, setLocalEvents] = useLocalState<LocalEvent[]>('painel:events', []);
-  const [focus, setFocus] = useLocalState<FocusState>('painel:focus', { date: '', ms: 0, since: null });
 
   const searchRef = useRef<HTMLInputElement>(null);
   const taskInputRef = useRef<HTMLInputElement>(null);
@@ -230,27 +223,6 @@ export default function HomePage() {
     if (nextClassOtherDay) return `Próxima aula: ${code(nextClassOtherDay.subjectId)}, ${nextClassOtherDay.dayLabel} às ${nextClassOtherDay.start}`;
     return 'Sem aulas no horário';
   }, [todayClasses, nowMinutes, nextClassOtherDay, subjectLookup]);
-
-  // ==========================================
-  // FOCO (cronómetro local, reinicia todos os dias)
-  // ==========================================
-  const focusToday = focus.date === todayKey ? focus : { date: todayKey, ms: 0, since: null };
-  const focusRunning = focusToday.since !== null;
-  const focusMs = focusToday.ms + (focusToday.since !== null ? Math.max(0, now.getTime() - focusToday.since) : 0);
-  const focusMinutes = Math.floor(focusMs / 60000);
-  const focusLabel: [string, string] = [
-    `${String(Math.floor(focusMinutes / 60)).padStart(2, '0')}h ${String(focusMinutes % 60).padStart(2, '0')}m`,
-    'de foco hoje',
-  ];
-
-  const toggleFocus = useCallback(() => {
-    setFocus((prev) => {
-      const key = isoKey(new Date());
-      const base = prev.date === key ? prev : { date: key, ms: 0, since: null };
-      if (base.since !== null) return { date: key, ms: base.ms + (Date.now() - base.since), since: null };
-      return { date: key, ms: base.ms, since: Date.now() };
-    });
-  }, [setFocus]);
 
   // ==========================================
   // VOLUMES: disciplinas pela edição de capítulos mais recente
@@ -448,12 +420,11 @@ export default function HomePage() {
       else if (key === 'n') focusTask();
       else if (key === 'e') focusEvent();
       else if (key === 'c') captureRef.current?.focus();
-      else if (key === 'f') toggleFocus();
       else if (key === '?') setHelpOpen((v) => !v);
       else return false;
       return true;
     },
-    [goTo, focusTask, focusEvent, toggleFocus]
+    [goTo, focusTask, focusEvent]
   );
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
   useShortcuts(onShortcut, focusSearch);
@@ -501,7 +472,7 @@ export default function HomePage() {
     const col = { display: 'flex', flexDirection: 'column', gap: 26, minWidth: 0 } as const;
     const two = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 24, alignItems: 'start' } as const;
 
-    const session = <SessionCard todayClasses={todayClasses} nextClass={nextClassOtherDay} focusRunning={focusRunning} onToggleFocus={toggleFocus} />;
+    const session = <SessionCard todayClasses={todayClasses} nextClass={nextClassOtherDay} />;
     const index = <DayIndexB events={todayEvents} nowMinutes={nowMinutes} today={today} bind={bind} />;
     const plan = (
       <PlanB
@@ -540,7 +511,7 @@ export default function HomePage() {
     return (
       <div className={`${d.root} ${layoutClasses(layout)}`}>
         {!phone && <TabletHeader active="home" searchIndex={searchIndex} {...profile} />}
-        <TopStripB focusLabel={focusLabel} nextLabel={loading ? 'A carregar horário…' : nextLabel} quote={MOCK_QUOTE} focusRunning={focusRunning} onToggleFocus={toggleFocus} />
+        <TopStripB nextLabel={loading ? 'A carregar horário…' : nextLabel} quote={MOCK_QUOTE} />
         <DayTitle
           size={phone ? 'phone' : 'tablet'}
           title={`${weekdayShort}, ${today.getDate()}`}
@@ -636,7 +607,7 @@ export default function HomePage() {
 
   return (
     <div className={d.root}>
-      <TopStripB focusLabel={focusLabel} nextLabel={loading ? 'A carregar horário…' : nextLabel} quote={MOCK_QUOTE} focusRunning={focusRunning} onToggleFocus={toggleFocus} />
+      <TopStripB nextLabel={loading ? 'A carregar horário…' : nextLabel} quote={MOCK_QUOTE} />
 
       <DensoHeader
         active="home"
@@ -678,7 +649,7 @@ export default function HomePage() {
               <span className={d.serif} style={{ fontStyle: 'italic', fontSize: 28 }}>A página de hoje</span>
               <span style={{ fontSize: 12, color: 'var(--mut2)' }}>{clock}</span>
             </div>
-            <SessionCard todayClasses={todayClasses} nextClass={nextClassOtherDay} focusRunning={focusRunning} onToggleFocus={toggleFocus} />
+            <SessionCard todayClasses={todayClasses} nextClass={nextClassOtherDay} />
             <DayIndexB events={todayEvents} nowMinutes={nowMinutes} today={today} bind={bind} />
             <PlanB
               tasks={planTasks}

@@ -32,42 +32,16 @@ function pad(n: number) {
 // ==========================================
 // FAIXA SUPERIOR
 // ==========================================
-export function TopStripB({
-  focusLabel,
-  nextLabel,
-  quote,
-  focusRunning,
-  onToggleFocus,
-}: {
-  focusLabel: [string, string];
-  nextLabel: string;
-  quote: string;
-  focusRunning: boolean;
-  onToggleFocus: () => void;
-}) {
+export function TopStripB({ nextLabel, quote }: { nextLabel: string; quote: string }) {
   return (
     <div className={d.topStrip}>
       <div
         className={d.inner}
         style={{ minHeight: 36, display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 12, paddingTop: 4, paddingBottom: 4 }}
       >
-        <span style={{ display: 'flex', gap: '2px 20px', flexWrap: 'wrap' }}>
-          <span>
-            <strong style={{ fontWeight: 600 }}>{focusLabel[0]}</strong> {focusLabel[1]}
-          </span>
-          <span>{nextLabel}</span>
-        </span>
+        <span>{nextLabel}</span>
         <span className={`${d.serif} ${d.hideSm}`} style={{ fontStyle: 'italic', fontSize: 15 }}>{quote}</span>
-        <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button
-            type="button"
-            onClick={onToggleFocus}
-            aria-pressed={focusRunning}
-            style={{ height: 26, padding: '0 12px', background: 'var(--bg)', color: 'var(--ink)', border: 0, fontSize: 12, whiteSpace: 'nowrap' }}
-          >
-            {focusRunning ? 'Pausar foco' : 'Iniciar foco'}  <span style={{ opacity: 0.6 }}>F</span>
-          </button>
-        </span>
+        <span />
       </div>
     </div>
   );
@@ -145,13 +119,9 @@ function clock(totalSeconds: number) {
 export function SessionCard({
   todayClasses,
   nextClass,
-  focusRunning,
-  onToggleFocus,
 }: {
   todayClasses: HeroClass[];
   nextClass: HeroNextClass | null;
-  focusRunning: boolean;
-  onToggleFocus: () => void;
 }) {
   const now = useNow(1000);
   const nowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
@@ -224,14 +194,6 @@ export function SessionCard({
         >
           {subjectId ? 'Notebook' : 'Faculdade'}
         </Link>
-        <button
-          type="button"
-          onClick={onToggleFocus}
-          aria-pressed={focusRunning}
-          style={{ height: 32, padding: '0 14px', background: 'transparent', color: 'var(--bg)', border: '1px solid rgba(13,13,13,0.5)', fontSize: 13 }}
-        >
-          {focusRunning ? 'Pausar foco' : 'Iniciar foco'}
-        </button>
       </div>
     </div>
   );

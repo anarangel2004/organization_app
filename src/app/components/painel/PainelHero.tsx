@@ -43,8 +43,6 @@ interface HeroProps {
   nextClass: HeroNextClass | null;
   tiles: HeroTile[];
   subjectsCount: number;
-  focusRunning: boolean;
-  onToggleFocus: () => void;
   onCapture: (text: string) => void;
   // Blocos encaixados na abertura: plano de ação (esquerda), notas (direita).
   leftExtra?: ReactNode;
@@ -75,8 +73,6 @@ export function PainelHero({
   nextClass,
   tiles,
   subjectsCount,
-  focusRunning,
-  onToggleFocus,
   onCapture,
   leftExtra,
   rightExtra,
@@ -215,9 +211,6 @@ export function PainelHero({
                 <Link href={notebookHref ?? '/faculdade'} className={s.btnDark}>
                   {notebookHref ? 'Notebook' : 'Faculdade'}
                 </Link>
-                <button type="button" onClick={onToggleFocus} className={s.btnOutlineDark} aria-pressed={focusRunning}>
-                  {focusRunning ? 'Pausar foco' : 'Iniciar foco'}
-                </button>
               </div>
             </div>
           </div>
