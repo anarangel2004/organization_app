@@ -38,8 +38,28 @@ import {
 } from './components/types';
 import { ContextBar, MenuBar, MenuDef, StatusBar, SubjectChip } from './components/CadernoBars';
 import { ChapterSidebar } from './components/ChapterSidebar';
-import { NotesPane, NotesPaneRef } from './components/NotesPane';
+import { FormatState, NotesLayout, NotesPane, NotesPaneRef } from './components/NotesPane';
 import { PdfPane } from './components/PdfPane';
+import { OptionsSheet, PdfSheet, PhoneBar, PhoneFormatBar, TabletBars, syncText } from './components/TouchBars';
+
+// Arranjo do ecrã: computador (rato/teclado) ou os três dos designs táteis.
+type Device = 'desktop' | 'phone' | 'tablet-v' | 'tablet-h';
+
+// ?device=iphone|ipad-v|ipad-h força um arranjo (útil para testar no computador).
+const DEVICE_PARAM: Record<string, Device> = {
+  iphone: 'phone',
+  'ipad-v': 'tablet-v',
+  'ipad-h': 'tablet-h',
+  desktop: 'desktop',
+};
+
+function detectDevice(): Device {
+  // Ecrã tátil como entrada principal (iPad, iPhone); portáteis com ecrã tátil ficam no arranjo de computador.
+  const touch = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  if (!touch) return 'desktop';
+  if (Math.min(window.innerWidth, window.innerHeight) < 600) return 'phone';
+  return window.innerHeight >= window.innerWidth ? 'tablet-v' : 'tablet-h';
+}
 
 interface SubjectRow {
   id: string;
@@ -165,6 +185,16 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const [narrow, setNarrow] = useState(false);
   const [isMac, setIsMac] = useState(false);
   const [deviceLabel, setDeviceLabel] = useState('Computador');
+  const [detectedDevice, setDetectedDevice] = useState<Device>('desktop');
+  const device: Device = DEVICE_PARAM[searchParams.get('device') || ''] ?? detectedDevice;
+  const touch = device !== 'desktop';
+  const tablet = device === 'tablet-v' || device === 'tablet-h';
+  const [format, setFormat] = useState<FormatState>({ block: 'p', bold: false, italic: false });
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [pdfSheetOpen, setPdfSheetOpen] = useState(false);
+  // Divisão notas/PDF no iPad, em % para as notas (vertical: em cima; horizontal: à esquerda).
+  const [splitV, setSplitV] = useLocalState('caderno:splitV', 58);
+  const [splitH, setSplitH] = useLocalState('caderno:splitH', 50);
 
   // Preferências deste browser.
   const [paper, setPaper] = useLocalState<PaperStyle>('caderno:paper', 'PAUTADO');
@@ -198,15 +228,24 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     setIsMac(mac);
     setDeviceLabel(touch ? (/iPad|Macintosh/.test(navigator.userAgent) ? 'iPad ligado' : 'Tablet ligado') : 'Computador');
     const mq = window.matchMedia('(max-width: 899px)');
-    const onMq = () => setNarrow(mq.matches);
+    const onMq = () => {
+      setNarrow(mq.matches);
+      setDetectedDevice(detectDevice());
+    };
     onMq();
     mq.addEventListener('change', onMq);
-    return () => mq.removeEventListener('change', onMq);
+    // Rodar o iPad troca entre o arranjo vertical e o horizontal.
+    window.addEventListener('resize', onMq);
+    return () => {
+      mq.removeEventListener('change', onMq);
+      window.removeEventListener('resize', onMq);
+    };
   }, []);
 
-  // No telemóvel a lateral abre por cima da folha e não mexe na preferência guardada.
+  // No telemóvel e no iPad a lateral abre por cima da folha e não mexe na preferência guardada.
+  const drawerMode = narrow || touch;
   const [mobileSide, setMobileSide] = useState(false);
-  const openSide = useCallback(() => (narrow ? setMobileSide(true) : setSideOpen(true)), [narrow, setSideOpen]);
+  const openSide = useCallback(() => (drawerMode ? setMobileSide(true) : setSideOpen(true)), [drawerMode, setSideOpen]);
 
   // ==========================================
   // DERIVADOS
@@ -263,8 +302,9 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
   const subject = subjects.find((s) => s.id === subjectId);
   const tabLabel = TABS.find(([id]) => id === tab)?.[1] ?? 'Teóricas';
-  const showSide = narrow ? mobileSide : sideOpen && !focusMode;
-  const showSplit = splitOpen && !focusMode;
+  const showSide = drawerMode ? mobileSide : sideOpen && !focusMode;
+  // No iPhone o PDF abre numa folha que sobe de baixo, nunca lado a lado.
+  const showSplit = splitOpen && !focusMode && device !== 'phone';
 
   // Ao mudar de capítulo, o PDF volta à primeira página referida (ou à 1).
   useEffect(() => {
@@ -471,10 +511,11 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const openRef = useCallback(
     (page: number) => {
       setFocusMode(false);
-      setSplitOpen(true);
       setPdfPage(page);
+      if (device === 'phone') setPdfSheetOpen(true);
+      else setSplitOpen(true);
     },
-    [setSplitOpen]
+    [device, setSplitOpen]
   );
 
   const caretRef = useCallback(
@@ -490,13 +531,13 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   );
 
   const toggleSide = useCallback(() => {
-    if (narrow) {
+    if (drawerMode) {
       setMobileSide((v) => !v);
       return;
     }
     setFocusMode(false);
     setSideOpen((v) => (focusMode ? true : !v));
-  }, [focusMode, narrow, setSideOpen]);
+  }, [drawerMode, focusMode, setSideOpen]);
 
   const toggleSplit = useCallback(() => {
     setFocusMode(false);
@@ -505,9 +546,13 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
   const openPdfPicker = useCallback(() => {
     setFocusMode(false);
+    if (device === 'phone') {
+      setPdfSheetOpen(true);
+      return;
+    }
     setSplitOpen(true);
     window.setTimeout(() => pdfSelectRef.current?.focus(), 50);
-  }, [setSplitOpen]);
+  }, [device, setSplitOpen]);
 
   const focusChapterSearch = useCallback(() => {
     setFocusMode(false);
@@ -694,7 +739,259 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const dateLabel = `${WEEKDAY_LONG[today.getDay()]}${today.getDay() === 0 || today.getDay() === 6 ? '' : '-feira'}, ${today.getDate()} de ${MONTHS_LONG[today.getMonth()]}`;
 
   // ==========================================
-  // LAYOUT
+  // DIVISOR TÁTIL (iPad): arrastar para dividir notas e PDF
+  // ==========================================
+  const onTouchDividerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging || !bodyRef.current) return;
+    const rect = bodyRef.current.getBoundingClientRect();
+    if (device === 'tablet-v') {
+      setSplitV(Math.round(Math.max(25, Math.min(80, ((e.clientY - rect.top) / rect.height) * 100))));
+    } else {
+      setSplitH(Math.round(Math.max(30, Math.min(75, ((e.clientX - rect.left) / rect.width) * 100))));
+    }
+  };
+
+  // ==========================================
+  // PEÇAS PARTILHADAS PELOS ARRANJOS
+  // ==========================================
+  const notesLayout: NotesLayout = device === 'phone' ? 'phone' : tablet ? 'tablet' : 'desktop';
+  const pageWidth: number | string = device === 'phone' ? '100%' : tablet ? (showSplit ? '100%' : 820) : showSplit ? 600 : 820;
+  const chapterLabel = active ? `${active.number} · ${active.title || 'Sem título'}` : tabLabel;
+  const editable = !!active && mode === 'EDIT';
+
+  const sidebar = showSide ? (
+    <>
+      {touch && <button type="button" className={c.scrim} aria-label="Fechar capítulos" onClick={() => setMobileSide(false)} />}
+      <ChapterSidebar
+        overlay={touch}
+        subjectId={subjectId}
+        tabLabel={tabLabel}
+        chapters={visibleChapters}
+        totalInTab={inTab.length}
+        selectedId={active?.id ?? ''}
+        onSelect={selectChapter}
+        liveWords={stats.words}
+        query={query}
+        onQuery={setQuery}
+        searchRef={chapterSearchRef}
+        creating={creating}
+        onStartCreate={startCreate}
+        onCancelCreate={() => setCreating(false)}
+        onCreate={createChapter}
+        onDelete={deleteChapter}
+        outline={outline}
+        currentHeading={stats.heading}
+        onJump={(i) => notesRef.current?.scrollToHeading(i)}
+        pdfName={active?.pdfName}
+        onOpenPdf={() => openRef(pdfPage)}
+        nextAssessment={nextAssessment}
+      />
+    </>
+  ) : null;
+
+  const main =
+    loading && chapters.length === 0 ? (
+      <div className={c.empty}>A carregar caderno…</div>
+    ) : loadError ? (
+      <div className={c.empty}>
+        <span style={{ color: 'var(--ink)' }}>Não foi possível abrir o caderno.</span>
+        <span>{loadError}</span>
+        <button type="button" className={c.btn} onClick={load}>
+          Tentar outra vez
+        </button>
+      </div>
+    ) : active ? (
+      <NotesPane
+        ref={notesRef}
+        chapter={active}
+        mode={mode}
+        onModeChange={setMode}
+        paperStyle={paper}
+        zoom={zoom}
+        pageWidth={pageWidth}
+        layout={notesLayout}
+        onFormatState={setFormat}
+        pdfName={active.pdfName}
+        pdfPage={pdfPage}
+        onUpdateContent={(html) => queueSave(active.id, { content: html }, { content: html })}
+        onUpdateTitle={(title) => queueSave(active.id, { title }, { title })}
+        onUpdateDrawing={(json) => queueSave(active.id, { drawing_data: json }, { drawingData: json })}
+        onOpenRef={openRef}
+        onCaretRef={caretRef}
+        onStats={setStats}
+        onOutline={setOutline}
+      />
+    ) : (
+      <div className={c.empty} style={touch ? { padding: '0 18px' } : undefined}>
+        <span style={{ color: 'var(--ink)', fontSize: 15 }}>Ainda não há capítulos em {tabLabel}.</span>
+        <span>Cada capítulo é uma folha: escreves, desenhas com a caneta e ligas as páginas dos slides.</span>
+        <button type="button" className={touch ? c.tFill : c.fill} onClick={startCreate}>
+          + Novo capítulo
+        </button>
+      </div>
+    );
+
+  const pdfPane = (
+    <PdfPane
+      pdfUrl={active?.pdfUrl}
+      pdfName={active?.pdfName}
+      libraryPdfs={libraryPdfs}
+      page={pdfPage}
+      onPageChange={(p) => setPdfPage(Math.max(1, p))}
+      linkedPages={linkedPages}
+      follow={follow}
+      onToggleFollow={() => setFollow((v) => !v)}
+      onClose={toggleSplit}
+      onPick={(doc) => setPdf(doc.url, doc.title)}
+      onUpload={uploadPdf}
+      onRemove={removePdf}
+      uploading={uploading}
+      selectRef={pdfSelectRef}
+      hasChapter={!!active}
+    />
+  );
+
+  const statusBar = (
+    <StatusBar
+      line={stats.line}
+      col={stats.col}
+      words={active ? stats.words : 0}
+      paper={paper}
+      modeLabel={mode === 'EDIT' ? 'A escrever' : 'A rever'}
+      next={nextAssessment}
+      deviceLabel={deviceLabel}
+      sync={sync}
+      zoom={zoom}
+      onZoom={changeZoom}
+    />
+  );
+
+  const subjectsForBar = subjectChips.length ? subjectChips : [{ id: subjectId, code: subject?.code || '…', name: subject?.name || '', dot: '#7fb0cb' }];
+
+  // ==========================================
+  // ARRANJOS TÁTEIS: iPhone, iPad vertical, iPad horizontal
+  // ==========================================
+  if (touch) {
+    const touchBody = !showSplit
+      ? { gridTemplateColumns: 'minmax(0, 1fr)' }
+      : device === 'tablet-v'
+        ? { gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: `minmax(0, ${splitV}fr) 14px minmax(0, ${100 - splitV}fr)` }
+        : { gridTemplateColumns: `minmax(0, ${splitH}fr) 12px minmax(0, ${100 - splitH}fr)` };
+
+    return (
+      <div className={`${d.root} ${c.shell}`}>
+        {tablet ? (
+          <TabletBars
+            subjectId={subjectId}
+            subjects={subjectsForBar}
+            hrefFor={hrefFor}
+            tab={tab}
+            onTab={changeTab}
+            showExport={device === 'tablet-h'}
+            onExport={exportPdf}
+            onOptions={() => setOptionsOpen(true)}
+            onChapters={toggleSide}
+            chapterLabel={chapterLabel}
+            format={format}
+            editable={editable}
+            onBlock={(tag) => notesRef.current?.block(tag)}
+            onBold={() => notesRef.current?.exec('bold')}
+            onItalic={() => notesRef.current?.exec('italic')}
+            onRef={() => notesRef.current?.insertRef()}
+            split={showSplit}
+            onToggleSplit={toggleSplit}
+          />
+        ) : (
+          <PhoneBar
+            subjectId={subjectId}
+            subjectCode={subject?.code || '…'}
+            chapterLabel={chapterLabel}
+            subLabel={`${tabLabel} · ${syncText(sync)}`}
+            onChapters={toggleSide}
+            onPdf={() => setPdfSheetOpen(true)}
+            onOptions={() => setOptionsOpen(true)}
+          />
+        )}
+
+        <div ref={bodyRef} className={c.body} style={touchBody}>
+          {sidebar}
+          {main}
+          {showSplit && (
+            <>
+              <div
+                role="separator"
+                aria-orientation={device === 'tablet-v' ? 'horizontal' : 'vertical'}
+                title="Arrasta para redimensionar"
+                className={`${c.dividerH} ${device === 'tablet-v' ? '' : c.dividerTouch} no-print`}
+                style={
+                  device === 'tablet-v'
+                    ? undefined
+                    : { cursor: 'col-resize', borderTop: 0, borderBottom: 0, borderLeft: '1px solid var(--line0)', borderRight: '1px solid var(--line0)' }
+                }
+                onPointerDown={onDividerDown}
+                onPointerMove={onTouchDividerMove}
+                onPointerUp={onDividerUp}
+                onPointerCancel={onDividerUp}
+              >
+                <span />
+              </div>
+              {pdfPane}
+            </>
+          )}
+        </div>
+
+        {device === 'tablet-h' && statusBar}
+        {device === 'phone' && (
+          <PhoneFormatBar
+            format={format}
+            editable={editable}
+            onBlock={(tag) => notesRef.current?.block(tag)}
+            onExec={(cmd, value) => notesRef.current?.exec(cmd, value)}
+            onChecklist={() => notesRef.current?.insertChecklist()}
+            onLink={() => notesRef.current?.insertLink()}
+            onRef={() => notesRef.current?.insertRef()}
+          />
+        )}
+
+        {pdfSheetOpen && device === 'phone' && (
+          <PdfSheet
+            pdfUrl={active?.pdfUrl}
+            pdfName={active?.pdfName}
+            page={pdfPage}
+            onPageChange={(p) => setPdfPage(Math.max(1, p))}
+            linkedPages={linkedPages}
+            libraryPdfs={libraryPdfs}
+            onPick={(doc) => setPdf(doc.url, doc.title)}
+            onUpload={uploadPdf}
+            uploading={uploading}
+            hasChapter={!!active}
+            onInsertRef={() => {
+              setPdfSheetOpen(false);
+              notesRef.current?.insertRef();
+            }}
+            onClose={() => setPdfSheetOpen(false)}
+          />
+        )}
+
+        {optionsOpen && (
+          <OptionsSheet
+            menus={menus}
+            paper={paper}
+            onPaper={setPaper}
+            modeEdit={mode === 'EDIT'}
+            onToggleMode={() => setMode((m) => (m === 'EDIT' ? 'PREVIEW' : 'EDIT'))}
+            tabs={device === 'phone' ? { tab, onTab: changeTab } : undefined}
+            onClose={() => setOptionsOpen(false)}
+          />
+        )}
+
+        <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
+      </div>
+    );
+  }
+
+  // ==========================================
+  // ARRANJO DE COMPUTADOR
   // ==========================================
   const columns: string[] = [];
   if (showSide && !narrow) columns.push(`${SIDE_W}px`);
@@ -722,7 +1019,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
       <ContextBar
         subjectId={subjectId}
-        subjects={subjectChips.length ? subjectChips : [{ id: subjectId, code: subject?.code || '…', name: subject?.name || '', dot: '#7fb0cb' }]}
+        subjects={subjectsForBar}
         tab={tab}
         onTab={changeTab}
         hrefFor={hrefFor}
@@ -746,71 +1043,8 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
       />
 
       <div ref={bodyRef} className={c.body} style={bodyStyle}>
-        {showSide && (
-          <ChapterSidebar
-            subjectId={subjectId}
-            tabLabel={tabLabel}
-            chapters={visibleChapters}
-            totalInTab={inTab.length}
-            selectedId={active?.id ?? ''}
-            onSelect={selectChapter}
-            liveWords={stats.words}
-            query={query}
-            onQuery={setQuery}
-            searchRef={chapterSearchRef}
-            creating={creating}
-            onStartCreate={startCreate}
-            onCancelCreate={() => setCreating(false)}
-            onCreate={createChapter}
-            onDelete={deleteChapter}
-            outline={outline}
-            currentHeading={stats.heading}
-            onJump={(i) => notesRef.current?.scrollToHeading(i)}
-            pdfName={active?.pdfName}
-            onOpenPdf={() => openRef(pdfPage)}
-            nextAssessment={nextAssessment}
-          />
-        )}
-
-        {loading && chapters.length === 0 ? (
-          <div className={c.empty}>A carregar caderno…</div>
-        ) : loadError ? (
-          <div className={c.empty}>
-            <span style={{ color: 'var(--ink)' }}>Não foi possível abrir o caderno.</span>
-            <span>{loadError}</span>
-            <button type="button" className={c.btn} onClick={load}>
-              Tentar outra vez
-            </button>
-          </div>
-        ) : active ? (
-          <NotesPane
-            ref={notesRef}
-            chapter={active}
-            mode={mode}
-            onModeChange={setMode}
-            paperStyle={paper}
-            zoom={zoom}
-            pageWidth={showSplit ? 600 : 820}
-            pdfName={active.pdfName}
-            pdfPage={pdfPage}
-            onUpdateContent={(html) => queueSave(active.id, { content: html }, { content: html })}
-            onUpdateTitle={(title) => queueSave(active.id, { title }, { title })}
-            onUpdateDrawing={(json) => queueSave(active.id, { drawing_data: json }, { drawingData: json })}
-            onOpenRef={openRef}
-            onCaretRef={caretRef}
-            onStats={setStats}
-            onOutline={setOutline}
-          />
-        ) : (
-          <div className={c.empty}>
-            <span style={{ color: 'var(--ink)', fontSize: 15 }}>Ainda não há capítulos em {tabLabel}.</span>
-            <span>Cada capítulo é uma folha: escreves, desenhas com a caneta e ligas as páginas dos slides.</span>
-            <button type="button" className={c.fill} onClick={startCreate}>
-              + Novo capítulo
-            </button>
-          </div>
-        )}
-
+        {sidebar}
+        {main}
         {showSplit && (
           <>
             {!narrow && (
@@ -827,39 +1061,12 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
                 <span />
               </div>
             )}
-            <PdfPane
-              pdfUrl={active?.pdfUrl}
-              pdfName={active?.pdfName}
-              libraryPdfs={libraryPdfs}
-              page={pdfPage}
-              onPageChange={(p) => setPdfPage(Math.max(1, p))}
-              linkedPages={linkedPages}
-              follow={follow}
-              onToggleFollow={() => setFollow((v) => !v)}
-              onClose={toggleSplit}
-              onPick={(doc) => setPdf(doc.url, doc.title)}
-              onUpload={uploadPdf}
-              onRemove={removePdf}
-              uploading={uploading}
-              selectRef={pdfSelectRef}
-              hasChapter={!!active}
-            />
+            {pdfPane}
           </>
         )}
       </div>
 
-      <StatusBar
-        line={stats.line}
-        col={stats.col}
-        words={active ? stats.words : 0}
-        paper={paper}
-        modeLabel={mode === 'EDIT' ? 'A escrever' : 'A rever'}
-        next={nextAssessment}
-        deviceLabel={deviceLabel}
-        sync={sync}
-        zoom={zoom}
-        onZoom={changeZoom}
-      />
+      {statusBar}
 
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
     </div>

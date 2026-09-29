@@ -31,6 +31,16 @@ import {
 
 export type BlockTag = 'h2' | 'h3' | 'p';
 
+// desktop: barra de ferramentas completa; tablet: barra flutuante do Apple Pencil;
+// phone: folha a toda a largura (a formatação vem da barra do fundo).
+export type NotesLayout = 'desktop' | 'tablet' | 'phone';
+
+export interface FormatState {
+  block: BlockTag;
+  bold: boolean;
+  italic: boolean;
+}
+
 export interface NotesPaneRef {
   exec: (command: string, value?: string) => void;
   block: (tag: BlockTag) => void;
@@ -53,7 +63,9 @@ interface NotesPaneProps {
   onModeChange: (mode: NoteMode) => void;
   paperStyle: PaperStyle;
   zoom: number;
-  pageWidth: number;
+  pageWidth: number | string;
+  layout?: NotesLayout;
+  onFormatState?: (state: FormatState) => void;
   pdfName?: string;
   pdfPage: number;
   onUpdateContent: (html: string) => void;
@@ -71,7 +83,7 @@ const PAPER_CLASS: Record<PaperStyle, string> = {
   LISO: '',
 };
 
-const TOOL_KEYS: Record<string, Tool> = { t: 'TEXT', p: 'PEN', m: 'HIGHLIGHTER', e: 'ERASER' };
+const TOOL_KEYS: Record<string, Tool> = { t: 'TEXT', p: 'PEN', m: 'HIGHLIGHTER', e: 'ERASER', l: 'LASSO' };
 
 function escapeHtml(s: string) {
   return s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch] as string);
@@ -97,6 +109,8 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     onCaretRef,
     onStats,
     onOutline,
+    layout = 'desktop',
+    onFormatState,
   },
   ref
 ) {
@@ -111,6 +125,7 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
   const [penWidth, setPenWidth] = useState(1);
   const [markerWidth, setMarkerWidth] = useState(1);
   const [eraserType, setEraserType] = useState<EraserType>('OBJECT');
+  const [selectedCount, setSelectedCount] = useState(0);
 
   const [blockTag, setBlockTag] = useState<BlockTag>('p');
   const [bold, setBold] = useState(false);
@@ -121,6 +136,11 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
   const [refPop, setRefPop] = useState<{ page: number; top: number; left: number } | null>(null);
 
   const editor = useCallback(() => inkRef.current?.getEditor() ?? null, []);
+
+  // As barras táteis ficam fora deste componente: avisa-as do estado do texto.
+  useEffect(() => {
+    onFormatState?.({ block: blockTag, bold, italic });
+  }, [blockTag, bold, italic, onFormatState]);
 
   // ==========================================
   // ÍNDICE, PALAVRAS, LINHA/COLUNA
@@ -422,8 +442,26 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
   );
 
   return (
-    <section aria-label="Notas" className={c.pane}>
-      <div className={`${c.toolbar} no-print`}>
+    <section aria-label="Notas" className={c.pane} style={{ position: 'relative' }}>
+      {layout === 'tablet' && editable && (
+        <PencilBar
+          tool={tool}
+          onTool={setTool}
+          inks={inks}
+          inkIdx={inkIdx}
+          onInk={(i) => (tool === 'HIGHLIGHTER' ? setMarkerInk(i) : setPenInk(i))}
+          widths={widths}
+          widthIdx={widthIdx}
+          onWidth={(i) => (tool === 'HIGHLIGHTER' ? setMarkerWidth(i) : setPenWidth(i))}
+          eraserType={eraserType}
+          onEraserType={setEraserType}
+          selectedCount={selectedCount}
+          onDeleteSelection={() => inkRef.current?.deleteSelection()}
+          onRecolorSelection={(i) => inkRef.current?.recolorSelection(i)}
+          onDuplicateSelection={() => inkRef.current?.duplicateSelection()}
+        />
+      )}
+      <div className={`${c.toolbar} no-print`} style={layout === 'desktop' ? undefined : { display: 'none' }}>
         <div className={c.seg} style={{ height: 26 }}>
           {(
             [
@@ -464,6 +502,14 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
               <path d="M9.5 2.5l4 4-6.5 6.5H4l-2-2 7.5-8.5z" />
               <path d="M7 13h7" />
+            </svg>
+          )}
+          {toolBtn(
+            'LASSO',
+            'Laço',
+            'L',
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2 2">
+              <ellipse cx="8" cy="7" rx="6" ry="4.5" />
             </svg>
           )}
         </div>
@@ -574,13 +620,46 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
           </div>
         )}
 
+        {editable && tool === 'LASSO' && (
+          <div className={c.toolOpts}>
+            <span>{selectedCount ? `${selectedCount} ${selectedCount === 1 ? 'traço selecionado' : 'traços selecionados'} · arrasta para mover` : 'Desenha à volta dos traços para os selecionar'}</span>
+            {selectedCount > 0 && (
+              <>
+                <span>Cor</span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {PEN_INKS.map(([name, hex], i) => (
+                    <button
+                      key={hex}
+                      type="button"
+                      aria-label={`Mudar a cor da seleção para ${name}`}
+                      title={name}
+                      className={c.swatch}
+                      style={{ background: hex }}
+                      onClick={() => inkRef.current?.recolorSelection(i)}
+                    />
+                  ))}
+                </div>
+                <button type="button" className={c.btn} title="Duplicar (Ctrl+D)" onClick={() => inkRef.current?.duplicateSelection()}>
+                  Duplicar
+                </button>
+                <button type="button" className={c.btn} title="Apagar (Delete)" onClick={() => inkRef.current?.deleteSelection()}>
+                  Apagar seleção
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {!editable && <span style={{ fontSize: 12, color: 'var(--mut)' }}>Só leitura · clica numa referência para abrir o PDF</span>}
       </div>
 
-      <div className={c.sheetArea}>
+      <div
+        data-scroll
+        className={`${c.sheetArea} ${layout === 'phone' ? c.sheetAreaFlush : layout === 'tablet' ? c.sheetAreaTablet : ''}`}
+      >
         <article
           ref={paperRef}
-          className={`${c.paper} ${PAPER_CLASS[paperStyle]} printable-editor`}
+          className={`${c.paper} ${PAPER_CLASS[paperStyle]} ${layout === 'phone' ? c.paperPhone : ''} printable-editor`}
           style={{ width: pageWidth, zoom }}
           onMouseLeave={() => setRefPop(null)}
         >
@@ -634,6 +713,8 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
             color={strokeColor}
             size={strokeSize}
             eraserType={eraserType}
+            penOnly={layout !== 'desktop'}
+            onSelectionChange={setSelectedCount}
             placeholder="Continua a escrever, ou pega na caneta…"
             onUpdateContent={(html) => {
               onUpdateContent(html);
@@ -661,3 +742,165 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     </section>
   );
 });
+
+// ==========================================
+// BARRA FLUTUANTE DO APPLE PENCIL (iPad)
+// ==========================================
+const PENCIL_TOOLS: [Tool, string, ReactNode][] = [
+  [
+    'PEN',
+    'Caneta',
+    <svg key="p" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
+      <path d="M2.5 13.5l1-4 7.5-7.5 3 3-7.5 7.5-4 1z" />
+    </svg>,
+  ],
+  [
+    'HIGHLIGHTER',
+    'Marcador',
+    <svg key="m" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
+      <path d="M4 10.5l6.5-6.5 2.5 2.5-6.5 6.5H4v-2.5z" />
+      <path d="M2 15h12" />
+    </svg>,
+  ],
+  [
+    'ERASER',
+    'Borracha',
+    <svg key="e" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
+      <path d="M9.5 2.5l4 4-6.5 6.5H4l-2-2 7.5-8.5z" />
+      <path d="M7 13h7" />
+    </svg>,
+  ],
+  [
+    'LASSO',
+    'Laço',
+    <svg key="l" width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2 2">
+      <ellipse cx="8" cy="7" rx="6" ry="4.5" />
+    </svg>,
+  ],
+  ['TEXT', 'Texto', <span key="t" style={{ fontSize: 17, fontWeight: 600 }}>T</span>],
+];
+
+function PencilBar({
+  tool,
+  onTool,
+  inks,
+  inkIdx,
+  onInk,
+  widths,
+  widthIdx,
+  onWidth,
+  eraserType,
+  onEraserType,
+  selectedCount,
+  onDeleteSelection,
+  onRecolorSelection,
+  onDuplicateSelection,
+}: {
+  tool: Tool;
+  onTool: (t: Tool) => void;
+  inks: [string, string][];
+  inkIdx: number;
+  onInk: (i: number) => void;
+  widths: [string, number][];
+  widthIdx: number;
+  onWidth: (i: number) => void;
+  eraserType: EraserType;
+  onEraserType: (t: EraserType) => void;
+  selectedCount: number;
+  onDeleteSelection: () => void;
+  onRecolorSelection: (inkIndex: number) => void;
+  onDuplicateSelection: () => void;
+}) {
+  const stroke = tool === 'PEN' || tool === 'HIGHLIGHTER';
+  return (
+    <div role="toolbar" aria-label="Ferramentas do Apple Pencil" className={`${c.pencilBar} no-print`}>
+      {PENCIL_TOOLS.map(([id, label, icon]) => (
+        <button
+          key={id}
+          type="button"
+          aria-label={label}
+          title={label}
+          aria-pressed={tool === id}
+          className={c.pencilTool}
+          onMouseDown={keepSelection}
+          onClick={() => onTool(id)}
+        >
+          {icon}
+        </button>
+      ))}
+      {stroke && (
+        <>
+          <span className={c.pencilSep} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            {inks.map(([name, hex], i) => (
+              <button
+                key={hex}
+                type="button"
+                aria-label={name}
+                title={name}
+                aria-pressed={inkIdx === i}
+                className={`${c.pencilInk} ${inkIdx === i ? c.pencilInkOn : ''}`}
+                style={{ background: hex }}
+                onClick={() => onInk(i)}
+              />
+            ))}
+          </div>
+          <span className={c.pencilSep} />
+          <div className={c.pencilWidths}>
+            {widths.map(([label], i) => (
+              <button key={label} type="button" aria-pressed={widthIdx === i} onClick={() => onWidth(i)}>
+                {label.replace(' mm', '')}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {tool === 'ERASER' && (
+        <>
+          <span className={c.pencilSep} />
+          <div className={c.pencilWidths}>
+            <button type="button" aria-pressed={eraserType === 'OBJECT'} onClick={() => onEraserType('OBJECT')}>
+              Traço inteiro
+            </button>
+            <button type="button" aria-pressed={eraserType === 'AREA'} onClick={() => onEraserType('AREA')}>
+              Área
+            </button>
+          </div>
+        </>
+      )}
+      {tool === 'LASSO' && (
+        <>
+          <span className={c.pencilSep} />
+          {selectedCount > 0 ? (
+            <>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {PEN_INKS.map(([name, hex], i) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    aria-label={`Mudar a cor da seleção para ${name}`}
+                    title={name}
+                    className={c.pencilInk}
+                    style={{ background: hex }}
+                    onClick={() => onRecolorSelection(i)}
+                  />
+                ))}
+              </div>
+              <span className={c.pencilSep} />
+              <div className={c.pencilWidths}>
+                <button type="button" onClick={onDuplicateSelection}>
+                  Duplicar
+                </button>
+                <button type="button" onClick={onDeleteSelection}>
+                  Apagar {selectedCount}
+                </button>
+              </div>
+            </>
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--mut)' }}>Contorna os traços</span>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

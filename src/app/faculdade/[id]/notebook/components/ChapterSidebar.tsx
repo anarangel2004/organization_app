@@ -27,6 +27,8 @@ interface ChapterSidebarProps {
   pdfName?: string;
   onOpenPdf: () => void;
   nextAssessment: NextAssessment | null;
+  // iPad: abre como gaveta por cima da folha.
+  overlay?: boolean;
 }
 
 export function ChapterSidebar({
@@ -51,12 +53,13 @@ export function ChapterSidebar({
   pdfName,
   onOpenPdf,
   nextAssessment,
+  overlay = false,
 }: ChapterSidebarProps) {
   const [draft, setDraft] = useState('');
   const selected = chapters.find((ch) => ch.id === selectedId);
 
   return (
-    <aside className={c.side} aria-label="Capítulos">
+    <aside className={`${c.side} ${overlay ? c.sideOverlay : ''}`} aria-label="Capítulos">
       <div className={c.sideHead}>
         <span className={c.caps}>
           CAPÍTULOS <span style={{ color: 'var(--mut2)', fontWeight: 400 }}>· {totalInTab}</span>

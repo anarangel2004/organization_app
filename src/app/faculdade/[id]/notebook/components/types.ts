@@ -21,7 +21,7 @@ export type ChapterData = Chapter;
 
 export type SyncStatus = 'synced' | 'saving' | 'error';
 export type NoteMode = 'EDIT' | 'PREVIEW';
-export type Tool = 'TEXT' | 'PEN' | 'HIGHLIGHTER' | 'ERASER';
+export type Tool = 'TEXT' | 'PEN' | 'HIGHLIGHTER' | 'ERASER' | 'LASSO';
 export type EraserType = 'OBJECT' | 'AREA';
 
 export const TABS: [NotebookTab, string][] = [
