@@ -12,9 +12,10 @@ import type { AssessmentItem } from '@/types';
 import ProfileModal from '@/components/ui/ProfileModal';
 import { useLocalState, useNow } from '@/app/components/painel/useLocalState';
 import { parseDueDate } from '@/app/components/homeAgenda';
-import { HorarioSection } from './components/HorarioSection';
-import { AvaliacaoSection } from './components/avaliacao/AvaliacaoSection';
-import { BibliotecaSection } from './components/BibliotecaSection';
+import { GerirDrawer, MANAGE_TABS, type ManagePanel } from './components/gerir/GerirDrawer';
+import { HorarioEditor } from './components/gerir/HorarioEditor';
+import { AvaliacaoEditor } from './components/gerir/AvaliacaoEditor';
+import { BibliotecaEditor } from './components/gerir/BibliotecaEditor';
 import d from '@/app/components/denso/denso.module.css';
 import {
   AgoraCards,
@@ -108,14 +109,6 @@ async function readSubjectRows<T extends { id: string | number; subject_id?: str
   }
 }
 
-type ManagePanel = 'horario' | 'avaliacao' | 'biblioteca';
-
-const MANAGE_TABS: [ManagePanel, string][] = [
-  ['horario', 'Horário'],
-  ['avaliacao', 'Avaliação e pesos'],
-  ['biblioteca', 'Biblioteca'],
-];
-
 const SECTION_KEYS: Record<string, string> = {
   '1': 'agora',
   '2': 'tarefas',
@@ -151,7 +144,6 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
   const globalSearchRef = useRef<HTMLInputElement>(null);
   const librarySearchRef = useRef<HTMLInputElement>(null);
   const taskInputRef = useRef<HTMLInputElement>(null);
-  const manageRef = useRef<HTMLDivElement>(null);
 
   const subjectId = subject?.id ?? '';
   // Sem tabela no Supabase para tarefas por disciplina nem para "fixados".
@@ -319,14 +311,10 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
   const openManage = useCallback((panel: ManagePanel) => {
     setLibFull(false);
     setManage(panel);
-    window.setTimeout(() => manageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   }, []);
 
-  const closeManage = useCallback(() => {
-    setManage(null);
-    // Os editores gravam diretamente no Supabase: recarrega a vista densa.
-    fetchAll();
-  }, [fetchAll]);
+  // Os editores atualizam o estado da página diretamente: não é preciso recarregar.
+  const closeManage = useCallback(() => setManage(null), []);
 
   const focusNewTask = useCallback(() => {
     goTo('tarefas');
@@ -381,6 +369,7 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
   // Atalhos de teclado (ignorados enquanto se escreve, exceto Esc e Ctrl+K).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (manage) return;
       const el = e.target as HTMLElement | null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 
@@ -417,7 +406,7 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [goTo, focusNewTask]);
+  }, [goTo, focusNewTask, manage]);
 
   const handleLogout = useCallback(async () => {
     await supabase.auth.signOut();
@@ -448,21 +437,6 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
         .filter(Boolean)
         .join(' · ')
     : '';
-
-  // Formato esperado pelo editor de horário existente.
-  const editorSchedules = useMemo(
-    () =>
-      slots.map((sl) => ({
-        id: sl.key,
-        day: WEEKDAY_LONG[sl.dayNum].toUpperCase() + (sl.dayNum === 0 || sl.dayNum === 6 ? '' : '-FEIRA'),
-        dayOfWeek: WEEKDAY_LONG[sl.dayNum].toUpperCase() + (sl.dayNum === 0 || sl.dayNum === 6 ? '' : '-FEIRA'),
-        startTime: sl.start,
-        endTime: sl.end || '00:00',
-        room: sl.room || 'A definir',
-        type: sl.typeLabel,
-      })),
-    [slots]
-  );
 
   // ==========================================
   // PEÇAS (a ordem muda entre computador, iPad e iPhone)
@@ -526,38 +500,52 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
     />
   );
 
-  // GERIR: os editores completos já existentes (horário, avaliação, biblioteca)
+  // GERIR: atalhos para o painel lateral (horário, avaliação, biblioteca)
   const manageEl = (
-    <div ref={manageRef} className={layout === 'tabletH' ? undefined : d.inner} style={{ paddingBottom: 48, scrollMarginTop: 16 }}>
+    <div className={layout === 'tabletH' ? undefined : d.inner} style={{ paddingBottom: 48 }}>
       <div className={d.sectionHead} style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <h2 className={d.h2}>GERIR</h2>
           {MANAGE_TABS.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => (manage === id ? closeManage() : openManage(id))}
-              aria-pressed={manage === id}
-              className={`${manage === id ? d.btnFill : d.btnLine} ${d.sm}`}
-            >
+            <button key={id} type="button" onClick={() => openManage(id)} className={`${d.btnLine} ${d.sm}`}>
               {label}
             </button>
           ))}
         </div>
-        {manage && (
-          <button type="button" className={`${d.btnGhost} ${d.sm}`} onClick={closeManage}>
-            Fechar e atualizar
-          </button>
-        )}
       </div>
-      {manage && (
-        <div className={d.manage} style={{ padding: 'clamp(12px, 2vw, 24px)' }}>
-          {manage === 'horario' && <HorarioSection subjectId={subjectId} schedules={editorSchedules} onRefresh={fetchAll} />}
-          {manage === 'avaliacao' && <AvaliacaoSection subjectId={subjectId} onRefresh={fetchAll} />}
-          {manage === 'biblioteca' && <BibliotecaSection subjectId={subjectId} />}
-        </div>
-      )}
     </div>
+  );
+
+  const drawerEl = subject && (
+    <GerirDrawer panel={manage} code={subject.code || subject.name || 'Disciplina'} onPick={setManage} onClose={closeManage}>
+      {manage === 'horario' && (
+        <HorarioEditor
+          subjectId={subjectId}
+          schedules={subject.schedules}
+          onSaved={(schedules) => setSubject((prev) => (prev ? { ...prev, schedules } : prev))}
+        />
+      )}
+      {manage === 'avaliacao' && (
+        <AvaliacaoEditor
+          subjectId={subjectId}
+          items={assessments}
+          theory={theory}
+          practice={practice}
+          onItemsChange={setAssessments}
+          onWeightsSaved={(t, p) => setSubject((prev) => (prev ? { ...prev, theoretical_weight: t, practical_weight: p } : prev))}
+        />
+      )}
+      {manage === 'biblioteca' && (
+        <BibliotecaEditor
+          subjectId={subjectId}
+          files={files}
+          onFilesChange={setFiles}
+          onUpload={handleUpload}
+          uploading={uploading}
+          uploadError={uploadError}
+        />
+      )}
+    </GerirDrawer>
   );
 
   const avatarEl = (
@@ -655,6 +643,7 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
           </>
         )}
 
+        {drawerEl}
         {layout === 'phone' && <PhoneTabBar active="faculdade" searchIndex={searchIndex} />}
         <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
       </div>
@@ -721,6 +710,7 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
         </>
       )}
 
+      {drawerEl}
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
     </div>
   );

@@ -16,7 +16,7 @@ import { useNow } from '@/app/components/painel/useLocalState';
 import { collectClasses, computeSubjectHours, parseDueDate, parseMinutes } from '@/app/components/homeAgenda';
 import { MONTHS_PT, WEEKDAY_LONG_PT, addDays, classTypeLabel, daysBetween, fmtNum, isoKey, isoWeek, mondayOf, shortDate, startOfDay } from '@/app/components/painel/painelData';
 import { currentAverage, teacherName, type Teacher } from './[id]/components/disciplinaData';
-import { AddSubjectForm } from './components/AddSubjectForm';
+import { NewSubjectPanel } from './components/NewSubjectPanel';
 import {
   ClassSlot,
   DeadlineRow,
@@ -108,6 +108,12 @@ async function readTable<T extends { id: string }>(
   }
 }
 
+// As avaliações ficam gravadas em maiúsculas ("TESTE 1"): mostrar como "Teste 1".
+function niceTitle(title: string): string {
+  const t = title.trim();
+  return t === t.toUpperCase() ? t.charAt(0) + t.slice(1).toLowerCase() : t;
+}
+
 function typeShort(type: string): string {
   const t = type.toUpperCase();
   if (t.startsWith('TEÓRICO-P') || t.startsWith('TEORICO-P') || t === 'TP') return 'TP';
@@ -129,6 +135,7 @@ export default function FaculdadePage() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [active, setActive] = useState('agora');
   const [helpOpen, setHelpOpen] = useState(false);
+  const [newSubjectOpen, setNewSubjectOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const layout = useDensoLayout();
@@ -195,7 +202,8 @@ export default function FaculdadePage() {
     () =>
       classes.map((c) => ({
         subjectId: c.subjectId,
-        subjectName: nameOf(c.subjectId),
+        // Nesta página as disciplinas aparecem pelo código (ex.: PRIVSIS).
+        subjectName: codeOf(c.subjectId),
         code: codeOf(c.subjectId),
         typeLabel: classTypeLabel(c.type),
         typeShort: c.type ? typeShort(c.type) : '',
@@ -204,7 +212,7 @@ export default function FaculdadePage() {
         end: c.endTime,
         room: c.room,
       })),
-    [classes, nameOf, codeOf]
+    [classes, codeOf]
   );
   const todaySlots = useMemo(
     () => slots.filter((s) => s.dayNum === today.getDay()).sort((a, b) => parseMinutes(a.start) - parseMinutes(b.start)),
@@ -260,11 +268,11 @@ export default function FaculdadePage() {
         start: sl.start,
         end: sl.end,
         label: [sl.code, sl.typeShort || null, sl.room || null].filter(Boolean).join(' · '),
-        title: `${sl.subjectName} · ${sl.typeLabel} · ${sl.start}${sl.end ? `–${sl.end}` : ''}${sl.room ? ` · Sala ${sl.room}` : ''}`,
+        title: `${nameOf(sl.subjectId)} · ${sl.typeLabel} · ${sl.start}${sl.end ? `–${sl.end}` : ''}${sl.room ? ` · Sala ${sl.room}` : ''}`,
         tone: toneOf.get(sl.subjectId) ?? OVERFLOW_TONE,
         href: `/faculdade/${sl.subjectId}`,
       })),
-    [slots, toneOf]
+    [slots, toneOf, nameOf]
   );
   const markers = useMemo<WeekMarker[]>(() => {
     const out: WeekMarker[] = [];
@@ -291,8 +299,9 @@ export default function FaculdadePage() {
         id: `a-${a.id}`,
         kind: 'F',
         days: daysBetween(today, due),
-        title: a.title || 'Avaliação',
-        source: nameOf(a.subject_id),
+        // "Teste 1 - Disciplina"; a disciplina já vai no título.
+        title: `${niceTitle(a.title || 'Avaliação')} - ${codeOf(a.subject_id)}`,
+        source: '',
         date: shortDate(due),
         dot: tone.bg === 'transparent' ? tone.bd : tone.bg,
         href: `/faculdade/${a.subject_id}#avaliacao`,
@@ -317,7 +326,7 @@ export default function FaculdadePage() {
         });
       });
     return rows.sort((a, b) => a.days - b.days);
-  }, [assessments, workTasks, today, toneOf, nameOf, projectById]);
+  }, [assessments, workTasks, today, toneOf, codeOf, projectById]);
 
   // "TP3 SD 20 nov" → avaliação "TP3" da disciplina SD a 20 de novembro.
   const createDeadline = useCallback(
@@ -422,8 +431,9 @@ export default function FaculdadePage() {
       return {
         id: x.id,
         code: codeOf(x.id),
-        name: x.name || x.code || 'Disciplina',
-        ref: [x.code, x.ects ? `${x.ects} ECTS` : null].filter(Boolean).join(' · '),
+        name: codeOf(x.id),
+        // O nome completo fica na linha de baixo.
+        ref: [x.name || null, x.ects ? `${x.ects} ECTS` : null].filter(Boolean).join(' · '),
         teacher,
         teacherRole: roles.join(' · ') || '',
         next,
@@ -464,7 +474,19 @@ export default function FaculdadePage() {
     goTo('prazos');
     window.setTimeout(() => deadlineInputRef.current?.focus(), 250);
   }, [goTo]);
-  const goNewSubject = useCallback(() => scrollToId('nova-disciplina'), []);
+  const goNewSubject = useCallback(() => setNewSubjectOpen(true), []);
+
+  // Links "Novo dossiê" de outras páginas chegam com #nova-disciplina: abrir o painel.
+  useEffect(() => {
+    const onHash = () => {
+      if (window.location.hash !== '#nova-disciplina') return;
+      setNewSubjectOpen(true);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    };
+    onHash();
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   const onShortcut = useCallback(
     (key: string) => {
@@ -544,8 +566,10 @@ export default function FaculdadePage() {
       <FacWeek weekNumber={isoWeek(today)} days={weekDays} todayIndex={todayIndex} blocks={blocks} markers={markers} legend={legend} px={layout === 'tabletH' ? 22 : 24} />
     );
     const newSubject = (
-      <section id="nova-disciplina" className={layout === 'tabletH' ? undefined : d.inner} style={{ paddingBottom: 48, scrollMarginTop: 64 }}>
-        <AddSubjectForm onSubjectAdded={fetchAll} />
+      <section className={layout === 'tabletH' ? undefined : d.inner} style={{ paddingBottom: 48 }}>
+        <button type="button" className={d.btnLine} style={{ width: '100%', borderStyle: 'dashed' }} onClick={goNewSubject}>
+          + Nova disciplina
+        </button>
       </section>
     );
 
@@ -608,6 +632,12 @@ export default function FaculdadePage() {
 
         {layout !== 'tabletH' && newSubject}
         {phone && <PhoneTabBar active="faculdade" searchIndex={searchIndex} />}
+        <NewSubjectPanel
+          open={newSubjectOpen}
+          onClose={() => setNewSubjectOpen(false)}
+          onCreated={fetchAll}
+          existingCodes={subjects.map((x) => x.code || '').filter(Boolean)}
+        />
         <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
       </div>
     );
@@ -661,9 +691,12 @@ export default function FaculdadePage() {
         </div>
       )}
 
-      <section id="nova-disciplina" className={d.inner} style={{ paddingBottom: 48, scrollMarginTop: 16 }}>
-        <AddSubjectForm onSubjectAdded={fetchAll} />
-      </section>
+      <NewSubjectPanel
+        open={newSubjectOpen}
+        onClose={() => setNewSubjectOpen(false)}
+        onCreated={fetchAll}
+        existingCodes={subjects.map((x) => x.code || '').filter(Boolean)}
+      />
 
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
     </div>

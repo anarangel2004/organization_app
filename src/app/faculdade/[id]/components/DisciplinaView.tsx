@@ -761,8 +761,10 @@ export function Library({
         <div className={d.sectionHead} style={{ flexShrink: 0 }}>
           <h2 className={d.h2}>BIBLIOTECA</h2>
           <span style={{ display: 'flex', gap: 6 }}>
-            {fullscreen && (
+            {fullscreen ? (
               <button type="button" className={`${d.btnLine} ${d.sm}`} onClick={onToggleFullscreen}>Fechar ✕</button>
+            ) : (
+              <button type="button" className={`${d.btnLine} ${d.sm}`} onClick={onManage}>Gerir</button>
             )}
             <button type="button" className={`${d.btnFill} ${d.sm}`} onClick={() => fileInput.current?.click()} disabled={uploading}>
               {uploading ? 'A enviar…' : '+ Adicionar'}

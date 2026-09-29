@@ -4,6 +4,7 @@ import { useState, type ReactNode, type RefObject } from 'react';
 import Link from 'next/link';
 import d from './denso.module.css';
 import { HoverBind, HoverPop, PopData } from './DensoChrome';
+import { BottomSheet } from './DensoTouch';
 import { useNow } from '../painel/useLocalState';
 import { parseMinutes, parseDueDate } from '../homeAgenda';
 import { CAT_LABEL, MONTHS_PT, PainelCat, PainelEvent, WEEKDAY_SHORT_PT, addDays, daysBetween, fmtEuro, fmtNum, isoKey, shortDate } from '../painel/painelData';
@@ -81,23 +82,46 @@ export function DayTitle({
   subjectsCount,
   onAddTask,
   onAddEvent,
+  size = 'desktop',
+  trailing,
 }: {
   title: string;
   monthLine: string;
   subjectsCount: number;
   onAddTask: () => void;
   onAddEvent: () => void;
+  // tablet: título de 40px e "Cadeiras (N) →"; phone: título empilhado, sem ações.
+  size?: 'desktop' | 'tablet' | 'phone';
+  // iPhone: avatar ao lado do título.
+  trailing?: ReactNode;
 }) {
+  if (size === 'phone') {
+    return (
+      <section className={d.inner} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingTop: 10, paddingBottom: 12 }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontSize: 38, lineHeight: 1.05, fontWeight: 700, letterSpacing: '-0.04em' }}>{title}</h1>
+          <div className={d.serif} style={{ fontStyle: 'italic', fontSize: 19, color: 'var(--sky)' }}>{monthLine}</div>
+        </div>
+        {trailing}
+      </section>
+    );
+  }
+  const tablet = size === 'tablet';
   return (
-    <section className={d.inner} style={{ minHeight: 96, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px 24px', flexWrap: 'wrap', paddingTop: 12, paddingBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px 18px', flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0, fontSize: 52, lineHeight: 1, fontWeight: 700, letterSpacing: '-0.04em' }}>{title}</h1>
-        <span className={d.serif} style={{ fontStyle: 'italic', fontSize: 26, color: 'var(--sky)' }}>{monthLine}</span>
+    <section
+      className={d.inner}
+      style={{ minHeight: tablet ? 76 : 96, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px 24px', flexWrap: 'wrap', paddingTop: 12, paddingBottom: 12 }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: tablet ? '6px 14px' : '6px 18px', flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0, fontSize: tablet ? 40 : 52, lineHeight: 1, fontWeight: 700, letterSpacing: '-0.04em' }}>{title}</h1>
+        <span className={d.serif} style={{ fontStyle: 'italic', fontSize: tablet ? 21 : 26, color: 'var(--sky)' }}>{monthLine}</span>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button type="button" className={d.btnLine} onClick={onAddTask}>+ Tarefa</button>
         <button type="button" className={d.btnLine} onClick={onAddEvent}>+ Evento</button>
-        <Link href="/faculdade" className={d.btnFill}>Ver todas as cadeiras ({subjectsCount}) →</Link>
+        <Link href="/faculdade" className={d.btnFill}>
+          {tablet ? `Cadeiras (${subjectsCount}) →` : `Ver todas as cadeiras (${subjectsCount}) →`}
+        </Link>
       </div>
     </section>
   );
@@ -429,16 +453,14 @@ export function NotesB({ notes, onAdd, onClear }: { notes: string[]; onAdd: (t: 
 // ==========================================
 // CAPTURA + VOLUMES
 // ==========================================
-export function CaptureAndVolumes({
-  tiles,
+export function CaptureBox({
   onCapture,
   captureRef,
-  bind,
+  kbd = true,
 }: {
-  tiles: HeroTile[];
   onCapture: (t: string) => void;
   captureRef: RefObject<HTMLTextAreaElement | null>;
-  bind: Bind;
+  kbd?: boolean;
 }) {
   const [text, setText] = useState('');
   const [saved, setSaved] = useState(false);
@@ -448,41 +470,62 @@ export function CaptureAndVolumes({
     setText('');
     setSaved(true);
   };
-  const VOL_STYLE = [
-    { background: '#386a86', color: '#f3efe7' },
-    { background: '#d9d3c8', color: '#0d0d0d' },
-  ];
-
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 20, alignItems: 'stretch' }}>
-      <div id="captura" style={{ gridColumn: 'span 2', border: '1px solid var(--box)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 8, flexGrow: 1 }}>
-          <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span className={d.serif} style={{ fontSize: 20 }}>Captura rápida</span>
-            <kbd className={d.kbd}>C</kbd>
-          </span>
-          <textarea
-            ref={captureRef}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              setSaved(false);
-            }}
-            onKeyDown={(e) => {
-              if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.key.toLowerCase() === 's')) {
-                e.preventDefault();
-                save();
-              }
-            }}
-            placeholder="Citação ou referência…"
-            style={{ flexGrow: 1, minHeight: 60, resize: 'none', background: 'var(--bg)', border: '1px solid var(--line)', color: 'var(--ink)', fontSize: 13, padding: 8 }}
-          />
-        </label>
-        <button type="button" onClick={save} style={{ height: 32, background: 'var(--bone)', color: 'var(--bg)', border: 0, fontSize: 13, fontWeight: 500 }}>
-          {saved ? 'Guardado nas notas' : 'Gravar nas notas'}
-        </button>
-      </div>
+    <div id="captura" style={{ border: '1px solid var(--box)', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 8, flexGrow: 1 }}>
+        <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className={d.serif} style={{ fontSize: 20 }}>Captura rápida</span>
+          {kbd && <kbd className={d.kbd}>C</kbd>}
+        </span>
+        <textarea
+          ref={captureRef}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            setSaved(false);
+          }}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.key.toLowerCase() === 's')) {
+              e.preventDefault();
+              save();
+            }
+          }}
+          placeholder="Citação ou referência…"
+          style={{ flexGrow: 1, minHeight: 60, resize: 'none', background: 'var(--bg)', border: '1px solid var(--line)', color: 'var(--ink)', fontSize: 14, padding: 8 }}
+        />
+      </label>
+      <button type="button" onClick={save} className={d.btnFill} style={{ width: '100%' }}>
+        {saved ? 'Guardado nas notas' : 'Gravar nas notas'}
+      </button>
+    </div>
+  );
+}
+
+const VOL_STYLE = [
+  { background: '#386a86', color: '#f3efe7' },
+  { background: '#d9d3c8', color: '#0d0d0d' },
+];
+
+// Os dois volumes (cadernos editados mais recentemente). Devolve os cartões soltos:
+// quem usa decide a grelha (lado a lado, em coluna ou a deslizar no iPhone).
+// linkOnly (iPhone): o cartão abre logo o caderno, sem detalhe (a faixa a deslizar cortava-o).
+export function VolumeTiles({ tiles, bind, minHeight = 150, linkOnly = false }: { tiles: HeroTile[]; bind: Bind; minHeight?: number; linkOnly?: boolean }) {
+  return (
+    <>
       {tiles.map((t, i) => {
+        if (linkOnly) {
+          return (
+            <Link
+              key={t.subjectId}
+              href={t.href}
+              style={{ ...VOL_STYLE[i % 2], padding: 14, display: 'flex', flexDirection: 'column', minHeight, minWidth: 0 }}
+            >
+              <span style={{ fontSize: 12 }}>{t.vol}</span>
+              <span className={`${d.serif} ${d.ellipsis}`} style={{ marginTop: 'auto', fontSize: 28, lineHeight: 1, maxWidth: '100%' }}>{t.name}</span>
+              <span style={{ fontSize: 12, paddingTop: 6, whiteSpace: 'nowrap' }}>{t.sub}</span>
+            </Link>
+          );
+        }
         const b = bind(`v-${t.subjectId}`);
         const [section, ...rest] = t.sub.split(' · ');
         const pop: PopData = {
@@ -499,10 +542,10 @@ export function CaptureAndVolumes({
             <button
               type="button"
               {...b.handlers}
-              style={{ ...VOL_STYLE[i % 2], width: '100%', height: '100%', padding: 18, display: 'flex', flexDirection: 'column', minHeight: 150, border: 0, textAlign: 'left' }}
+              style={{ ...VOL_STYLE[i % 2], width: '100%', height: '100%', padding: minHeight < 150 ? 14 : 18, display: 'flex', flexDirection: 'column', minHeight, border: 0, textAlign: 'left' }}
             >
               <span style={{ fontSize: 12 }}>{t.vol}</span>
-              <span className={`${d.serif} ${d.ellipsis}`} style={{ marginTop: 'auto', fontSize: 30, lineHeight: 1, maxWidth: '100%' }}>{t.name}</span>
+              <span className={`${d.serif} ${d.ellipsis}`} style={{ marginTop: 'auto', fontSize: minHeight < 150 ? 28 : 30, lineHeight: 1, maxWidth: '100%' }}>{t.name}</span>
               <span style={{ fontSize: 12, paddingTop: 6, whiteSpace: 'nowrap' }}>{t.sub}</span>
             </button>
             {b.open && <HoverPop data={pop} hint={b.hint} style={{ width: 300, top: 'calc(100% + 8px)', left: 0 }} />}
@@ -510,11 +553,37 @@ export function CaptureAndVolumes({
         );
       })}
       {tiles.length < 2 && (
-        <Link href="/faculdade#nova-disciplina" style={{ border: '1px dashed var(--box)', padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 150 }}>
+        <Link href="/faculdade#nova-disciplina" style={{ border: '1px dashed var(--box)', padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight }}>
           <span className={d.muted} style={{ fontSize: 12 }}>Vol. {pad(tiles.length + 1)}</span>
           <span className={d.serif} style={{ fontSize: 22 }}>Nova disciplina</span>
         </Link>
       )}
+    </>
+  );
+}
+
+// Computador: captura (2 colunas) + os dois volumes na mesma linha.
+export function CaptureAndVolumes({
+  tiles,
+  onCapture,
+  captureRef,
+  bind,
+  columns = 'repeat(auto-fit, minmax(150px, 1fr))',
+}: {
+  tiles: HeroTile[];
+  onCapture: (t: string) => void;
+  captureRef: RefObject<HTMLTextAreaElement | null>;
+  bind: Bind;
+  columns?: string;
+}) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: columns, gap: 20, alignItems: 'stretch' }}>
+      <div style={{ gridColumn: columns.startsWith('repeat') ? 'span 2' : undefined, display: 'flex', minWidth: 0 }}>
+        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+          <CaptureBox onCapture={onCapture} captureRef={captureRef} />
+        </div>
+      </div>
+      <VolumeTiles tiles={tiles} bind={bind} />
     </div>
   );
 }
@@ -677,6 +746,71 @@ export function WeekB({ columns, today, weekNumber, bind }: { columns: WeekCol[]
   );
 }
 
+export function PhoneWeekB({ columns, today, weekNumber }: { columns: WeekCol[]; today: Date; weekNumber: number }) {
+  const todayKey = isoKey(today);
+  const [sel, setSel] = useState(() => (columns.some((c) => isoKey(c.date) === todayKey) ? todayKey : isoKey(columns[0]?.date ?? today)));
+  const picked = columns.find((c) => isoKey(c.date) === sel) ?? columns[0];
+  const total = columns.reduce((n, c) => n + c.events.length, 0);
+
+  return (
+    <section id="semana" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, scrollMarginTop: 16 }}>
+      <SectionHeadB title={`SEMANA ${weekNumber}`} aside={`${total} ${total === 1 ? 'bloco' : 'blocos'}`} />
+      <div style={{ display: 'flex', gap: 4, paddingTop: 10 }} role="tablist" aria-label="Dias da semana">
+        {columns.map((c) => {
+          const key = isoKey(c.date);
+          const on = key === sel;
+          const hasDue = c.events.some((e) => e.isDeadline);
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setSel(key)}
+              style={{
+                flex: 1,
+                height: 54,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 2,
+                background: on ? 'var(--bone)' : 'transparent',
+                color: on ? 'var(--bg)' : key === todayKey ? 'var(--sky)' : 'var(--ink)',
+                border: `1px solid ${on ? 'var(--bone)' : 'var(--line)'}`,
+              }}
+            >
+              <span style={{ fontSize: 11 }}>{WEEKDAY_SHORT_PT[c.date.getDay()]}</span>
+              <span className={d.serif} style={{ fontSize: 18 }}>{c.date.getDate()}</span>
+              <span className={d.round} style={{ width: 5, height: 5, background: hasDue ? 'var(--amber)' : c.events.length ? '#6b675f' : 'transparent' }} />
+            </button>
+          );
+        })}
+      </div>
+      {picked && picked.events.length === 0 && <p className={d.muted} style={{ margin: '12px 0 0', fontSize: 13 }}>Nada marcado neste dia.</p>}
+      {picked?.events.map((ev) => {
+        const st = CAT_STYLE[ev.cat];
+        const row = (
+          <>
+            <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{ev.time ? `${ev.time}${ev.until ? `–${ev.until}` : ''}` : 'dia inteiro'}</span>
+            <span style={{ width: 10, height: 10, background: st.bg, border: `1px solid ${st.bd}`, alignSelf: 'center' }} />
+            <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <span className={d.ellipsis} style={{ fontSize: 14 }}>{ev.title}</span>
+              <span style={{ fontSize: 12, color: 'var(--mut2)' }}>{CAT_LABEL[ev.cat]} · {ev.place}</span>
+            </span>
+          </>
+        );
+        const style = { display: 'grid', gridTemplateColumns: '92px 10px minmax(0, 1fr)', gap: 10, alignItems: 'baseline', minHeight: 48, padding: '8px 0', borderBottom: '1px solid var(--line2)' } as const;
+        return ev.href ? (
+          <Link key={ev.id} href={ev.href} style={style}>{row}</Link>
+        ) : (
+          <div key={ev.id} style={style}>{row}</div>
+        );
+      })}
+    </section>
+  );
+}
+
 // ==========================================
 // PRAZOS (com detalhes)
 // ==========================================
@@ -749,6 +883,83 @@ export function DeadlinesB({ items, today, bind }: { items: DeadlineB[]; today: 
   );
 }
 
+// Conteúdo do detalhe de um dia (fundo papel): prazo em destaque e eventos.
+function DayDetail({
+  date,
+  today,
+  events,
+  hint,
+  showHeader = true,
+  onRemoveEvent,
+  onAddHere,
+}: {
+  date: Date;
+  today: Date;
+  events: PainelEvent[];
+  hint?: string;
+  showHeader?: boolean;
+  onRemoveEvent: (localId: string) => void;
+  onAddHere: () => void;
+}) {
+  const due = events.find((e) => e.isDeadline);
+  const others = events.filter((e) => !e.isDeadline);
+  const rel = daysBetween(today, date);
+  const relLabel = rel === 0 ? 'Hoje' : rel === 1 ? 'Amanhã' : rel === -1 ? 'Ontem' : rel > 0 ? `Daqui a ${rel} dias` : `Há ${-rel} dias`;
+  return (
+    <>
+      {showHeader ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+          <span className={d.serif} style={{ fontSize: 28, lineHeight: 1.05 }}>
+            {['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][date.getDay()]}, {date.getDate()} de {MONTHS_PT[date.getMonth()]}
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', color: '#2f5f78' }}>{relLabel}</span>
+        </div>
+      ) : (
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#2f5f78' }}>{relLabel}</span>
+      )}
+      {due && (
+        <div style={{ background: 'var(--amber)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em' }}>{deadlineKind(due.title)}</span>
+            <span className={d.serif} style={{ fontSize: 18, lineHeight: 1.15 }}>{due.title}</span>
+          </div>
+          <span style={{ fontSize: 12 }}>{due.place}</span>
+        </div>
+      )}
+      {others.map((x) => {
+        const st = CAT_STYLE[x.cat];
+        const localId = x.id.startsWith('local-') ? x.id.slice(6) : null;
+        return (
+          <div key={x.id} style={{ display: 'grid', gridTemplateColumns: '96px 10px minmax(0, 1fr) auto', gap: 10, alignItems: 'baseline', borderTop: '1px solid rgba(13,13,13,0.12)', paddingTop: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>{x.time ? `${x.time}${x.until ? `–${x.until}` : ''}` : '—'}</span>
+            <span style={{ width: 10, height: 10, background: st.bg, border: `1px solid ${st.bd}`, alignSelf: 'center' }} />
+            <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <span style={{ fontSize: 14 }}>{x.title}</span>
+              <span style={{ fontSize: 12, color: 'var(--papermut)' }}>{CAT_LABEL[x.cat]} · {x.place}</span>
+            </span>
+            {localId && (
+              <button type="button" onClick={() => onRemoveEvent(localId)} aria-label={`Remover ${x.title}`} style={{ background: 'none', border: 0, color: 'var(--papermut)', minWidth: 32, minHeight: 32 }}>×</button>
+            )}
+          </div>
+        );
+      })}
+      {!due && others.length === 0 && (
+        <div style={{ borderTop: '1px solid rgba(13,13,13,0.12)', paddingTop: 8, color: 'var(--papermut)' }}>Sem registos neste dia.</div>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingTop: 6 }}>
+        {hint ? <span style={{ fontSize: 11, color: 'var(--papermut)' }}>{hint}</span> : <span />}
+        <button
+          type="button"
+          onClick={onAddHere}
+          style={{ height: 36, padding: '0 14px', background: 'var(--bg)', color: 'var(--ink)', border: 0, fontSize: 13, whiteSpace: 'nowrap' }}
+        >
+          + Evento neste dia
+        </button>
+      </div>
+    </>
+  );
+}
+
 // ==========================================
 // MÊS (com detalhes do dia)
 // ==========================================
@@ -765,6 +976,7 @@ export function MonthB({
   onRemoveEvent,
   titleRef,
   bind,
+  sheet = false,
 }: {
   today: Date;
   getEvents: (date: Date) => PainelEvent[];
@@ -772,8 +984,11 @@ export function MonthB({
   onRemoveEvent: (localId: string) => void;
   titleRef: RefObject<HTMLInputElement | null>;
   bind: Bind;
+  // iPhone: tocar num dia abre o detalhe num painel que sobe do fundo.
+  sheet?: boolean;
 }) {
   const [offset, setOffset] = useState(0);
+  const [sheetKey, setSheetKey] = useState<string | null>(null);
   const [selKey, setSelKey] = useState(() => isoKey(today));
   const [title, setTitle] = useState('');
   const [time, setTime] = useState('14:00');
@@ -817,42 +1032,47 @@ export function MonthB({
           const others = events.filter((e) => !e.isDeadline);
           const isToday = c.key === todayKey;
           const b = bind(`m-${c.key}`);
-          const rel = daysBetween(today, c.date);
-          const relLabel = rel === 0 ? 'Hoje' : rel === 1 ? 'Amanhã' : rel === -1 ? 'Ontem' : rel > 0 ? `Daqui a ${rel} dias` : `Há ${-rel} dias`;
-          const handlers = {
-            ...b.handlers,
-            onClick: () => {
-              setSelKey(c.key);
-              b.handlers.onClick?.();
-            },
-          };
+          const handlers = sheet
+            ? {
+                onClick: () => {
+                  setSelKey(c.key);
+                  setSheetKey(c.key);
+                },
+              }
+            : {
+                ...b.handlers,
+                onClick: () => {
+                  setSelKey(c.key);
+                  b.handlers.onClick?.();
+                },
+              };
           return (
             <div key={c.key} className={d.hoverable} data-hoverpin style={{ zIndex: b.open ? 50 : 'auto' }}>
               <button
                 type="button"
                 {...handlers}
                 aria-label={`${c.date.getDate()} de ${MONTHS_PT[c.date.getMonth()]}, ${events.length} eventos`}
-                style={{ width: '100%', height: 34, border: 0, borderTop: '1px solid #1f1f1f', background: b.open || selKey === c.key ? '#1a1a1a' : 'transparent', display: 'flex', alignItems: 'center', gap: 4, padding: '0 0 0 2px' }}
+                style={{ width: '100%', height: sheet ? 44 : 34, border: 0, borderTop: '1px solid #1f1f1f', background: (b.open && !sheet) || selKey === c.key ? '#1a1a1a' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: sheet ? 'center' : undefined, gap: 4, padding: sheet ? 0 : '0 0 0 2px' }}
               >
                 <span
                   className={`${d.serif} ${d.round}`}
                   style={{
-                    width: 26,
-                    height: 26,
+                    width: sheet ? 32 : 26,
+                    height: sheet ? 32 : 26,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     background: isToday ? 'var(--sky)' : due ? 'var(--amber)' : 'transparent',
                     color: isToday || due ? 'var(--bg)' : c.inMonth ? 'var(--ink)' : '#4a4741',
-                    border: `2px solid ${b.open ? 'var(--ink)' : 'transparent'}`,
-                    fontSize: 15,
+                    border: `2px solid ${(b.open && !sheet) || (sheet && sheetKey === c.key) ? 'var(--ink)' : 'transparent'}`,
+                    fontSize: sheet ? 16 : 15,
                   }}
                 >
                   {c.date.getDate()}
                 </span>
                 <span className={d.round} style={{ width: 5, height: 5, background: others.length ? '#6b675f' : 'transparent' }} />
               </button>
-              {b.open && (
+              {b.open && !sheet && (
                 <div
                   className={d.pop}
                   data-hoverpin
@@ -866,54 +1086,17 @@ export function MonthB({
                     ...(c.row >= 3 ? { bottom: 'calc(100% + 6px)' } : { top: 'calc(100% + 6px)' }),
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-                    <span className={d.serif} style={{ fontSize: 28, lineHeight: 1.05 }}>
-                      {['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][c.date.getDay()]}, {c.date.getDate()} de {MONTHS_PT[c.date.getMonth()]}
-                    </span>
-                    <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', color: '#2f5f78' }}>{relLabel}</span>
-                  </div>
-                  {due && (
-                    <div style={{ background: 'var(--amber)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em' }}>{deadlineKind(due.title)}</span>
-                        <span className={d.serif} style={{ fontSize: 18, lineHeight: 1.15 }}>{due.title}</span>
-                      </div>
-                      <span style={{ fontSize: 12 }}>{due.place}</span>
-                    </div>
-                  )}
-                  {others.map((x) => {
-                    const st = CAT_STYLE[x.cat];
-                    const localId = x.id.startsWith('local-') ? x.id.slice(6) : null;
-                    return (
-                      <div key={x.id} style={{ display: 'grid', gridTemplateColumns: '96px 10px minmax(0, 1fr) auto', gap: 10, alignItems: 'baseline', borderTop: '1px solid rgba(13,13,13,0.12)', paddingTop: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>{x.time ? `${x.time}${x.until ? `–${x.until}` : ''}` : '—'}</span>
-                        <span style={{ width: 10, height: 10, background: st.bg, border: `1px solid ${st.bd}`, alignSelf: 'center' }} />
-                        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                          <span style={{ fontSize: 14 }}>{x.title}</span>
-                          <span style={{ fontSize: 12, color: 'var(--papermut)' }}>{CAT_LABEL[x.cat]} · {x.place}</span>
-                        </span>
-                        {localId && (
-                          <button type="button" onClick={() => onRemoveEvent(localId)} aria-label={`Remover ${x.title}`} style={{ background: 'none', border: 0, color: 'var(--papermut)' }}>×</button>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {!due && others.length === 0 && (
-                    <div style={{ borderTop: '1px solid rgba(13,13,13,0.12)', paddingTop: 8, color: 'var(--papermut)' }}>Sem registos neste dia.</div>
-                  )}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingTop: 6 }}>
-                    <span style={{ fontSize: 11, color: 'var(--papermut)' }}>{b.hint}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelKey(c.key);
-                        titleRef.current?.focus();
-                      }}
-                      style={{ height: 30, padding: '0 12px', background: 'var(--bg)', color: 'var(--ink)', border: 0, fontSize: 12, whiteSpace: 'nowrap' }}
-                    >
-                      + Evento neste dia
-                    </button>
-                  </div>
+                  <DayDetail
+                    date={c.date}
+                    today={today}
+                    events={events}
+                    hint={b.hint}
+                    onRemoveEvent={onRemoveEvent}
+                    onAddHere={() => {
+                      setSelKey(c.key);
+                      titleRef.current?.focus();
+                    }}
+                  />
                 </div>
               )}
             </div>
@@ -956,7 +1139,30 @@ export function MonthB({
         </div>
         <button type="button" className={`${d.btnFill} ${d.sm}`} onClick={add}>+ Adicionar</button>
       </div>
-      <span style={{ fontSize: 11, color: 'var(--mut2)', paddingTop: 6 }}>Clica num dia para o escolher. Eventos guardados só neste browser.</span>
+      <span style={{ fontSize: 11, color: 'var(--mut2)', paddingTop: 6 }}>{sheet ? 'Toca num dia para ver o detalhe.' : 'Clica num dia para o escolher.'} Eventos guardados só neste browser.</span>
+      {sheet && sheetKey && (() => {
+        const [ky, km, kd] = sheetKey.split('-').map(Number);
+        const date = new Date(ky, km - 1, kd);
+        return (
+          <BottomSheet
+            title={`${['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][date.getDay()]}, ${date.getDate()} de ${MONTHS_PT[date.getMonth()]}`}
+            onClose={() => setSheetKey(null)}
+          >
+            <DayDetail
+              date={date}
+              today={today}
+              events={getEvents(date)}
+              showHeader={false}
+              onRemoveEvent={onRemoveEvent}
+              onAddHere={() => {
+                setSelKey(sheetKey);
+                setSheetKey(null);
+                window.setTimeout(() => titleRef.current?.focus(), 50);
+              }}
+            />
+          </BottomSheet>
+        );
+      })()}
     </section>
   );
 }

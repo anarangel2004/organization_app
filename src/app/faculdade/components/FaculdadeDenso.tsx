@@ -364,7 +364,7 @@ export interface SubjectRowView {
   tone: Tone;
 }
 
-const TABLE_COLS = 'minmax(0, 1.5fr) minmax(0, 1.3fr) minmax(0, 1.3fr) minmax(0, 1.5fr) 56px';
+const TABLE_COLS = 'minmax(0, 1.5fr) minmax(0, 1.3fr) minmax(0, 1.3fr) minmax(0, 1.5fr)';
 
 export function FacSubjects({ rows }: { rows: SubjectRowView[] }) {
   return (
@@ -376,18 +376,25 @@ export function FacSubjects({ rows }: { rows: SubjectRowView[] }) {
       {rows.length === 0 ? (
         <p className={d.muted} style={{ margin: '10px 0 0', fontSize: 13 }}>Ainda não há disciplinas. Usa “+ Disciplina”.</p>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <div style={{ minWidth: 640 }}>
+        // Sem scroll lateral: as colunas encolhem e o texto corta com reticências.
+        <div>
+          <div>
             <div style={{ display: 'grid', gridTemplateColumns: TABLE_COLS, gap: 14, fontSize: 10, letterSpacing: '0.08em', color: 'var(--mut2)', padding: '7px 0 4px' }}>
               <span>DISCIPLINA</span>
               <span>DOCENTE</span>
               <span>PRÓXIMA AULA</span>
               <span>PRÓXIMO PRAZO</span>
-              <span />
             </div>
             {rows.map((s) => (
-              <div key={s.id} style={{ display: 'grid', gridTemplateColumns: TABLE_COLS, gap: 14, alignItems: 'center', minHeight: 46, borderTop: '1px solid var(--line2)', fontSize: 13 }}>
-                <Link href={`/faculdade/${s.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              // A linha inteira é o botão para abrir a disciplina.
+              <Link
+                key={s.id}
+                href={`/faculdade/${s.id}`}
+                aria-label={`Abrir ${s.name}`}
+                className={d.rowLink}
+                style={{ display: 'grid', gridTemplateColumns: TABLE_COLS, gap: 14, alignItems: 'center', minHeight: 46, borderTop: '1px solid var(--line2)', fontSize: 13 }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                   <span
                     className={d.round}
                     style={{ width: 28, height: 28, flexShrink: 0, background: s.tone.bg, border: `1px solid ${s.tone.bd}`, color: s.tone.fg, fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -396,25 +403,22 @@ export function FacSubjects({ rows }: { rows: SubjectRowView[] }) {
                   </span>
                   <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                     <span className={`${d.serif} ${d.ellipsis}`} style={{ fontSize: 16 }}>{s.name}</span>
-                    <span style={{ fontSize: 11, color: 'var(--mut2)', whiteSpace: 'nowrap' }}>{s.ref}</span>
+                    <span className={d.ellipsis} style={{ fontSize: 11, color: 'var(--mut2)' }} title={s.ref}>{s.ref}</span>
                   </span>
-                </Link>
+                </span>
                 <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, whiteSpace: 'nowrap' }}>
                   <span className={d.ellipsis}>{s.teacher}</span>
-                  <span style={{ fontSize: 11, color: 'var(--mut2)' }}>{s.teacherRole}</span>
+                  <span className={d.ellipsis} style={{ fontSize: 11, color: 'var(--mut2)' }}>{s.teacherRole}</span>
                 </span>
                 <span style={{ display: 'flex', flexDirection: 'column', whiteSpace: 'nowrap', minWidth: 0 }}>
                   <span className={d.ellipsis} style={{ color: s.nextToday ? 'var(--sky)' : 'var(--ink)' }}>{s.next}</span>
-                  <span style={{ fontSize: 11, color: 'var(--mut2)' }}>{s.nextWhere}</span>
+                  <span className={d.ellipsis} style={{ fontSize: 11, color: 'var(--mut2)' }}>{s.nextWhere}</span>
                 </span>
                 <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, whiteSpace: 'nowrap' }}>
                   <span className={d.ellipsis}>{s.due}</span>
-                  <span style={{ fontSize: 11, color: 'var(--mut2)' }}>{s.dueWhen}</span>
+                  <span className={d.ellipsis} style={{ fontSize: 11, color: 'var(--mut2)' }}>{s.dueWhen}</span>
                 </span>
-                <Link href={`/faculdade/${s.id}`} style={{ fontSize: 12, color: 'var(--sky)', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  Abrir →
-                </Link>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -573,7 +577,7 @@ export function FacDeadlines({
                 )}
                 <span className={d.muted} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, whiteSpace: 'nowrap' }}>
                   <Dot color={p.dot} />
-                  {p.source} · {p.date}
+                  {p.source ? `${p.source} · ${p.date}` : p.date}
                 </span>
               </span>
             </Link>

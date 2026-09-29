@@ -909,3 +909,229 @@
 .agoraBtn {
   display: contents;
 }
+
+/* Linha de tabela que é toda um botão (ex.: disciplinas na Faculdade). */
+.rowLink {
+  color: var(--ink) !important;
+  padding: 0 8px;
+  margin: 0 -8px;
+  transition: background 0.12s ease;
+}
+.rowLink:hover,
+.rowLink:focus-visible {
+  background: #161616;
+  color: var(--ink) !important;
+}
+
+/* ===================================================
+   PAINEL LATERAL "NOVA DISCIPLINA" (em passos)
+   =================================================== */
+.drawerScrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.55);
+  border: 0;
+  padding: 0;
+}
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 91;
+  width: min(540px, 100vw);
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  box-shadow: -18px 0 44px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  animation: drawerIn 0.18s ease-out;
+}
+@keyframes drawerIn {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}
+.drawerHead {
+  flex-shrink: 0;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.drawerBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.drawerFoot {
+  flex-shrink: 0;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: var(--mut2);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.step::before {
+  content: '';
+  height: 3px;
+  background: var(--line);
+}
+.stepDone {
+  color: var(--mut);
+}
+.stepDone::before {
+  background: var(--accent);
+}
+.stepOn {
+  color: var(--ink);
+  font-weight: 600;
+}
+.stepOn::before {
+  background: var(--sky);
+}
+.step:disabled {
+  cursor: default;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.fieldLabel {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--mut);
+}
+.input,
+.inputSelect {
+  height: 38px;
+  width: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--box);
+  padding: 0 10px;
+  font-size: 14px;
+  outline: none;
+}
+.input:focus,
+.inputSelect:focus {
+  border-color: var(--sky);
+}
+.inputInvalid {
+  border-color: #e38b7a;
+}
+.hint {
+  font-size: 11px;
+  color: var(--mut2);
+}
+.errorText {
+  font-size: 12px;
+  color: #e38b7a;
+}
+.fieldRow {
+  display: grid;
+  gap: 12px;
+}
+.fieldRow2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.fieldRow3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.groupTitle {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.slot {
+  border: 1px solid var(--line);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.segPick {
+  display: flex;
+  border: 1px solid var(--box);
+  align-self: flex-start;
+}
+.segPick > button {
+  height: 32px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--mut);
+  border: 0;
+  font-size: 12px;
+}
+.segPick > button[aria-pressed='true'] {
+  background: var(--bone);
+  color: var(--bg);
+  font-weight: 600;
+}
+.summaryRow {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line2);
+  font-size: 13px;
+}
+.summaryKey {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--mut2);
+  padding-top: 2px;
+}
+@media (max-width: 599px) {
+  .fieldRow3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* No iPad/iPhone: campos a 16px (o Safari faz zoom abaixo disso) e mais altos para o dedo. */
+.touch .input,
+.touch .inputSelect {
+  height: 44px;
+  font-size: 16px;
+}
+.touch .segPick > button {
+  height: 40px;
+}

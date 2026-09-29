@@ -25,9 +25,11 @@ import {
   useHoverPin,
   useShortcuts,
 } from './components/denso/DensoChrome';
+import { AvatarMenu, PhoneTabBar, TabletHeader, layoutClasses, useDensoLayout } from './components/denso/DensoTouch';
 import {
   BalanceB,
   CaptureAndVolumes,
+  CaptureBox,
   DayIndexB,
   DayTitle,
   DeadlineB,
@@ -35,9 +37,11 @@ import {
   FooterB,
   MonthB,
   NotesB,
+  PhoneWeekB,
   PlanB,
   SessionCard,
   TopStripB,
+  VolumeTiles,
   WeekB,
   WeekCol,
   deadlineKind,
@@ -122,6 +126,8 @@ export default function HomePage() {
   const eventTitleRef = useRef<HTMLInputElement>(null);
   const captureRef = useRef<HTMLTextAreaElement>(null);
   const { bind } = useHoverPin();
+  // iPhone / iPad de pé / iPad deitado / computador (ver DensoTouch).
+  const layout = useDensoLayout();
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -480,6 +486,153 @@ export default function HomePage() {
   const monthName = MONTHS_PT[today.getMonth()];
   const weekdayShort = WEEKDAY_LONG_PT[today.getDay()].replace('-feira', '');
   const clock = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  // ==========================================
+  // IPAD E IPHONE (designs "Visão Geral — iPad / iPhone")
+  // ==========================================
+  if (layout !== 'desktop') {
+    const phone = layout === 'phone';
+    const profile = {
+      userName: user?.name ?? null,
+      userEmail: user?.email ?? null,
+      onOpenProfile: () => setIsProfileOpen(true),
+      onLogout: handleLogout,
+    };
+    const col = { display: 'flex', flexDirection: 'column', gap: 26, minWidth: 0 } as const;
+    const two = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 24, alignItems: 'start' } as const;
+
+    const session = <SessionCard todayClasses={todayClasses} nextClass={nextClassOtherDay} focusRunning={focusRunning} onToggleFocus={toggleFocus} />;
+    const index = <DayIndexB events={todayEvents} nowMinutes={nowMinutes} today={today} bind={bind} />;
+    const plan = (
+      <PlanB
+        tasks={planTasks}
+        projects={workProjects}
+        today={today}
+        pendingIds={pendingTaskIds}
+        onToggle={handleToggleTask}
+        onAdd={handleAddTask}
+        inputRef={taskInputRef}
+        bind={bind}
+      />
+    );
+    const notesEl = <NotesB notes={notes} onAdd={addNote} onClear={() => setNotes([])} />;
+    const capture = <CaptureBox onCapture={addNote} captureRef={captureRef} kbd={false} />;
+    const volumes = <VolumeTiles tiles={tiles} bind={bind} minHeight={130} linkOnly={phone} />;
+    const week = phone ? (
+      <PhoneWeekB columns={weekColumns} today={today} weekNumber={isoWeek(today)} />
+    ) : (
+      <WeekB columns={weekColumns} today={today} weekNumber={isoWeek(today)} bind={bind} />
+    );
+    const deadlinesEl = <DeadlinesB items={deadlines} today={today} bind={bind} />;
+    const month = (
+      <MonthB
+        today={today}
+        getEvents={getEvents}
+        onAddEvent={handleAddEvent}
+        onRemoveEvent={handleRemoveEvent}
+        titleRef={eventTitleRef}
+        bind={bind}
+        sheet={phone}
+      />
+    );
+    const balance = <BalanceB billable={MOCK_BILLABLE_HOURS} study={MOCK_STUDY_HOURS} expenses={MOCK_EXPENSES} monthName={monthName} />;
+
+    return (
+      <div className={`${d.root} ${layoutClasses(layout)}`}>
+        {!phone && <TabletHeader active="home" searchIndex={searchIndex} {...profile} />}
+        <TopStripB focusLabel={focusLabel} nextLabel={loading ? 'A carregar horário…' : nextLabel} quote={MOCK_QUOTE} focusRunning={focusRunning} onToggleFocus={toggleFocus} />
+        <DayTitle
+          size={phone ? 'phone' : 'tablet'}
+          title={`${weekdayShort}, ${today.getDate()}`}
+          monthLine={`de ${monthName}, semana ${isoWeek(today)}`}
+          subjectsCount={subjects.length}
+          onAddTask={focusTask}
+          onAddEvent={focusEvent}
+          trailing={phone ? <AvatarMenu {...profile} /> : undefined}
+        />
+
+        {loading ? (
+          <p className={`${d.inner} ${d.muted}`} style={{ paddingTop: 40, paddingBottom: 40 }}>A carregar agenda…</p>
+        ) : layout === 'tabletH' ? (
+          <div className={d.inner} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 5fr) minmax(0, 7fr)', gap: 20, paddingTop: 16, paddingBottom: 32, alignItems: 'start' }}>
+            <aside id="dia" className={d.aside} style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+                <span className={d.serif} style={{ fontStyle: 'italic', fontSize: 26 }}>A página de hoje</span>
+                <span className={d.muted} style={{ fontSize: 12 }}>{clock}</span>
+              </div>
+              {session}
+              {index}
+              {plan}
+              {notesEl}
+            </aside>
+            <div style={col}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)', gap: 16, alignItems: 'stretch' }}>
+                {capture}
+                {volumes}
+              </div>
+              {week}
+              <div style={two}>
+                {deadlinesEl}
+                {month}
+              </div>
+              {balance}
+            </div>
+          </div>
+        ) : layout === 'tabletV' ? (
+          <div id="dia" className={d.inner} style={{ ...col, paddingTop: 16, paddingBottom: 40 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 14 }}>
+              {session}
+              <div style={{ display: 'grid', gridTemplateRows: '1fr 1fr', gap: 14 }}>{volumes}</div>
+            </div>
+            <div style={two}>
+              {index}
+              {plan}
+            </div>
+            <div style={two}>
+              {notesEl}
+              {capture}
+            </div>
+            {week}
+            <div style={two}>
+              {deadlinesEl}
+              {month}
+            </div>
+            {balance}
+          </div>
+        ) : (
+          <div id="dia" className={d.inner} style={{ ...col, gap: 28, paddingTop: 4, paddingBottom: 110 }}>
+            {session}
+            {index}
+            {plan}
+            {notesEl}
+            {/* Volumes a deslizar na horizontal */}
+            <div
+              style={{
+                display: 'grid',
+                gridAutoFlow: 'column',
+                gridAutoColumns: '150px',
+                gap: 10,
+                overflowX: 'auto',
+                margin: '0 calc(var(--gutter) * -1)',
+                padding: '0 var(--gutter)',
+                scrollbarWidth: 'none',
+              }}
+            >
+              {volumes}
+            </div>
+            {capture}
+            {week}
+            {deadlinesEl}
+            {month}
+            {balance}
+          </div>
+        )}
+
+        {phone && <PhoneTabBar active="home" searchIndex={searchIndex} />}
+        <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
+      </div>
+    );
+  }
 
   return (
     <div className={d.root}>
