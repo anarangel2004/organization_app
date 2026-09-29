@@ -859,3 +859,53 @@
   padding: 10px 2px;
   border-bottom: 1px solid var(--line2);
 }
+
+/* Atalhos de teclado não fazem sentido num ecrã tátil. */
+@media (pointer: coarse), (max-width: 699px) {
+  .noTouch {
+    display: none !important;
+  }
+}
+
+/* No iPhone o texto quebra linha em vez de ficar cortado. */
+.phone .wrapPhone {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+/* Painel de detalhes que sobe do fundo (iPhone) */
+.sheetBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+}
+.sheet {
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--paper);
+  color: var(--bg);
+  padding: 10px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14px;
+}
+.sheet a {
+  color: var(--bg) !important;
+}
+.sheetGrip {
+  align-self: center;
+  width: 40px;
+  height: 4px;
+  background: rgba(13, 13, 13, 0.25);
+  border-radius: 2px !important;
+}
+.agoraBtn {
+  display: contents;
+}

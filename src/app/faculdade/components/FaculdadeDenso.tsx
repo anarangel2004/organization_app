@@ -98,7 +98,7 @@ export interface ClassSlot {
   room: string;
 }
 
-function findNext(slots: ClassSlot[], now: Date) {
+export function findNext(slots: ClassSlot[], now: Date) {
   const nowMin = now.getHours() * 60 + now.getMinutes();
   let best: { slot: ClassSlot; offset: number; start: number; end: number } | null = null;
   for (const slot of slots) {
@@ -212,7 +212,6 @@ export interface WeekMarker {
   href: string;
 }
 
-const PX = 18;
 const WEEK_SHORT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 
 export function FacWeek({
@@ -222,6 +221,7 @@ export function FacWeek({
   blocks,
   markers,
   legend,
+  px: PX = 18,
 }: {
   weekNumber: number;
   days: Date[];
@@ -229,6 +229,8 @@ export function FacWeek({
   blocks: WeekBlock[];
   markers: WeekMarker[];
   legend: { label: string; tone: Tone }[];
+  // Altura de uma hora na grelha (maior no iPad, para tocar nos blocos).
+  px?: number;
 }) {
   const now = useNow(60_000);
   let h0 = 8;
@@ -357,6 +359,8 @@ export interface SubjectRowView {
   nextToday: boolean;
   due: string;
   dueWhen: string;
+  // TESTE / ENTREGA / EXAME… (só quando há prazo)
+  dueTag?: string;
   tone: Tone;
 }
 
@@ -431,9 +435,42 @@ export interface DeadlineRow {
   date: string;
   dot: string;
   href: string;
+  // TESTE / ENTREGA / EXAME… (prazos da faculdade)
+  tag?: string;
 }
 
 type DFilter = 'todos' | 'F' | 'T';
+
+// Lista das aulas de hoje (painel lateral, ou ao lado dos prazos no iPad).
+export function FacTodayList({ todaySlots, todayLabel, touch = false }: { todaySlots: ClassSlot[]; todayLabel: string; touch?: boolean }) {
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--line)', paddingBottom: 6, whiteSpace: 'nowrap' }}>
+        <h2 className={d.h2}>HOJE</h2>
+        <span className={d.muted} style={{ fontSize: 12 }}>{todayLabel}</span>
+      </div>
+      {todaySlots.length === 0 && <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 13 }}>Sem aulas hoje.</p>}
+      {todaySlots.map((s) => {
+        const current = nowMin >= parseMinutes(s.start) && nowMin < (s.end ? parseMinutes(s.end) : parseMinutes(s.start) + 90);
+        return (
+          <Link
+            key={`${s.subjectId}-${s.start}`}
+            href={`/faculdade/${s.subjectId}`}
+            style={{ display: 'grid', gridTemplateColumns: `${touch ? 96 : 90}px minmax(0, 1fr) auto`, gap: 10, alignItems: 'center', minHeight: touch ? 44 : 32, borderBottom: '1px solid #1f1f1f', fontSize: touch ? 14 : 13, whiteSpace: 'nowrap' }}
+          >
+            <span style={{ color: current ? 'var(--sky)' : 'var(--mut)' }}>
+              {s.start}
+              {s.end ? `–${s.end}` : ''}
+            </span>
+            <span className={d.ellipsis}>{s.subjectName} · {s.typeLabel}</span>
+            <span style={{ fontSize: 12, color: 'var(--mut2)' }}>{s.room ? `Sala ${s.room}` : ''}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
 export function FacDeadlines({
   rows,
@@ -443,6 +480,9 @@ export function FacDeadlines({
   onCreate,
   createError,
   creating,
+  touch = false,
+  showToday = true,
+  plain = false,
 }: {
   rows: DeadlineRow[];
   todaySlots: ClassSlot[];
@@ -451,6 +491,11 @@ export function FacDeadlines({
   onCreate: (text: string) => Promise<boolean>;
   createError: string | null;
   creating: boolean;
+  // iPad/iPhone: etiquetas, números em âmbar e linhas maiores.
+  touch?: boolean;
+  showToday?: boolean;
+  // Sem caixa à volta (iPad vertical e iPhone, no meio da página).
+  plain?: boolean;
 }) {
   const [filter, setFilter] = useState<DFilter>('todos');
   const [draft, setDraft] = useState('');
@@ -460,11 +505,24 @@ export function FacDeadlines({
     ['F', 'Faculdade'],
     ['T', 'Trabalho'],
   ];
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
 
   return (
-    <aside id="prazos" className={d.aside} style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, padding: '14px 16px', scrollMarginTop: 16, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
+    <aside
+      id="prazos"
+      className={plain ? undefined : d.aside}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        minWidth: 0,
+        padding: plain ? 0 : touch ? 16 : '14px 16px',
+        scrollMarginTop: 64,
+        // No computador estica até à altura da coluna; no iPad cresce dentro de uma coluna com scroll.
+        height: plain || touch ? undefined : '100%',
+        minHeight: !plain && touch ? '100%' : undefined,
+      }}
+    >
+      <div className={touch ? d.sectionHead : undefined} style={touch ? undefined : { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
         <h2 className={d.h2}>PRAZOS</h2>
         <span className={d.muted} style={{ fontSize: 12 }}>{rows.length} por cumprir</span>
       </div>
@@ -478,7 +536,7 @@ export function FacDeadlines({
               type="button"
               onClick={() => setFilter(id)}
               aria-pressed={on}
-              style={{ height: 26, padding: '0 10px', fontSize: 12, whiteSpace: 'nowrap', background: on ? 'var(--bone)' : 'transparent', color: on ? 'var(--bg)' : 'var(--ink)', border: `1px solid ${on ? 'var(--bone)' : 'var(--box2)'}` }}
+              style={{ height: touch ? 32 : 26, padding: touch ? '0 12px' : '0 10px', fontSize: touch ? 13 : 12, whiteSpace: 'nowrap', background: on ? 'var(--bone)' : 'transparent', color: on ? 'var(--bg)' : 'var(--ink)', border: `1px solid ${on ? 'var(--bone)' : 'var(--box2)'}` }}
             >
               {label} <span style={{ opacity: 0.7 }}>{count}</span>
             </button>
@@ -488,19 +546,31 @@ export function FacDeadlines({
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         {visible.length === 0 && <p className={d.muted} style={{ margin: '8px 0', fontSize: 13 }}>Sem prazos marcados.</p>}
         {visible.map((p) => {
-          const urgent = p.days <= 3;
+          // No iPad/iPhone os próximos 14 dias ficam em âmbar, como no design.
+          const urgent = touch ? p.days < 14 : p.days <= 3;
           return (
             <Link
               key={p.id}
               href={p.href}
-              style={{ display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr)', gap: 12, alignItems: 'center', minHeight: 58, borderBottom: '1px solid var(--line2)', background: urgent ? 'rgba(127,176,203,0.12)' : 'transparent', padding: '0 8px', margin: '0 -8px' }}
+              style={
+                touch
+                  ? { display: 'grid', gridTemplateColumns: '50px minmax(0, 1fr)', gap: 12, alignItems: 'center', minHeight: 62, padding: '6px 0', borderBottom: '1px solid var(--line2)' }
+                  : { display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr)', gap: 12, alignItems: 'center', minHeight: 58, borderBottom: '1px solid var(--line2)', background: urgent ? 'rgba(127,176,203,0.12)' : 'transparent', padding: '0 8px', margin: '0 -8px' }
+              }
             >
               <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}>
-                <span className={d.serif} style={{ fontSize: 30, color: urgent ? 'var(--sky)' : 'var(--ink)' }}>{p.days}</span>
+                <span className={d.serif} style={{ fontSize: touch ? 32 : 30, color: urgent ? (touch ? 'var(--amber)' : 'var(--sky)') : 'var(--ink)' }}>{p.days}</span>
                 <span className={d.muted} style={{ fontSize: 10 }}>{p.days === 1 ? 'dia' : 'dias'}</span>
               </span>
-              <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-                <span className={d.ellipsis} style={{ fontSize: 13 }}>{p.title}</span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                {touch ? (
+                  <span style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
+                    {p.tag && <span className={d.tag} style={{ padding: '2px 6px', flexShrink: 0 }}>{p.tag}</span>}
+                    <span className={`${d.ellipsis} ${d.wrapPhone}`} style={{ fontSize: 14 }}>{p.title}</span>
+                  </span>
+                ) : (
+                  <span className={d.ellipsis} style={{ fontSize: 13 }}>{p.title}</span>
+                )}
                 <span className={d.muted} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, whiteSpace: 'nowrap' }}>
                   <Dot color={p.dot} />
                   {p.source} · {p.date}
@@ -510,7 +580,7 @@ export function FacDeadlines({
           );
         })}
       </div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34, borderBottom: '1px solid var(--line)' }}>
+      <label className={d.taskInput} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34, fontSize: 13, borderBottom: '1px solid var(--line)' }}>
         <span className={d.sr}>Novo prazo</span>
         <input
           ref={inputRef}
@@ -523,38 +593,19 @@ export function FacDeadlines({
             if (await onCreate(draft.trim())) setDraft('');
           }}
           placeholder="+ novo prazo (ex.: TP3 SD 20 nov)"
-          style={{ flexGrow: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', fontSize: 13 }}
+          style={{ flexGrow: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', fontSize: 'inherit' }}
         />
-        <kbd className={d.kbd}>P</kbd>
+        <kbd className={`${d.kbd} ${d.noTouch}`}>P</kbd>
       </label>
       <p style={{ margin: 0, fontSize: 11, color: createError ? '#e38b7a' : 'var(--mut2)' }}>
         {createError ?? 'Título, código da disciplina e data. Fica como avaliação dessa disciplina.'}
       </p>
 
-      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', paddingTop: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--line)', paddingBottom: 6, whiteSpace: 'nowrap' }}>
-          <h2 className={d.h2}>HOJE</h2>
-          <span className={d.muted} style={{ fontSize: 12 }}>{todayLabel}</span>
+      {showToday && (
+        <div style={{ marginTop: 'auto', paddingTop: 12 }}>
+          <FacTodayList todaySlots={todaySlots} todayLabel={todayLabel} touch={touch} />
         </div>
-        {todaySlots.length === 0 && <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 13 }}>Sem aulas hoje.</p>}
-        {todaySlots.map((s) => {
-          const current = nowMin >= parseMinutes(s.start) && nowMin < (s.end ? parseMinutes(s.end) : parseMinutes(s.start) + 90);
-          return (
-            <Link
-              key={`${s.subjectId}-${s.start}`}
-              href={`/faculdade/${s.subjectId}`}
-              style={{ display: 'grid', gridTemplateColumns: '90px minmax(0, 1fr) auto', gap: 10, alignItems: 'center', minHeight: 32, borderBottom: '1px solid #1f1f1f', fontSize: 13, whiteSpace: 'nowrap' }}
-            >
-              <span style={{ color: current ? 'var(--sky)' : 'var(--mut)' }}>
-                {s.start}
-                {s.end ? `–${s.end}` : ''}
-              </span>
-              <span className={d.ellipsis}>{s.subjectName} · {s.typeLabel}</span>
-              <span style={{ fontSize: 11, color: 'var(--mut2)' }}>{s.room ? `Sala ${s.room}` : ''}</span>
-            </Link>
-          );
-        })}
-      </div>
+      )}
     </aside>
   );
 }

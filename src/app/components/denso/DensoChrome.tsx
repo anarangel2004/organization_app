@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import Link from 'next/link';
 import d from './denso.module.css';
 
@@ -13,6 +13,26 @@ export interface SearchHit {
 }
 
 export type DensoSection = 'home' | 'trabalho' | 'faculdade';
+
+// Fecha um pop-up ao tocar/clicar fora dele ou com Esc. Usa pointerdown:
+// no Safari do iPhone um toque numa zona "vazia" não gera mousedown/click.
+export function useDismiss(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [ref, open, onClose]);
+}
 
 // ==========================================
 // NAVEGAÇÃO (partilhada pelas páginas densas)
@@ -48,7 +68,13 @@ export function DensoHeader({
 }) {
   const [query, setQuery] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const clearQuery = useCallback(() => setQuery(''), []);
+  useDismiss(menuRef, menuOpen, closeMenu);
   const q = query.trim().toLowerCase();
+  useDismiss(searchBoxRef, !!q, clearQuery);
   const hits = q ? searchIndex.filter((h) => h.label.toLowerCase().includes(q)).slice(0, 8) : [];
 
   const links: [DensoSection, string, string][] = [
@@ -97,7 +123,7 @@ export function DensoHeader({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 10 : 12, flexWrap: 'wrap' }}>
           {dateLabel && <span className={d.muted} style={{ fontSize: compact ? 12 : 13, whiteSpace: 'nowrap' }}>{dateLabel}</span>}
-          <div style={{ position: 'relative' }}>
+          <div ref={searchBoxRef} style={{ position: 'relative' }}>
             <label
               style={{
                 display: 'flex',
@@ -121,7 +147,7 @@ export function DensoHeader({
                 placeholder={searchPlaceholder}
                 style={{ flexGrow: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', fontSize: compact ? 12 : 14 }}
               />
-              <kbd className={d.kbd} style={{ fontSize: 11 }}>Ctrl K</kbd>
+              <kbd className={`${d.kbd} ${d.noTouch}`} style={{ fontSize: 11 }}>Ctrl K</kbd>
             </label>
             {q && (
               <div className={d.popover} style={{ left: 0, right: 'auto', width: 'min(340px, 90vw)', padding: 0, maxHeight: 320, overflowY: 'auto' }}>
@@ -150,7 +176,7 @@ export function DensoHeader({
           >
             Novo dossiê
           </Link>
-          <div style={{ position: 'relative' }}>
+          <div ref={menuRef} style={{ position: 'relative' }}>
             <button
               type="button"
               aria-label="Perfil"
@@ -224,6 +250,11 @@ export function ShortcutBar({
   extra?: ReactNode;
   hint?: string;
 }) {
+  const helpRef = useRef<HTMLDivElement>(null);
+  const closeHelp = useCallback(() => {
+    if (helpOpen) onToggleHelp();
+  }, [helpOpen, onToggleHelp]);
+  useDismiss(helpRef, helpOpen, closeHelp);
   return (
     <nav aria-label="Secções da página" className={d.shortcuts}>
       <div className={d.inner} style={{ minHeight: 40, display: 'flex', alignItems: 'stretch', justifyContent: 'space-between', gap: 16 }}>
@@ -235,14 +266,14 @@ export function ShortcutBar({
               onClick={() => onPick(it.id)}
               className={`${d.shortcut} ${active === it.id ? d.shortcutOn : ''}`}
             >
-              <kbd className={d.kbd} style={{ borderColor: active === it.id ? '#555' : undefined }}>{it.key}</kbd>
+              <kbd className={`${d.kbd} ${d.noTouch}`} style={{ borderColor: active === it.id ? '#555' : undefined }}>{it.key}</kbd>
               {it.label}
               {it.badge && <span style={{ color: 'var(--sky)' }}>{it.badge}</span>}
             </a>
           ))}
           {extra}
         </div>
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div ref={helpRef} className={d.noTouch} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 14 }}>
           {hint && <span className={d.hideSm} style={{ fontSize: 12, color: 'var(--mut2)', whiteSpace: 'nowrap' }}>{hint}</span>}
           <button type="button" className={`${d.btnGhost} ${d.sm}`} onClick={onToggleHelp} aria-expanded={helpOpen} style={{ height: 28 }}>
             Atalhos ?
@@ -291,14 +322,15 @@ export function useHoverPin() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setPin(null);
     };
-    const onDown = (e: MouseEvent) => {
+    // pointerdown e não mousedown: no iPhone um toque fora não gera mousedown.
+    const onDown = (e: PointerEvent) => {
       if (!(e.target as HTMLElement | null)?.closest('[data-hoverpin]')) setPin(null);
     };
     window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
+    window.addEventListener('pointerdown', onDown);
     return () => {
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('pointerdown', onDown);
     };
   }, [pin]);
 

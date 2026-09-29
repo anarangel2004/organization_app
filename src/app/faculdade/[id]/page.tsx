@@ -29,8 +29,8 @@ import {
 } from './components/DisciplinaView';
 import { DensoHeader, SearchHit, ShortcutBar, ShortcutItem } from '@/app/components/denso/DensoChrome';
 import {
+  AvatarMenu,
   PhoneTabBar,
-  ProfileMenu,
   SectionChips,
   TabletHeader,
   layoutClasses,
@@ -146,7 +146,6 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [avatarMenu, setAvatarMenu] = useState(false);
   const layout = useDensoLayout();
 
   const globalSearchRef = useRef<HTMLInputElement>(null);
@@ -484,6 +483,7 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
       theory={theory}
       practice={practice}
       weekSlots={slots}
+      layout={layout}
     />
   );
   const tasksEl = (
@@ -561,27 +561,12 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
   );
 
   const avatarEl = (
-    <div style={{ position: 'relative' }}>
-      <button
-        type="button"
-        aria-label="Perfil"
-        aria-expanded={avatarMenu}
-        onClick={() => setAvatarMenu((v) => !v)}
-        className={d.round}
-        style={{ width: 36, height: 36, background: 'var(--ink)', color: 'var(--bg)', border: 0, fontWeight: 600, fontSize: 14 }}
-      >
-        {(user?.name || '·').charAt(0).toUpperCase()}
-      </button>
-      {avatarMenu && (
-        <ProfileMenu
-          userName={user?.name ?? null}
-          userEmail={user?.email ?? null}
-          onOpenProfile={() => setIsProfileOpen(true)}
-          onLogout={handleLogout}
-          onClose={() => setAvatarMenu(false)}
-        />
-      )}
-    </div>
+    <AvatarMenu
+      userName={user?.name ?? null}
+      userEmail={user?.email ?? null}
+      onOpenProfile={() => setIsProfileOpen(true)}
+      onLogout={handleLogout}
+    />
   );
 
   if (touch) {

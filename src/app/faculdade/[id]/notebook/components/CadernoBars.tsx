@@ -126,16 +126,16 @@ export function MenuBar({
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: PointerEvent) => {
       if (!barRef.current?.contains(e.target as Node)) setOpen(null);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(null);
     };
-    window.addEventListener('mousedown', onDown);
+    window.addEventListener('pointerdown', onDown);
     window.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('pointerdown', onDown);
       window.removeEventListener('keydown', onKey);
     };
   }, [open]);

@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import d from './denso.module.css';
-import type { DensoSection, SearchHit, ShortcutItem } from './DensoChrome';
+import { useDismiss, type DensoSection, type SearchHit, type ShortcutItem } from './DensoChrome';
 
 // ==========================================
 // QUE ECRÃ É ESTE
@@ -103,16 +103,23 @@ export function TabletHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
   const hits = useHits(searchIndex, query);
 
   useEffect(() => {
     if (searchOpen) inputRef.current?.focus();
   }, [searchOpen]);
 
-  const closeSearch = () => {
+  const closeSearch = useCallback(() => {
     setSearchOpen(false);
     setQuery('');
-  };
+  }, []);
+  const closeAll = useCallback(() => {
+    closeSearch();
+    setMenuOpen(false);
+  }, [closeSearch]);
+  // Tocar em qualquer sítio fora da pesquisa/menu fecha-os.
+  useDismiss(rightRef, searchOpen || menuOpen, closeAll);
 
   return (
     <header className={d.tabHeader}>
@@ -126,7 +133,7 @@ export function TabletHeader({
           </Link>
         ))}
       </nav>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, position: 'relative' }}>
+      <div ref={rightRef} style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, position: 'relative' }}>
         <button type="button" className={d.iconBtn} aria-label="Pesquisar" aria-expanded={searchOpen} onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}>
           <SearchIcon />
         </button>
@@ -210,10 +217,111 @@ export function ProfileMenu({
   );
 }
 
+// Avatar com menu de perfil (iPhone, onde não há cabeçalho da app).
+export function AvatarMenu({
+  userName,
+  userEmail,
+  onOpenProfile,
+  onLogout,
+}: {
+  userName: string | null;
+  userEmail: string | null;
+  onOpenProfile: () => void;
+  onLogout: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(ref, open, close);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        aria-label="Perfil"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={d.round}
+        style={{ width: 36, height: 36, background: 'var(--ink)', color: 'var(--bg)', border: 0, fontWeight: 600, fontSize: 14 }}
+      >
+        {(userName || '·').charAt(0).toUpperCase()}
+      </button>
+      {open && <ProfileMenu userName={userName} userEmail={userEmail} onOpenProfile={onOpenProfile} onLogout={onLogout} onClose={close} />}
+    </div>
+  );
+}
+
+// ==========================================
+// PAINEL DE DETALHES (sobe do fundo; toca fora para fechar)
+// ==========================================
+export function BottomSheet({
+  title,
+  tag,
+  onClose,
+  children,
+}: {
+  title: string;
+  tag?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    // A página por trás não faz scroll enquanto o painel está aberto.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return (
+    <div className={d.sheetBackdrop} onClick={onClose} role="presentation">
+      <div className={d.sheet} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <span className={d.sheetGrip} aria-hidden="true" />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <span className={d.serif} style={{ fontSize: 24, lineHeight: 1.15 }}>{title}</span>
+          {tag && <span className={d.tag}>{tag}</span>}
+        </div>
+        {children}
+        <button
+          type="button"
+          onClick={onClose}
+          style={{ marginTop: 6, width: '100%', height: 44, background: 'var(--bg)', color: 'var(--ink)', border: 0, fontSize: 14, fontWeight: 500 }}
+        >
+          Fechar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Uma linha "rótulo · valor" dentro do painel de detalhes.
+export function SheetLine({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className={d.popLine}>
+      <span className={d.popKey}>{label}</span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
 // ==========================================
 // SECÇÕES EM BOTÕES (iPad e iPhone)
 // ==========================================
-export function SectionChips({ items, active, onPick }: { items: ShortcutItem[]; active: string; onPick: (id: string) => void }) {
+export function SectionChips({
+  items,
+  active,
+  onPick,
+  links = [],
+}: {
+  items: ShortcutItem[];
+  active: string;
+  onPick: (id: string) => void;
+  // Atalhos para outras páginas no fim (ex.: siglas das disciplinas).
+  links?: { href: string; label: string }[];
+}) {
   return (
     <nav aria-label="Secções" className={d.chips}>
       {items.map((it) => (
@@ -230,6 +338,11 @@ export function SectionChips({ items, active, onPick }: { items: ShortcutItem[];
           {it.label}
           {it.badge && <span style={{ color: active === it.id ? 'inherit' : 'var(--sky)' }}>{it.badge}</span>}
         </a>
+      ))}
+      {links.map((l) => (
+        <Link key={l.href} href={l.href} className={d.chip}>
+          {l.label}
+        </Link>
       ))}
     </nav>
   );

@@ -25,6 +25,7 @@ import {
   FacDeadlines,
   FacHeading,
   FacSubjects,
+  FacTodayList,
   FacWeek,
   OVERFLOW_TONE,
   SubjectJumps,
@@ -33,6 +34,9 @@ import {
   WeekBlock,
   WeekMarker,
 } from './components/FaculdadeDenso';
+import { FacPhoneWeek, FacSubjectCards, FacTouchAgora, FacTouchHeading } from './components/FaculdadeTouch';
+import { AvatarMenu, PhoneTabBar, SectionChips, TabletHeader, layoutClasses, useDensoLayout } from '@/app/components/denso/DensoTouch';
+import { assessmentTag } from './[id]/notebook/components/types';
 
 interface FacSubject {
   id: string;
@@ -127,6 +131,7 @@ export default function FaculdadePage() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const layout = useDensoLayout();
 
   const searchRef = useRef<HTMLInputElement>(null);
   const deadlineInputRef = useRef<HTMLInputElement>(null);
@@ -291,6 +296,7 @@ export default function FaculdadePage() {
         date: shortDate(due),
         dot: tone.bg === 'transparent' ? tone.bd : tone.bg,
         href: `/faculdade/${a.subject_id}#avaliacao`,
+        tag: assessmentTag(a.title || ''),
       });
     });
     workTasks
@@ -425,6 +431,7 @@ export default function FaculdadePage() {
         nextToday: best?.offset === 0,
         due: nextDue ? nextDue.a.title || 'Avaliação' : '—',
         dueWhen: nextDue ? `${shortDate(nextDue.due)} · ${dueDays === 0 ? 'hoje' : `em ${dueDays} ${dueDays === 1 ? 'dia' : 'dias'}`}` : 'sem prazos',
+        dueTag: nextDue ? assessmentTag(nextDue.a.title || '') : undefined,
         tone: toneOf.get(x.id) ?? OVERFLOW_TONE,
       };
     });
@@ -440,10 +447,19 @@ export default function FaculdadePage() {
     return hits;
   }, [subjects, assessments, nameOf]);
 
-  const goTo = useCallback((id: string) => {
-    setActive(id);
-    scrollToId(id);
-  }, []);
+  const goTo = useCallback(
+    (id: string) => {
+      setActive(id);
+      // No iPad vertical e no iPhone os botões de secção ficam colados ao topo.
+      const el = document.getElementById(id);
+      if (el && (layout === 'phone' || layout === 'tabletV')) {
+        window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 64, behavior: 'smooth' });
+      } else {
+        scrollToId(id);
+      }
+    },
+    [layout]
+  );
   const focusDeadline = useCallback(() => {
     goTo('prazos');
     window.setTimeout(() => deadlineInputRef.current?.focus(), 250);
@@ -494,6 +510,108 @@ export default function FaculdadePage() {
 
   const dateLabel = `${WEEKDAY_LONG_PT[today.getDay()]}, ${today.getDate()} de ${MONTHS_PT[today.getMonth()]}`;
   const todayLabel = `${WEEKDAY_LONG_PT[today.getDay()].slice(0, 3)}, ${shortDate(today)}`;
+
+  // ==========================================
+  // IPAD E IPHONE (designs "Faculdade — iPad / iPhone")
+  // ==========================================
+  if (layout !== 'desktop') {
+    const phone = layout === 'phone';
+    const subjectsCount = `${subjects.length} ${subjects.length === 1 ? 'disciplina' : 'disciplinas'} · ${ects} ECTS`;
+    const touchItems: ShortcutItem[] =
+      layout === 'tabletH'
+        ? [shortcutItems[0], shortcutItems[1], shortcutItems[2], shortcutItems[3]]
+        : [shortcutItems[0], shortcutItems[1], shortcutItems[3], shortcutItems[2]];
+    const codeLinks = phone ? [] : sortedSubjects.map((x) => ({ href: `/faculdade/${x.id}`, label: codeOf(x.id) }));
+
+    const deadlines = (
+      <FacDeadlines
+        rows={deadlineRows}
+        todaySlots={todaySlots}
+        todayLabel={todayLabel}
+        inputRef={deadlineInputRef}
+        onCreate={createDeadline}
+        createError={createError}
+        creating={creating}
+        touch
+        showToday={layout === 'tabletH'}
+        plain={layout !== 'tabletH'}
+      />
+    );
+    const agora = <FacTouchAgora layout={layout} slots={slots} average={averageLabel} todaySlots={todaySlots} />;
+    const week = phone ? (
+      <FacPhoneWeek weekNumber={isoWeek(today)} days={weekDays} todayIndex={todayIndex} blocks={blocks} markers={markers} />
+    ) : (
+      <FacWeek weekNumber={isoWeek(today)} days={weekDays} todayIndex={todayIndex} blocks={blocks} markers={markers} legend={legend} px={layout === 'tabletH' ? 22 : 24} />
+    );
+    const newSubject = (
+      <section id="nova-disciplina" className={layout === 'tabletH' ? undefined : d.inner} style={{ paddingBottom: 48, scrollMarginTop: 64 }}>
+        <AddSubjectForm onSubjectAdded={fetchAll} />
+      </section>
+    );
+
+    return (
+      <div className={`${d.root} ${layoutClasses(layout)}`}>
+        {!phone && (
+          <TabletHeader
+            active="faculdade"
+            searchIndex={searchIndex}
+            userName={user?.name ?? null}
+            userEmail={user?.email ?? null}
+            onOpenProfile={() => setIsProfileOpen(true)}
+            onLogout={handleLogout}
+          />
+        )}
+
+        <FacTouchHeading
+          layout={layout}
+          periodLabel={phone ? periodLabel : `semana ${isoWeek(today)}`}
+          meta={phone ? `${subjectsCount} · ${fmtNum(weekHours)} h/semana` : subjectsCount}
+          onAddDeadline={focusDeadline}
+          avatar={
+            <AvatarMenu
+              userName={user?.name ?? null}
+              userEmail={user?.email ?? null}
+              onOpenProfile={() => setIsProfileOpen(true)}
+              onLogout={handleLogout}
+            />
+          }
+        />
+        <SectionChips items={touchItems} active={active} onPick={goTo} links={codeLinks} />
+
+        {loading && subjects.length === 0 ? (
+          <p className={`${d.inner} ${d.muted}`} style={{ paddingTop: 40, paddingBottom: 40 }}>A carregar disciplinas…</p>
+        ) : layout === 'tabletH' ? (
+          <div className={`${d.inner} ${d.body}`} style={{ gridTemplateColumns: 'minmax(0, 8fr) minmax(0, 4fr)' }}>
+            <div className={d.left}>
+              {agora}
+              {week}
+              <FacSubjects rows={subjectRows} />
+              {newSubject}
+            </div>
+            <div style={{ minHeight: 0, overflowY: 'auto' }}>{deadlines}</div>
+          </div>
+        ) : (
+          <div className={`${d.inner} ${d.body}`}>
+            {agora}
+            {week}
+            {phone ? (
+              deadlines
+            ) : (
+              <div className={d.pair}>
+                {deadlines}
+                <FacTodayList todaySlots={todaySlots} todayLabel={todayLabel} touch />
+              </div>
+            )}
+            <FacSubjectCards rows={subjectRows} columns={phone ? 1 : 2} />
+          </div>
+        )}
+
+        {layout !== 'tabletH' && newSubject}
+        {phone && <PhoneTabBar active="faculdade" searchIndex={searchIndex} />}
+        <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
+      </div>
+    );
+  }
 
   return (
     <div className={d.root}>

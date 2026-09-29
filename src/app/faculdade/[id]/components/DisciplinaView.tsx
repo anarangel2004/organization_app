@@ -1,12 +1,12 @@
 'use client';
 
-import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 import Link from 'next/link';
 import type { AssessmentItem } from '@/types';
 import { getItemEffectiveGrade } from '@/lib/utils';
 import { parseDueDate } from '@/app/components/homeAgenda';
 import d from '@/app/components/denso/denso.module.css';
-import type { DensoLayout } from '@/app/components/denso/DensoTouch';
+import { BottomSheet, SheetLine, type DensoLayout } from '@/app/components/denso/DensoTouch';
 import { assessmentTag } from '../notebook/components/types';
 import {
   DocType,
@@ -111,12 +111,41 @@ export function DHeading({
 // ==========================================
 // AGORA (4 cartões)
 // ==========================================
-function BorderCard({ children }: { children: ReactNode }) {
+// No iPhone cada cartão abre um painel com a informação completa.
+type AgoraKey = 'aula' | 'prazo' | 'media' | 'semana';
+
+function tapProps(onTap?: () => void) {
+  if (!onTap) return {};
+  return {
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: onTap,
+    onKeyDown: (e: ReactKeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onTap();
+      }
+    },
+    style: { cursor: 'pointer' },
+  };
+}
+
+function BorderCard({ children, onTap }: { children: ReactNode; onTap?: () => void }) {
+  const tap = tapProps(onTap);
   return (
-    <div className={d.agoraCard} style={{ borderTop: '2px solid var(--accent)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92, minWidth: 0 }}>
+    <div
+      className={d.agoraCard}
+      {...tap}
+      style={{ borderTop: '2px solid var(--accent)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92, minWidth: 0, ...tap.style }}
+    >
       {children}
     </div>
   );
+}
+
+function MoreHint({ show, dark }: { show: boolean; dark?: boolean }) {
+  if (!show) return null;
+  return <div style={{ marginTop: 'auto', fontSize: 11, color: dark ? 'rgba(13,13,13,0.7)' : 'var(--sky)' }}>Ver tudo ›</div>;
 }
 
 export function AgoraCards({
@@ -131,6 +160,7 @@ export function AgoraCards({
   theory,
   practice,
   weekSlots,
+  layout = 'desktop',
 }: {
   next: NextSlot | null;
   deadline: AssessmentItem | null;
@@ -143,6 +173,7 @@ export function AgoraCards({
   theory: number;
   practice: number;
   weekSlots: Slot[];
+  layout?: DensoLayout;
 }) {
   const due = deadline ? parseDueDate(deadline.due_date) : null;
   const afterDue = deadlineAfter ? parseDueDate(deadlineAfter.due_date) : null;
@@ -150,9 +181,68 @@ export function AgoraCards({
   const branchTotal = theory + practice || 100;
   const weekDays = Array.from(new Set(weekSlots.map((s) => s.dayNum))).map((n) => WEEKDAY_LONG[n].slice(0, 3));
 
+  const phone = layout === 'phone';
+  const [sheet, setSheet] = useState<AgoraKey | null>(null);
+  const closeSheet = useCallback(() => setSheet(null), []);
+  const tap = (key: AgoraKey) => (phone ? () => setSheet(key) : undefined);
+  const deadlineTap = tapProps(tap('prazo'));
+  const timeRange = (s: Slot) => `${s.start}${s.end ? `–${s.end}` : ''}`;
+
   return (
     <section id="agora" className={d.agora} style={{ scrollMarginTop: 16 }}>
-      <BorderCard>
+      {sheet === 'aula' && (
+        <BottomSheet title={next?.inProgress ? 'Aula em curso' : 'Próxima aula'} onClose={closeSheet}>
+          {next ? (
+            <>
+              <SheetLine label="QUANDO">{dayWord(next.offset, next.slot.dayNum)} · {timeRange(next.slot)}</SheetLine>
+              <SheetLine label="TIPO">{next.slot.typeLabel}</SheetLine>
+              <SheetLine label="SALA">{next.slot.room || '—'}</SheetLine>
+            </>
+          ) : (
+            <p style={{ margin: 0 }}>Esta disciplina ainda não tem horário.</p>
+          )}
+        </BottomSheet>
+      )}
+      {sheet === 'prazo' && (
+        <BottomSheet title={deadline?.title || 'Próximo prazo'} tag={deadline ? assessmentTag(deadline.title || '') : undefined} onClose={closeSheet}>
+          {deadline && due && days !== null ? (
+            <>
+              <SheetLine label="DATA">{WEEKDAY_LONG[due.getDay()]}, {shortDate(due)}</SheetLine>
+              <SheetLine label="FALTAM">{days === 0 ? 'É hoje' : `${days} ${days === 1 ? 'dia' : 'dias'}`}</SheetLine>
+              <SheetLine label="RAMO">{deadline.category === 'PRATICA' ? 'Prático' : 'Teórico'}</SheetLine>
+              <SheetLine label="PESO NA NOTA">{deadlineWeight !== null ? fmtPercent(deadlineWeight) : '—'}</SheetLine>
+              <SheetLine label="PESO NO RAMO">{deadline.weight_percent ? `${deadline.weight_percent}%` : '—'}</SheetLine>
+              {deadlineAfter && afterDue && (
+                <SheetLine label="DEPOIS">{deadlineAfter.title} · {shortDate(afterDue)}</SheetLine>
+              )}
+            </>
+          ) : (
+            <p style={{ margin: 0 }}>Sem prazos marcados.</p>
+          )}
+        </BottomSheet>
+      )}
+      {sheet === 'media' && (
+        <BottomSheet title={average !== null ? `Média atual: ${fmtGrade(average)}` : 'Média atual'} onClose={closeSheet}>
+          <SheetLine label="PESOS">Teórica {theory}% · Prática {practice}%</SheetLine>
+          <SheetLine label="AVALIADOS">
+            {gradedCount} de {totalCount} {totalCount === 1 ? 'componente' : 'componentes'}
+          </SheetLine>
+          {average === null && <p style={{ margin: 0 }}>Ainda não há notas lançadas.</p>}
+        </BottomSheet>
+      )}
+      {sheet === 'semana' && (
+        <BottomSheet title={`${weekSlots.length} ${weekSlots.length === 1 ? 'sessão' : 'sessões'} esta semana`} onClose={closeSheet}>
+          {weekSlots.length === 0 && <p style={{ margin: 0 }}>Sem aulas no horário.</p>}
+          {weekSlots.map((s) => (
+            <SheetLine key={s.key} label={WEEKDAY_LONG[s.dayNum].toUpperCase()}>
+              {timeRange(s)} · {s.typeLabel}
+              {s.room ? ` · Sala ${s.room}` : ''}
+            </SheetLine>
+          ))}
+        </BottomSheet>
+      )}
+
+      <BorderCard onTap={tap('aula')}>
         <div className={d.label}>{next?.inProgress ? 'AULA EM CURSO' : 'PRÓXIMA AULA'}</div>
         {next ? (
           <>
@@ -168,9 +258,14 @@ export function AgoraCards({
         ) : (
           <div className={d.muted} style={{ fontSize: 12 }}>Sem horário definido.</div>
         )}
+        <MoreHint show={phone} />
       </BorderCard>
 
-      <div className={`${d.deadline} ${d.agoraCard}`} style={{ color: 'var(--bg)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92, minWidth: 0 }}>
+      <div
+        className={`${d.deadline} ${d.agoraCard}`}
+        {...deadlineTap}
+        style={{ color: 'var(--bg)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4, minHeight: 92, minWidth: 0, ...deadlineTap.style }}
+      >
         <div className={d.label} style={{ color: 'var(--bg)', fontWeight: 600 }}>PRÓXIMO PRAZO</div>
         {deadline && due && days !== null ? (
           <>
@@ -189,9 +284,10 @@ export function AgoraCards({
         ) : (
           <div style={{ fontSize: 12 }}>Sem prazos marcados.</div>
         )}
+        <MoreHint show={phone} dark />
       </div>
 
-      <BorderCard>
+      <BorderCard onTap={tap('media')}>
         <div className={d.label}>MÉDIA ATUAL</div>
         <div className={d.serif} style={{ fontSize: 30, lineHeight: 1, color: 'var(--sky)' }}>{average !== null ? fmtGrade(average) : '—'}</div>
         <div style={{ display: 'flex', height: 4 }} title={`Pesos: teórica ${theory}%, prática ${practice}%`}>
@@ -201,14 +297,16 @@ export function AgoraCards({
         <div className={`${d.muted} ${d.ellipsis}`} style={{ fontSize: 11 }}>
           {gradedCount} de {totalCount} {totalCount === 1 ? 'componente avaliado' : 'componentes avaliados'}
         </div>
+        <MoreHint show={phone} />
       </BorderCard>
 
-      <BorderCard>
+      <BorderCard onTap={tap('semana')}>
         <div className={d.label}>ESTA SEMANA</div>
         <div className={d.serif} style={{ fontSize: 28, lineHeight: 1.05, whiteSpace: 'nowrap' }}>
           {weekSlots.length} <span style={{ fontSize: 15, color: 'var(--mut)' }}>{weekSlots.length === 1 ? 'sessão' : 'sessões'}</span>
         </div>
         <div className={d.ellipsis} style={{ fontSize: 12 }}>{weekDays.length ? weekDays.join(' · ') : 'Sem aulas no horário'}</div>
+        <MoreHint show={phone} />
       </BorderCard>
     </section>
   );
@@ -250,7 +348,7 @@ export function TasksPanel({
       {sorted.map((t) => (
         <label key={t.id} className={d.row} style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 34, cursor: 'pointer', color: t.done ? 'var(--faint)' : undefined, textDecoration: t.done ? 'line-through' : undefined }}>
           <input type="checkbox" className={d.chk} checked={t.done} onChange={() => onToggle(t.id)} />
-          <span className={d.ellipsis}>{t.text}</span>
+          <span className={`${d.ellipsis} ${d.wrapPhone}`}>{t.text}</span>
         </label>
       ))}
       <label className={d.taskInput} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34, fontSize: 13, borderBottom: '1px solid var(--line)' }}>
@@ -454,8 +552,8 @@ export function AssessmentTable({
             return (
               <div key={a.id} className={d.gradeCard}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, minWidth: 0 }}>
-                  <span className={d.ellipsis}>{a.title}</span>
-                  {r.grade === null && <span className={d.tag} style={{ padding: '2px 6px' }}>{assessmentTag(a.title || '')}</span>}
+                  <span className={`${d.ellipsis} ${d.wrapPhone}`}>{a.title}</span>
+                  {r.grade === null && <span className={d.tag} style={{ padding: '2px 6px', flexShrink: 0 }}>{assessmentTag(a.title || '')}</span>}
                 </span>
                 <span className={d.serif} style={{ fontSize: 20, textAlign: 'right', color: r.grade !== null ? 'var(--ink)' : 'var(--faint)' }}>
                   {r.grade !== null ? fmtGrade(r.grade) : '—'}
@@ -637,9 +735,9 @@ export function Library({
         <div key={`${isPinned ? 'p' : 'r'}-${doc.id}`} className={d.touchDoc}>
           <span style={{ fontSize: 10, color: TYPE_COLOR[doc.type], border: '1px solid #333', textAlign: 'center', padding: '1px 0' }}>{doc.type}</span>
           {doc.url ? (
-            <a href={doc.url} target="_blank" rel="noreferrer" className={d.ellipsis} title={doc.title}>{doc.title}</a>
+            <a href={doc.url} target="_blank" rel="noreferrer" className={`${d.ellipsis} ${d.wrapPhone}`} title={doc.title}>{doc.title}</a>
           ) : (
-            <span className={d.ellipsis}>{doc.title}</span>
+            <span className={`${d.ellipsis} ${d.wrapPhone}`}>{doc.title}</span>
           )}
           <span style={{ fontSize: 12, color: 'var(--mut)', whiteSpace: 'nowrap' }}>
             {SECTION_SHORT[doc.category]}
