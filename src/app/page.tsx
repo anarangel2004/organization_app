@@ -25,7 +25,7 @@ import {
   useHoverPin,
   useShortcuts,
 } from './components/denso/DensoChrome';
-import { AvatarMenu, PhoneTabBar, TabletHeader, layoutClasses, useDensoLayout } from './components/denso/DensoTouch';
+import { AvatarMenu, PhoneTabBar, SectionChips, TabletHeader, layoutClasses, useDensoLayout } from './components/denso/DensoTouch';
 import {
   BalanceB,
   CaptureAndVolumes,
@@ -437,6 +437,53 @@ export default function HomePage() {
     { id: 'balanco', key: '5', label: 'Balanço', badge: `${fmtNum(MOCK_BILLABLE_HOURS.done + MOCK_STUDY_HOURS.done)} h` },
   ];
 
+  // iPhone: barra de secções fixa no topo (como na Faculdade e nas disciplinas).
+  const phoneItems: ShortcutItem[] = [
+    { id: 'sessao', key: '', label: 'Agora' },
+    { id: 'hoje', key: '', label: 'Hoje', badge: todayEvents.length ? String(todayEvents.length) : undefined },
+    { id: 'tarefas', key: '', label: 'Tarefas', badge: planTasks.length ? String(planTasks.length) : undefined },
+    { id: 'notas', key: '', label: 'Notas', badge: notes.length ? String(notes.length) : undefined },
+    { id: 'volumes', key: '', label: 'Cadernos' },
+    { id: 'semana', key: '', label: 'Semana' },
+    { id: 'prazos', key: '', label: 'Prazos', badge: deadlines.length ? String(deadlines.length) : undefined },
+    { id: 'mes', key: '', label: 'Mês' },
+    { id: 'balanco', key: '', label: 'Balanço' },
+  ];
+  const spyLock = useRef(0);
+  const goToPhone = useCallback((id: string) => {
+    setActive(id);
+    const el = document.getElementById(id);
+    if (!el) return;
+    // Enquanto o scroll suave anda, a secção ativa não salta pelas do meio.
+    spyLock.current = Date.now() + 900;
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 62, behavior: 'smooth' });
+  }, []);
+  const phoneIds = phoneItems.map((it) => it.id).join(',');
+  useEffect(() => {
+    if (layout !== 'phone') return;
+    const ids = phoneIds.split(',');
+    let frame = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (Date.now() < spyLock.current) return;
+        let current = ids[0];
+        for (const id of ids) {
+          const el = document.getElementById(id);
+          if (el && el.getBoundingClientRect().top <= 90) current = id;
+        }
+        // No fim da página a última secção fica ativa, mesmo que seja curta.
+        if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) current = ids[ids.length - 1];
+        setActive(current);
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, [layout, phoneIds]);
+
   const profileUser = user
     ? {
         name: user.name.toUpperCase(),
@@ -509,7 +556,7 @@ export default function HomePage() {
     const balance = <BalanceB billable={MOCK_BILLABLE_HOURS} study={MOCK_STUDY_HOURS} expenses={MOCK_EXPENSES} monthName={monthName} />;
 
     return (
-      <div className={`${d.root} ${layoutClasses(layout)}`}>
+      <div className={`${d.root} ${layout === 'tabletH' ? d.touch : layoutClasses(layout)}`}>
         {!phone && <TabletHeader active="home" searchIndex={searchIndex} {...profile} />}
         <TopStripB nextLabel={loading ? 'A carregar horário…' : nextLabel} quote={MOCK_QUOTE} />
         <DayTitle
@@ -521,6 +568,7 @@ export default function HomePage() {
           onAddEvent={focusEvent}
           trailing={phone ? <AvatarMenu {...profile} /> : undefined}
         />
+        {phone && <SectionChips items={phoneItems} active={active} onPick={goToPhone} />}
 
         {loading ? (
           <p className={`${d.inner} ${d.muted}`} style={{ paddingTop: 40, paddingBottom: 40 }}>A carregar agenda…</p>
@@ -571,13 +619,14 @@ export default function HomePage() {
             {balance}
           </div>
         ) : (
-          <div id="dia" className={d.inner} style={{ ...col, gap: 28, paddingTop: 4, paddingBottom: 110 }}>
+          <div id="dia" className={d.inner} style={{ ...col, gap: 28, paddingTop: 14, paddingBottom: 110 }}>
             {session}
             {index}
             {plan}
             {notesEl}
             {/* Volumes a deslizar na horizontal */}
             <div
+              id="volumes"
               style={{
                 display: 'grid',
                 gridAutoFlow: 'column',

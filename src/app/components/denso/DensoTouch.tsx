@@ -322,8 +322,18 @@ export function SectionChips({
   // Atalhos para outras páginas no fim (ex.: siglas das disciplinas).
   links?: { href: string; label: string }[];
 }) {
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = navRef.current;
+    const chip = nav?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!nav || !chip) return;
+    const left = chip.offsetLeft - nav.offsetLeft;
+    if (left < nav.scrollLeft + 16 || left + chip.offsetWidth > nav.scrollLeft + nav.clientWidth - 16) {
+      nav.scrollTo({ left: Math.max(0, left - 16), behavior: 'smooth' });
+    }
+  }, [active]);
   return (
-    <nav aria-label="Secções" className={d.chips}>
+    <nav ref={navRef} aria-label="Secções" className={d.chips}>
       {items.map((it) => (
         <a
           key={it.id}
