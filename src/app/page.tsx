@@ -81,6 +81,12 @@ import {
 } from './components/painel/painelData';
 
 
+// "TESTE 1" → "Teste 1" (títulos todos em maiúsculas, como os gravados pelo editor antigo).
+function niceTitle(title: string): string {
+  const t = title.trim();
+  return t === t.toUpperCase() ? t.charAt(0) + t.slice(1).toLowerCase() : t;
+}
+
 const HELP: [string, string][] = [
   ['1–5', 'Ir para a secção'],
   ['N', 'Nova tarefa'],
@@ -301,7 +307,8 @@ export default function HomePage() {
         id: `a-${a.id}`,
         date: due,
         kind: deadlineKind(a.title || ''),
-        title: a.title || 'Avaliação',
+        // "Teste 1 - SSC": título (sem maiúsculas a gritar) e sigla da cadeira.
+        title: `${niceTitle(a.title || 'Avaliação')}${subj?.code ? ` - ${subj.code}` : ''}`,
         meta: `Faculdade · ${shortDate(due)}`,
         area: `Faculdade · ${subjectLongName(subj)}${typeof a.weight_percent === 'number' ? ` · peso ${a.weight_percent}%` : ''}`,
         href: `/faculdade/${a.subject_id}#avaliacao`,

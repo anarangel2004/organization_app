@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import Link from 'next/link';
 import d from './denso.module.css';
 
@@ -358,6 +358,45 @@ export function useHoverPin() {
   return { bind, active };
 }
 
+// Mantém um cartão flutuante (position: absolute) dentro do ecrã: se sair por
+// baixo, abre por cima do elemento (ou sobe o que for preciso); se sair pelos
+// lados, encosta à margem; se não couber em altura, ganha scroll.
+export function useFitInViewport(ref: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const parent = el?.offsetParent as HTMLElement | null;
+    if (!el || !parent) return;
+    const m = 8;
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    const p = parent.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    let top = r.top;
+    let maxH: number | null = null;
+    if (r.bottom > vh - m) {
+      const opensBelow = r.top >= p.bottom - 2;
+      const roomAbove = p.top - m - 6;
+      const roomBelow = vh - m - p.bottom - 6;
+      top = opensBelow && roomAbove > roomBelow ? p.top - 6 - r.height : vh - m - r.height;
+    }
+    if (top < m) {
+      top = m;
+      if (r.height > vh - 2 * m) maxH = vh - 2 * m;
+    }
+    const left = Math.max(m, Math.min(r.left, vw - m - r.width));
+    if (Math.abs(top - r.top) < 1 && Math.abs(left - r.left) < 1 && maxH === null) return;
+    el.style.top = `${top - p.top - parent.clientTop}px`;
+    el.style.bottom = 'auto';
+    el.style.left = `${left - p.left - parent.clientLeft}px`;
+    el.style.right = 'auto';
+    el.style.transform = 'none';
+    if (maxH !== null) {
+      el.style.maxHeight = `${maxH}px`;
+      el.style.overflowY = 'auto';
+    }
+  });
+}
+
 export interface PopData {
   title: string;
   tag?: string;
@@ -368,8 +407,10 @@ export interface PopData {
 }
 
 export function HoverPop({ data, hint, style }: { data: PopData; hint: string; style?: CSSProperties }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFitInViewport(ref);
   return (
-    <div className={d.pop} style={style} role="tooltip" data-hoverpin onClick={(e) => e.stopPropagation()}>
+    <div ref={ref} className={d.pop} style={style} role="tooltip" data-hoverpin onClick={(e) => e.stopPropagation()}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
         <span className={d.serif} style={{ fontSize: 21, lineHeight: 1.15 }}>{data.title}</span>
         {data.tag && <span className={d.tag}>{data.tag}</span>}

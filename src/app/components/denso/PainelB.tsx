@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, type ReactNode, type RefObject } from 'react';
+import { useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import Link from 'next/link';
 import d from './denso.module.css';
-import { HoverBind, HoverPop, PopData } from './DensoChrome';
+import { HoverBind, HoverPop, PopData, useFitInViewport } from './DensoChrome';
 import { BottomSheet } from './DensoTouch';
 import { useNow } from '../painel/useLocalState';
 import { parseMinutes, parseDueDate } from '../homeAgenda';
@@ -23,6 +23,17 @@ export const CAT_STYLE: Record<PainelCat, { bg: string; fg: string; bd: string }
 
 export function deadlineKind(title: string): 'TESTE' | 'ENTREGA' {
   return /(teste|exame|mini|frequ|quiz)/i.test(title) ? 'TESTE' : 'ENTREGA';
+}
+
+// Cartão do dia do mês, ajustado para caber no ecrã.
+function MonthPop({ style, children }: { style: CSSProperties; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFitInViewport(ref);
+  return (
+    <div ref={ref} className={d.pop} data-hoverpin role="tooltip" onClick={(e) => e.stopPropagation()} style={style}>
+      {children}
+    </div>
+  );
 }
 
 function pad(n: number) {
@@ -1035,11 +1046,7 @@ export function MonthB({
                 <span className={d.round} style={{ width: 5, height: 5, background: others.length ? '#6b675f' : 'transparent' }} />
               </button>
               {b.open && !sheet && (
-                <div
-                  className={d.pop}
-                  data-hoverpin
-                  role="tooltip"
-                  onClick={(e) => e.stopPropagation()}
+                <MonthPop
                   style={{
                     width: 400,
                     padding: '20px 22px',
@@ -1060,7 +1067,7 @@ export function MonthB({
                       titleRef.current?.focus();
                     }}
                   />
-                </div>
+                </MonthPop>
               )}
             </div>
           );
