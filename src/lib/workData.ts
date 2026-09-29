@@ -181,3 +181,26 @@ export async function deleteWorkTask(id: string): Promise<void> {
     await queueMutation({ table: TABLE_TASKS, op: 'delete', targetId: id, payload: {} });
   }
 }
+
+// Edição genérica de um projeto (nome, cor) ou de uma tarefa (título, projeto, prazo).
+async function updateRow<T extends { id: string }>(table: string, id: string, patch: Partial<T>): Promise<void> {
+  const supabase = createClient();
+  try {
+    const { data, error } = await supabase.from(table).update(patch as Record<string, unknown>).eq('id', id).select('*').single();
+    if (error) throw error;
+    await putMirror(table, data);
+  } catch (err) {
+    if (!isNetworkError(err)) throw err;
+    const cached = (await getAllMirror<T>(table)).find((r) => r.id === id);
+    if (cached) await putMirror(table, { ...cached, ...patch });
+    await queueMutation({ table, op: 'update', targetId: id, payload: patch as Record<string, unknown> });
+  }
+}
+
+export function updateWorkProject(id: string, patch: Partial<Pick<WorkProject, 'name' | 'color'>>): Promise<void> {
+  return updateRow<WorkProject>(TABLE_PROJECTS, id, patch);
+}
+
+export function updateWorkTask(id: string, patch: Partial<Pick<WorkTask, 'title' | 'project_id' | 'due_date' | 'completed'>>): Promise<void> {
+  return updateRow<WorkTask>(TABLE_TASKS, id, patch);
+}

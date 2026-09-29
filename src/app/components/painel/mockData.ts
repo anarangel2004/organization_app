@@ -31,3 +31,8 @@ export const MOCK_EXPENSES: { label: string; amount: number }[] = [
   { label: 'Licença tipográfica', amount: 39 },
   { label: 'Provas de impressão', amount: 14.5 },
 ];
+
+// Trabalho: não há registo de horas por projeto. Aplicado por ordem aos
+// projetos (o primeiro recebe o primeiro valor…); o total do mês é o
+// MOCK_BILLABLE_HOURS acima. Projetos a mais ficam sem horas ("—").
+export const MOCK_PROJECT_HOURS: number[] = [11.5, 7, 4.5, 1.5];
