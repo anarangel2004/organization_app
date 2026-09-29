@@ -127,6 +127,26 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
   const [eraserType, setEraserType] = useState<EraserType>('OBJECT');
   const [selectedCount, setSelectedCount] = useState(0);
 
+  // Zoom por escala: largura disponível na área e altura da folha (sem escala).
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [availW, setAvailW] = useState(0);
+  const [paperH, setPaperH] = useState(0);
+  useEffect(() => {
+    const area = areaRef.current;
+    const paper = paperRef.current;
+    if (!area || !paper || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const cs = window.getComputedStyle(area);
+      setAvailW(area.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+      setPaperH(paper.offsetHeight);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(area);
+    ro.observe(paper);
+    return () => ro.disconnect();
+  }, []);
+
   const [blockTag, setBlockTag] = useState<BlockTag>('p');
   const [bold, setBold] = useState(false);
   const [italic, setItalic] = useState(false);
@@ -417,6 +437,9 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
   // ==========================================
   // RENDER
   // ==========================================
+  const scaled = availW > 0;
+  const paperW = scaled ? (typeof pageWidth === 'number' ? Math.min(pageWidth, availW / zoom) : availW / zoom) : 0;
+
   const isStroke = tool === 'PEN' || tool === 'HIGHLIGHTER';
   const inks = tool === 'HIGHLIGHTER' ? MARKER_INKS : PEN_INKS;
   const inkIdx = tool === 'HIGHLIGHTER' ? markerInk : penInk;
@@ -655,12 +678,22 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
 
       <div
         data-scroll
+        ref={areaRef}
         className={`${c.sheetArea} ${layout === 'phone' ? c.sheetAreaFlush : layout === 'tablet' ? c.sheetAreaTablet : ''}`}
       >
+        {/* A caixa ocupa o tamanho já ampliado, para o scroll e o centrar funcionarem. */}
+        <div
+          className={c.zoomBox}
+          style={scaled ? { width: paperW * zoom, height: paperH ? paperH * zoom : undefined } : undefined}
+        >
         <article
           ref={paperRef}
           className={`${c.paper} ${PAPER_CLASS[paperStyle]} ${layout === 'phone' ? c.paperPhone : ''} printable-editor`}
-          style={{ width: pageWidth, zoom }}
+          style={
+            scaled
+              ? { width: paperW, maxWidth: 'none', margin: 0, transform: zoom === 1 ? undefined : `scale(${zoom})`, transformOrigin: '0 0' }
+              : { width: pageWidth }
+          }
           onMouseLeave={() => setRefPop(null)}
         >
           <div className={c.paperMeta}>
@@ -740,6 +773,7 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
             </div>
           )}
         </article>
+        </div>
       </div>
     </section>
   );
