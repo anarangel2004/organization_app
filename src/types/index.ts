@@ -67,6 +67,9 @@ export interface AssessmentItem {
   category: 'TEORICA' | 'PRATICA';
   weight_percent: number;
   due_date: string | null;
+  // Hora de início ("HH:MM") e duração em minutos (testes e exames).
+  due_time?: string | null;
+  duration_minutes?: number | null;
   grade: number | null;
   has_defense: boolean;
   defense_grade: number | null;

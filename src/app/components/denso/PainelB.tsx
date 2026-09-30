@@ -569,9 +569,44 @@ export interface WeekCol {
   events: PainelEvent[];
 }
 
+// Navegação entre semanas (0 = semana atual).
+export interface WeekNav {
+  offset: number;
+  label: string; // "22 set – 28 set"
+  onPrev: () => void;
+  onNext: () => void;
+  onToday: () => void;
+}
+
+function WeekNavButtons({ nav, big = false }: { nav: WeekNav; big?: boolean }) {
+  const size = big ? 36 : 28;
+  const btn = { height: size, background: 'transparent', border: '1px solid var(--box)', color: 'var(--ink)', flexShrink: 0 } as const;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <button type="button" aria-label="Semana anterior" onClick={nav.onPrev} style={{ ...btn, width: size }}>‹</button>
+      <button
+        type="button"
+        onClick={nav.onToday}
+        disabled={nav.offset === 0}
+        style={{ ...btn, padding: '0 10px', fontSize: 12, opacity: nav.offset === 0 ? 0.5 : 1 }}
+      >
+        Esta semana
+      </button>
+      <button type="button" aria-label="Semana seguinte" onClick={nav.onNext} style={{ ...btn, width: size }}>›</button>
+    </span>
+  );
+}
+
+// "29 set – 5 out · próxima": vai depois dos botões, para a largura variável
+// não os empurrar ao mudar de semana.
+function weekRange(nav: WeekNav) {
+  const rel = nav.offset === -1 ? ' · passada' : nav.offset === 1 ? ' · próxima' : '';
+  return `${nav.label}${rel}`;
+}
+
 const PX = 18;
 
-export function WeekB({ columns, today, weekNumber, bind }: { columns: WeekCol[]; today: Date; weekNumber: number; bind: Bind }) {
+export function WeekB({ columns, today, weekNumber, bind, nav }: { columns: WeekCol[]; today: Date; weekNumber: number; bind: Bind; nav?: WeekNav }) {
   const now = useNow(60_000);
   const timed = columns.flatMap((c) => c.events.filter((e) => e.time));
   let h0 = 9;
@@ -595,19 +630,22 @@ export function WeekB({ columns, today, weekNumber, bind }: { columns: WeekCol[]
 
   return (
     <section id="semana" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, scrollMarginTop: 16 }}>
-      <SectionHeadB
-        title={`SEMANA ${weekNumber}`}
-        aside={
-          <span style={{ display: 'inline-flex', gap: 12, fontSize: 11, flexWrap: 'wrap' }}>
-            {legend.map(([cat, label]) => (
-              <span key={cat} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 9, height: 9, background: cat === 'pessoal' ? 'transparent' : CAT_STYLE[cat].bg, border: `1px solid ${cat === 'pessoal' ? 'var(--ink)' : CAT_STYLE[cat].bd}` }} />
-                {label}
-              </span>
-            ))}
-          </span>
-        }
-      />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px 16px', borderBottom: '1px solid var(--line)', paddingBottom: 10 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {/* Título com algarismos de largura fixa: os botões não mexem ao trocar de semana. */}
+          <h2 className={d.h2lg} style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', minWidth: '6.6em' }}>SEMANA {weekNumber}</h2>
+          {nav && <WeekNavButtons nav={nav} />}
+          {nav && <span className={d.muted} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{weekRange(nav)}</span>}
+        </span>
+        <span className={d.muted} style={{ display: 'inline-flex', gap: 12, fontSize: 11, flexWrap: 'wrap' }}>
+          {legend.map(([cat, label]) => (
+            <span key={cat} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 9, height: 9, background: cat === 'pessoal' ? 'transparent' : CAT_STYLE[cat].bg, border: `1px solid ${cat === 'pessoal' ? 'var(--ink)' : CAT_STYLE[cat].bd}` }} />
+              {label}
+            </span>
+          ))}
+        </span>
+      </div>
       {/* Sem contentor com overflow: um overflow-x auto torna também o eixo
           vertical rolável e cortava a grelha e os cartões de detalhe. */}
       <div>
@@ -719,15 +757,24 @@ export function WeekB({ columns, today, weekNumber, bind }: { columns: WeekCol[]
   );
 }
 
-export function PhoneWeekB({ columns, today, weekNumber }: { columns: WeekCol[]; today: Date; weekNumber: number }) {
+export function PhoneWeekB({ columns, today, weekNumber, nav }: { columns: WeekCol[]; today: Date; weekNumber: number; nav?: WeekNav }) {
   const todayKey = isoKey(today);
-  const [sel, setSel] = useState(() => (columns.some((c) => isoKey(c.date) === todayKey) ? todayKey : isoKey(columns[0]?.date ?? today)));
+  const [chosen, setSel] = useState<string | null>(null);
+  // Ao mudar de semana o dia escolhido pode já não estar nela: fica hoje, ou a segunda-feira.
+  const inWeek = (key: string | null) => !!key && columns.some((c) => isoKey(c.date) === key);
+  const sel = inWeek(chosen) ? chosen! : inWeek(todayKey) ? todayKey : isoKey(columns[0]?.date ?? today);
   const picked = columns.find((c) => isoKey(c.date) === sel) ?? columns[0];
   const total = columns.reduce((n, c) => n + c.events.length, 0);
 
   return (
     <section id="semana" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, scrollMarginTop: 16 }}>
-      <SectionHeadB title={`SEMANA ${weekNumber}`} aside={`${total} ${total === 1 ? 'bloco' : 'blocos'}`} />
+      <SectionHeadB title={`SEMANA ${weekNumber}`} aside={nav ? weekRange(nav) : `${total} ${total === 1 ? 'bloco' : 'blocos'}`} />
+      {nav && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, gap: 8 }}>
+          <WeekNavButtons nav={nav} big />
+          <span className={d.muted} style={{ fontSize: 12 }}>{total} {total === 1 ? 'bloco' : 'blocos'}</span>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 4, paddingTop: 10 }} role="tablist" aria-label="Dias da semana">
         {columns.map((c) => {
           const key = isoKey(c.date);
@@ -874,7 +921,8 @@ function DayDetail({
   onRemoveEvent: (localId: string) => void;
   onAddHere: () => void;
 }) {
-  const due = events.find((e) => e.isDeadline);
+  // Todos os testes/entregas do dia (podem ser vários), com hora quando existe.
+  const dues = events.filter((e) => e.isDeadline);
   const others = events.filter((e) => !e.isDeadline);
   const rel = daysBetween(today, date);
   const relLabel = rel === 0 ? 'Hoje' : rel === 1 ? 'Amanhã' : rel === -1 ? 'Ontem' : rel > 0 ? `Daqui a ${rel} dias` : `Há ${-rel} dias`;
@@ -890,15 +938,18 @@ function DayDetail({
       ) : (
         <span style={{ fontSize: 13, fontWeight: 600, color: '#2f5f78' }}>{relLabel}</span>
       )}
-      {due && (
-        <div style={{ background: 'var(--amber)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {dues.map((due) => (
+        <div key={due.id} style={{ background: 'var(--amber)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em' }}>{deadlineKind(due.title)}</span>
             <span className={d.serif} style={{ fontSize: 18, lineHeight: 1.15 }}>{due.title}</span>
           </div>
-          <span style={{ fontSize: 12 }}>{due.place}</span>
+          <span style={{ fontSize: 12 }}>
+            {due.time ? <strong style={{ fontWeight: 600 }}>{due.time}{due.until ? `–${due.until}` : ''} · </strong> : null}
+            {due.place}
+          </span>
         </div>
-      )}
+      ))}
       {others.map((x) => {
         const st = CAT_STYLE[x.cat];
         const localId = x.id.startsWith('local-') ? x.id.slice(6) : null;
@@ -916,7 +967,7 @@ function DayDetail({
           </div>
         );
       })}
-      {!due && others.length === 0 && (
+      {dues.length === 0 && others.length === 0 && (
         <div style={{ borderTop: '1px solid rgba(13,13,13,0.12)', paddingTop: 8, color: 'var(--papermut)' }}>Sem registos neste dia.</div>
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingTop: 6 }}>

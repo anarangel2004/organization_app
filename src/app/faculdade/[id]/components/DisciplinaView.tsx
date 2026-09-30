@@ -25,6 +25,9 @@ import {
   fmtPercent,
   initials,
   shortDate,
+  assessmentTimeRange,
+  dueLabel,
+  fmtDuration,
 } from './disciplinaData';
 
 // ==========================================
@@ -208,12 +211,20 @@ export function AgoraCards({
           {deadline && due && days !== null ? (
             <>
               <SheetLine label="DATA">{WEEKDAY_LONG[due.getDay()]}, {shortDate(due)}</SheetLine>
+              {assessmentTimeRange(deadline) && (
+                <SheetLine label="HORA">
+                  {deadline.duration_minutes
+                    ? `Das ${assessmentTimeRange(deadline)!.replace('–', ' às ')}`
+                    : assessmentTimeRange(deadline)}
+                </SheetLine>
+              )}
+              {deadline.duration_minutes ? <SheetLine label="DURAÇÃO">{fmtDuration(deadline.duration_minutes)}</SheetLine> : null}
               <SheetLine label="FALTAM">{days === 0 ? 'É hoje' : `${days} ${days === 1 ? 'dia' : 'dias'}`}</SheetLine>
               <SheetLine label="RAMO">{deadline.category === 'PRATICA' ? 'Prático' : 'Teórico'}</SheetLine>
               <SheetLine label="PESO NA NOTA">{deadlineWeight !== null ? fmtPercent(deadlineWeight) : '—'}</SheetLine>
               <SheetLine label="PESO NO RAMO">{deadline.weight_percent ? `${deadline.weight_percent}%` : '—'}</SheetLine>
               {deadlineAfter && afterDue && (
-                <SheetLine label="DEPOIS">{deadlineAfter.title} · {shortDate(afterDue)}</SheetLine>
+                <SheetLine label="DEPOIS">{deadlineAfter.title} · {dueLabel(deadlineAfter, afterDue)}</SheetLine>
               )}
             </>
           ) : (
@@ -272,13 +283,14 @@ export function AgoraCards({
             <div className={d.serif} style={{ fontSize: 30, lineHeight: 1, whiteSpace: 'nowrap' }}>
               {days === 0 ? 'Hoje' : days}
               {days !== 0 && <span style={{ fontSize: 15 }}> {days === 1 ? 'dia' : 'dias'}</span>}
+              {days === 0 && assessmentTimeRange(deadline) && <span style={{ fontSize: 15 }}> {assessmentTimeRange(deadline)}</span>}
             </div>
             <div className={d.ellipsis} style={{ fontSize: 12, fontWeight: 500 }}>
-              {deadline.title} · {shortDate(due)}
+              {deadline.title} · {dueLabel(deadline, due)}
               {deadlineWeight !== null ? ` · ${fmtPercent(deadlineWeight)}` : ''}
             </div>
             {deadlineAfter && afterDue && (
-              <div className={d.ellipsis} style={{ fontSize: 11 }}>Depois: {deadlineAfter.title} · {shortDate(afterDue)}</div>
+              <div className={d.ellipsis} style={{ fontSize: 11 }}>Depois: {deadlineAfter.title} · {dueLabel(deadlineAfter, afterDue)}</div>
             )}
           </>
         ) : (
@@ -562,7 +574,7 @@ export function AssessmentTable({
                   <span style={{ color: r.theoretical ? 'var(--sky)' : 'var(--bone)' }}>{r.theoretical ? 'Teórico' : 'Prático'}</span>
                   {' · '}
                   {fmtPercent(effectiveWeight(a, theory, practice))}
-                  {r.due ? ` · ${shortDate(r.due)}` : ''}
+                  {r.due ? ` · ${dueLabel(a, r.due)}` : ''}
                 </span>
                 <span style={{ fontSize: 12, textAlign: 'right', color: r.stateColor }}>{r.state}</span>
               </div>
@@ -601,7 +613,10 @@ export function AssessmentTable({
                     <td style={{ ...td, color: 'var(--mut)' }} title={`${a.weight_percent || 0}% do ramo ${theoretical ? 'teórico' : 'prático'}`}>
                       {fmtPercent(effectiveWeight(a, theory, practice))}
                     </td>
-                    <td style={{ ...td, whiteSpace: 'nowrap' }}>{due ? shortDate(due) : '—'}</td>
+                    <td style={{ ...td, whiteSpace: 'nowrap' }} title={a.duration_minutes ? `Duração: ${fmtDuration(a.duration_minutes)}` : undefined}>
+                      {due ? shortDate(due) : '—'}
+                      {assessmentTimeRange(a) && <span style={{ display: 'block', fontSize: 11, color: 'var(--mut)' }}>{assessmentTimeRange(a)}</span>}
+                    </td>
                     <td style={{ ...td, whiteSpace: 'nowrap', color: stateColor }}>{state}</td>
                     <td
                       className={grade !== null ? d.serif : undefined}

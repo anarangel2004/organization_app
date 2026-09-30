@@ -44,6 +44,7 @@ import {
   VolumeTiles,
   WeekB,
   WeekCol,
+  WeekNav,
   deadlineKind,
 } from './components/denso/PainelB';
 import type { HeroClass, HeroNextClass, HeroTile } from './components/painel/PainelHero';
@@ -79,7 +80,7 @@ import {
   subjectLongName,
   subjectShortName,
 } from './components/painel/painelData';
-
+import { dueLabel, fmtDuration } from './faculdade/[id]/components/disciplinaData';
 
 // "TESTE 1" → "Teste 1" (títulos todos em maiúsculas, como os gravados pelo editor antigo).
 function niceTitle(title: string): string {
@@ -133,7 +134,7 @@ export default function HomePage() {
     try {
       const [subjectsRes, assessmentsRes, chaptersRes, projects, tasks] = await Promise.all([
         supabase.from('subjects').select('id, name, code, schedules'),
-        supabase.from('assessments').select('id, subject_id, title, due_date, weight_percent, category, grade'),
+        supabase.from('assessments').select('id, subject_id, title, due_date, due_time, duration_minutes, weight_percent, category, grade'),
         supabase.from('chapters').select('id, subject_id, category, title, updated_at'),
         getWorkProjects(),
         getWorkTasks(),
@@ -284,7 +285,9 @@ export default function HomePage() {
   // ==========================================
   // SEMANA (Seg–Sex, mais fim de semana se tiver eventos)
   // ==========================================
-  const monday = useMemo(() => mondayOf(today), [today]);
+  // 0 = esta semana; ‹ › andam de 7 em 7 dias.
+  const [weekOffset, setWeekOffset] = useState(0);
+  const monday = useMemo(() => addDays(mondayOf(today), weekOffset * 7), [today, weekOffset]);
   const weekColumns = useMemo<WeekCol[]>(() => {
     const cols = Array.from({ length: 7 }, (_, i) => {
       const date = addDays(monday, i);
@@ -292,7 +295,19 @@ export default function HomePage() {
     });
     return cols.slice(5).some((c) => c.events.length > 0) ? cols : cols.slice(0, 5);
   }, [monday, getEvents]);
-  const weekBlocks = weekColumns.reduce((n, c) => n + c.events.length, 0);
+  // O número no atalho "Semana" conta sempre a semana atual.
+  const weekBlocks = useMemo(() => {
+    const start = mondayOf(today);
+    return Array.from({ length: 7 }, (_, i) => getEvents(addDays(start, i)).length).reduce((a, b) => a + b, 0);
+  }, [today, getEvents]);
+  const weekNav: WeekNav = {
+    offset: weekOffset,
+    label: `${shortDate(monday)} – ${shortDate(addDays(monday, 6))}`,
+    onPrev: () => setWeekOffset((o) => o - 1),
+    onNext: () => setWeekOffset((o) => o + 1),
+    onToday: () => setWeekOffset(0),
+  };
+  const shownWeek = isoWeek(monday);
 
   // ==========================================
   // PRAZOS (os 3 mais próximos: avaliações por classificar + tarefas)
@@ -309,8 +324,8 @@ export default function HomePage() {
         kind: deadlineKind(a.title || ''),
         // "Teste 1 - SSC": título (sem maiúsculas a gritar) e sigla da cadeira.
         title: `${niceTitle(a.title || 'Avaliação')}${subj?.code ? ` - ${subj.code}` : ''}`,
-        meta: `Faculdade · ${shortDate(due)}`,
-        area: `Faculdade · ${subjectLongName(subj)}${typeof a.weight_percent === 'number' ? ` · peso ${a.weight_percent}%` : ''}`,
+        meta: `Faculdade · ${dueLabel(a, due)}`,
+        area: `Faculdade · ${subjectLongName(subj)}${a.duration_minutes ? ` · ${fmtDuration(a.duration_minutes)}` : ''}${typeof a.weight_percent === 'number' ? ` · peso ${a.weight_percent}%` : ''}`,
         href: `/faculdade/${a.subject_id}#avaliacao`,
       });
     });
@@ -544,9 +559,9 @@ export default function HomePage() {
     const capture = <CaptureBox onCapture={addNote} captureRef={captureRef} kbd={false} />;
     const volumes = <VolumeTiles tiles={tiles} bind={bind} minHeight={130} linkOnly={phone} />;
     const week = phone ? (
-      <PhoneWeekB columns={weekColumns} today={today} weekNumber={isoWeek(today)} />
+      <PhoneWeekB columns={weekColumns} today={today} weekNumber={shownWeek} nav={weekNav} />
     ) : (
-      <WeekB columns={weekColumns} today={today} weekNumber={isoWeek(today)} bind={bind} />
+      <WeekB columns={weekColumns} today={today} weekNumber={shownWeek} bind={bind} nav={weekNav} />
     );
     const deadlinesEl = <DeadlinesB items={deadlines} today={today} bind={bind} />;
     const month = (
@@ -722,7 +737,7 @@ export default function HomePage() {
 
           <div className={d.col8} style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
             <CaptureAndVolumes tiles={tiles} onCapture={addNote} captureRef={captureRef} bind={bind} />
-            <WeekB columns={weekColumns} today={today} weekNumber={isoWeek(today)} bind={bind} />
+            <WeekB columns={weekColumns} today={today} weekNumber={shownWeek} bind={bind} nav={weekNav} />
             <div className={d.two}>
               <DeadlinesB items={deadlines} today={today} bind={bind} />
               <MonthB today={today} getEvents={getEvents} onAddEvent={handleAddEvent} onRemoveEvent={handleRemoveEvent} titleRef={eventTitleRef} bind={bind} />

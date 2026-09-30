@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import d from '@/app/components/denso/denso.module.css';
+import { TimeField } from '@/components/ui/DateTimeFields';
 import { normalizeDayNum, parseMinutes, parseSchedulesRaw } from '@/app/components/homeAgenda';
 import { WEEKDAY_LONG, WEEKDAY_SHORT, branchOf, type Branch } from '../disciplinaData';
 import { DeleteButton, Field, SaveStatus, errorMessage, updateSubject, type SaveState } from './shared';
@@ -172,20 +173,24 @@ export function HorarioEditor({
       </Field>
       <div className={`${d.fieldRow} ${d.fieldRow3}`}>
         <Field label="INÍCIO">
-          <input
+          <TimeField
             className={d.input}
-            type="time"
+            invalidClassName={d.inputInvalid}
             value={editing.start}
-            onChange={(e) => {
-              const start = e.target.value;
+            onChange={(start) => {
               // Mantém a duração ao mudar a hora de início.
-              const dur = editing.end ? parseMinutes(editing.end) - parseMinutes(editing.start) : 120;
+              const dur = editing.end && editing.start ? parseMinutes(editing.end) - parseMinutes(editing.start) : 120;
               setEditing({ ...editing, start, end: start ? addMinutes(start, Math.max(30, dur)) : editing.end });
             }}
           />
         </Field>
         <Field label="FIM">
-          <input className={`${d.input} ${endError ? d.inputInvalid : ''}`} type="time" value={editing.end} onChange={(e) => setEditing({ ...editing, end: e.target.value })} />
+          <TimeField
+            className={`${d.input} ${endError ? d.inputInvalid : ''}`}
+            invalidClassName={d.inputInvalid}
+            value={editing.end}
+            onChange={(end) => setEditing({ ...editing, end })}
+          />
         </Field>
         <Field label="SALA">
           <input className={d.input} list="gerir-rooms" value={editing.room} onChange={(e) => setEditing({ ...editing, room: e.target.value })} placeholder="ED 2: LAB 128" />

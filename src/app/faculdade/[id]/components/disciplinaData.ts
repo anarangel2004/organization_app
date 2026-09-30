@@ -204,6 +204,44 @@ export function effectiveWeight(item: AssessmentItem, theory: number, practice: 
   return ((item.weight_percent || 0) * branch) / 100;
 }
 
+// ==========================================
+// HORA E DURAÇÃO DOS TESTES
+// ==========================================
+// "09:00:00" (coluna time) ou "9:00" → "09:00"; vazio → null.
+export function normTime(t: string | null | undefined): string | null {
+  const m = t?.match(/^(\d{1,2}):(\d{2})/);
+  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : null;
+}
+
+// 90 → "1h30", 120 → "2h", 45 → "45 min".
+export function fmtDuration(min: number | null | undefined): string | null {
+  if (!min || min <= 0) return null;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
+}
+
+// "09:00" + 90 → "10:30".
+export function addMinutes(time: string, min: number): string {
+  const [h, m] = time.split(':').map(Number);
+  const total = (h * 60 + m + min) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+// "09:00–10:30" (com duração), "09:00" (sem duração) ou null (sem hora).
+export function assessmentTimeRange(a: { due_time?: string | null; duration_minutes?: number | null }): string | null {
+  const start = normTime(a.due_time);
+  if (!start) return null;
+  return a.duration_minutes ? `${start}–${addMinutes(start, a.duration_minutes)}` : start;
+}
+
+// "5 nov" → "5 nov · 09:00–10:30" quando há hora.
+export function dueLabel(a: { due_time?: string | null; duration_minutes?: number | null }, due: Date): string {
+  const range = assessmentTimeRange(a);
+  return range ? `${shortDate(due)} · ${range}` : shortDate(due);
+}
+
 export function fmtPercent(n: number): string {
   return `${(Math.round(n * 10) / 10).toString().replace('.', ',')}%`;
 }

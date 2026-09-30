@@ -7,7 +7,22 @@ import { deleteMirror, generateLocalId, putMirror } from '@/lib/offline/db';
 import { queueMutation, isNetworkError } from '@/lib/offline/sync';
 import { getItemEffectiveGrade } from '@/lib/utils';
 import d from '@/app/components/denso/denso.module.css';
-import { branchAverage, currentAverage, fmtGrade } from '../disciplinaData';
+import { DateField, TimeField } from '@/components/ui/DateTimeFields';
+import { assessmentTimeRange, branchAverage, currentAverage, fmtDuration, fmtGrade, normTime } from '../disciplinaData';
+
+// Durações propostas no seletor (de 15 em 15 minutos até 4 horas).
+const DURATIONS = Array.from({ length: 16 }, (_, i) => (i + 1) * 15);
+
+// Hora/duração só vão para a base de dados quando têm valor ou mudaram:
+// assim o editor continua a funcionar antes de correr o SQL das colunas novas.
+function timeFields(dr: Draft, before?: AssessmentItem): Partial<AssessmentItem> {
+  const out: Partial<AssessmentItem> = {};
+  const time = dr.time || null;
+  const duration = dr.duration ? Number(dr.duration) : null;
+  if (time !== (normTime(before?.due_time) ?? null)) out.due_time = time;
+  if (duration !== (before?.duration_minutes ?? null)) out.duration_minutes = duration;
+  return out;
+}
 import { DeleteButton, Field, SaveStatus, errorMessage, updateSubject, type SaveState } from './shared';
 
 // Editor da avaliação: pesos dos ramos, notas (escritas direto na linha) e
@@ -19,6 +34,8 @@ interface Draft {
   title: string;
   weight: string;
   date: string;
+  time: string; // "HH:MM" ou ''
+  duration: string; // minutos ou ''
   notes: string;
   hasDefense: boolean;
   defenseDate: string;
@@ -29,6 +46,8 @@ const toDraft = (a: AssessmentItem): Draft => ({
   title: a.title || '',
   weight: String(a.weight_percent ?? ''),
   date: a.due_date ? a.due_date.split('T')[0] : '',
+  time: normTime(a.due_time) || '',
+  duration: a.duration_minutes ? String(a.duration_minutes) : '',
   notes: a.volume_ref || '',
   hasDefense: !!a.has_defense,
   defenseDate: a.defense_date ? a.defense_date.split('T')[0] : '',
@@ -148,6 +167,7 @@ export function AvaliacaoEditor({
       category: cat,
       weight_percent: Number(dr.weight) || 0,
       due_date: dr.date || null,
+      ...timeFields(dr),
       volume_ref: dr.notes.trim() || null,
       file_name: null,
       file_url: null,
@@ -232,6 +252,8 @@ export function AvaliacaoEditor({
       title: `${cat === 'TEORICA' ? 'Teste' : 'Trabalho'} ${inCat.length + 1}`,
       weight: String(Math.max(0, 100 - used)),
       date: '',
+      time: '',
+      duration: '',
       notes: '',
       hasDefense: false,
       defenseDate: '',
@@ -256,6 +278,7 @@ export function AvaliacaoEditor({
       title: draft.title.trim(),
       weight_percent: draftWeight,
       due_date: draft.date || null,
+      ...timeFields(draft, a),
       volume_ref: draft.notes.trim() || null,
       has_defense: draft.hasDefense,
       defense_date: draft.hasDefense ? draft.defenseDate || null : null,
@@ -282,12 +305,38 @@ export function AvaliacaoEditor({
         </div>
         <div className={`${d.fieldRow} ${d.fieldRow2}`}>
           <Field label={cat === 'TEORICA' ? 'DATA' : 'ENTREGA'}>
-            <input className={d.input} type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} style={{ colorScheme: 'dark' }} />
+            <DateField className={d.input} invalidClassName={d.inputInvalid} value={draft.date} onChange={(date) => setDraft({ ...draft, date })} style={{ colorScheme: 'dark' }} />
           </Field>
           <Field label={cat === 'TEORICA' ? 'MATÉRIA' : 'REQUISITOS / NOTAS'}>
             <input className={d.input} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder={cat === 'TEORICA' ? 'Capítulos 1 a 4' : 'opcional'} />
           </Field>
         </div>
+        <div className={`${d.fieldRow} ${d.fieldRow2}`}>
+          <Field label={cat === 'TEORICA' ? 'HORA DE INÍCIO' : 'HORA LIMITE'}>
+            <TimeField className={d.input} invalidClassName={d.inputInvalid} value={draft.time} onChange={(time) => setDraft({ ...draft, time })} />
+          </Field>
+          {cat === 'TEORICA' ? (
+            <Field label="DURAÇÃO">
+              <select className={d.input} value={draft.duration} onChange={(e) => setDraft({ ...draft, duration: e.target.value })}>
+                <option value="">—</option>
+                {/* Mantém uma duração antiga que não esteja na lista. */}
+                {draft.duration && !DURATIONS.includes(Number(draft.duration)) && (
+                  <option value={draft.duration}>{fmtDuration(Number(draft.duration))}</option>
+                )}
+                {DURATIONS.map((m) => (
+                  <option key={m} value={m}>{fmtDuration(m)}</option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <span />
+          )}
+        </div>
+        {draft.time && draft.duration && (
+          <span className={d.muted} style={{ fontSize: 12 }}>
+            Das {assessmentTimeRange({ due_time: draft.time, duration_minutes: Number(draft.duration) })?.replace('–', ' às ')}
+          </span>
+        )}
         {cat === 'PRATICA' && a && (
           <>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer' }}>
@@ -297,7 +346,7 @@ export function AvaliacaoEditor({
             {draft.hasDefense && (
               <div className={`${d.fieldRow} ${d.fieldRow2}`}>
                 <Field label="DATA DA DEFESA">
-                  <input className={d.input} type="date" value={draft.defenseDate} onChange={(e) => setDraft({ ...draft, defenseDate: e.target.value })} style={{ colorScheme: 'dark' }} />
+                  <DateField className={d.input} invalidClassName={d.inputInvalid} value={draft.defenseDate} onChange={(defenseDate) => setDraft({ ...draft, defenseDate })} style={{ colorScheme: 'dark' }} />
                 </Field>
                 <Field label="NOTA DA DEFESA">
                   <input
@@ -443,6 +492,8 @@ export function AvaliacaoEditor({
                     <span style={{ fontSize: 11, color: 'var(--mut2)' }}>
                       {a.weight_percent || 0}% do ramo
                       {a.due_date ? ` · ${a.due_date.split('T')[0].split('-').reverse().slice(0, 2).join('/')}` : ' · sem data'}
+                      {assessmentTimeRange(a) ? ` ${assessmentTimeRange(a)}` : ''}
+                      {a.duration_minutes ? ` (${fmtDuration(a.duration_minutes)})` : ''}
                       {a.has_defense ? ` · defesa${a.defense_grade !== null ? ` ${fmtGrade(a.defense_grade)}` : ''}` : ''}
                       {a.file_url ? ' · ficheiro' : ''}
                     </span>

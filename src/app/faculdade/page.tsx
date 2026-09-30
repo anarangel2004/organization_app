@@ -15,7 +15,10 @@ import { DensoHeader, SearchHit, ShortcutBar, ShortcutItem, scrollToId, useShort
 import { useNow } from '@/app/components/painel/useLocalState';
 import { collectClasses, computeSubjectHours, parseDueDate, parseMinutes } from '@/app/components/homeAgenda';
 import { MONTHS_PT, WEEKDAY_LONG_PT, addDays, classTypeLabel, daysBetween, fmtNum, isoKey, isoWeek, mondayOf, shortDate, startOfDay } from '@/app/components/painel/painelData';
-import { currentAverage, teacherName, type Teacher } from './[id]/components/disciplinaData';
+import { addMinutes, currentAverage, dueLabel, fmtDuration, normTime, teacherName, type Teacher } from './[id]/components/disciplinaData';
+
+// Testes com hora na grelha da semana (âmbar, como no design).
+const TEST_TONE = { bg: '#e3a857', fg: '#0d0d0d', bd: '#e3a857' };
 import { NewSubjectPanel } from './components/NewSubjectPanel';
 import {
   ClassSlot,
@@ -260,31 +263,53 @@ export default function FaculdadePage() {
   // ==========================================
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(monday, i)), [monday]);
   const todayIndex = weekDays.findIndex((x) => isoKey(x) === todayKey);
-  const blocks = useMemo<WeekBlock[]>(
-    () =>
-      slots.map((sl, i) => ({
-        id: `b-${sl.subjectId}-${sl.start}-${i}`,
-        dayIndex: (sl.dayNum + 6) % 7,
-        start: sl.start,
-        end: sl.end,
-        label: [sl.code, sl.typeShort || null, sl.room || null].filter(Boolean).join(' · '),
-        title: `${nameOf(sl.subjectId)} · ${sl.typeLabel} · ${sl.start}${sl.end ? `–${sl.end}` : ''}${sl.room ? ` · Sala ${sl.room}` : ''}`,
-        tone: toneOf.get(sl.subjectId) ?? OVERFLOW_TONE,
-        href: `/faculdade/${sl.subjectId}`,
-      })),
-    [slots, toneOf, nameOf]
-  );
+  const blocks = useMemo<WeekBlock[]>(() => {
+    const out: WeekBlock[] = slots.map((sl, i) => ({
+      id: `b-${sl.subjectId}-${sl.start}-${i}`,
+      dayIndex: (sl.dayNum + 6) % 7,
+      start: sl.start,
+      end: sl.end,
+      label: [sl.code, sl.typeShort || null, sl.room || null].filter(Boolean).join(' · '),
+      title: `${nameOf(sl.subjectId)} · ${sl.typeLabel} · ${sl.start}${sl.end ? `–${sl.end}` : ''}${sl.room ? ` · Sala ${sl.room}` : ''}`,
+      tone: toneOf.get(sl.subjectId) ?? OVERFLOW_TONE,
+      href: `/faculdade/${sl.subjectId}`,
+    }));
+    // Testes com hora entram na grelha como blocos âmbar, do tamanho da duração.
+    assessments.forEach((a) => {
+      const due = parseDueDate(a.due_date);
+      const start = normTime(a.due_time);
+      if (!due || !start) return;
+      const idx = daysBetween(monday, due);
+      if (idx < 0 || idx > 6) return;
+      const end = a.duration_minutes ? addMinutes(start, a.duration_minutes) : '';
+      out.push({
+        id: `t-${a.id}`,
+        dayIndex: idx,
+        start,
+        end,
+        label: `${niceTitle(a.title || 'Avaliação')} ${codeOf(a.subject_id)}`,
+        title: `${a.title} · ${nameOf(a.subject_id)} · ${start}${end ? `–${end}` : ''}${a.duration_minutes ? ` (${fmtDuration(a.duration_minutes)})` : ''}`,
+        tone: TEST_TONE,
+        href: `/faculdade/${a.subject_id}#avaliacao`,
+      });
+    });
+    return out;
+  }, [slots, assessments, monday, toneOf, nameOf, codeOf]);
+  // Prazos sem hora ficam como marca no dia (os com hora já são blocos).
   const markers = useMemo<WeekMarker[]>(() => {
     const out: WeekMarker[] = [];
     assessments.forEach((a) => {
       const due = parseDueDate(a.due_date);
-      if (!due) return;
+      if (!due || normTime(a.due_time)) return;
       const idx = daysBetween(monday, due);
       if (idx >= 0 && idx < 7) out.push({ id: `m-${a.id}`, dayIndex: idx, title: `${a.title} (${codeOf(a.subject_id)})`, href: `/faculdade/${a.subject_id}` });
     });
     return out;
   }, [assessments, monday, codeOf]);
-  const legend = sortedSubjects.map((x) => ({ label: codeOf(x.id), tone: toneOf.get(x.id) ?? OVERFLOW_TONE }));
+  const legend = [
+    ...sortedSubjects.map((x) => ({ label: codeOf(x.id), tone: toneOf.get(x.id) ?? OVERFLOW_TONE })),
+    ...(blocks.some((b) => b.tone === TEST_TONE) ? [{ label: 'Teste', tone: TEST_TONE }] : []),
+  ];
 
   // ==========================================
   // PRAZOS (todos os futuros ainda por classificar)
@@ -302,7 +327,7 @@ export default function FaculdadePage() {
         // "Teste 1 - Disciplina"; a disciplina já vai no título.
         title: `${niceTitle(a.title || 'Avaliação')} - ${codeOf(a.subject_id)}`,
         source: '',
-        date: shortDate(due),
+        date: dueLabel(a, due),
         dot: tone.bg === 'transparent' ? tone.bd : tone.bg,
         href: `/faculdade/${a.subject_id}#avaliacao`,
         tag: assessmentTag(a.title || ''),
@@ -440,7 +465,7 @@ export default function FaculdadePage() {
         nextWhere,
         nextToday: best?.offset === 0,
         due: nextDue ? nextDue.a.title || 'Avaliação' : '—',
-        dueWhen: nextDue ? `${shortDate(nextDue.due)} · ${dueDays === 0 ? 'hoje' : `em ${dueDays} ${dueDays === 1 ? 'dia' : 'dias'}`}` : 'sem prazos',
+        dueWhen: nextDue ? `${dueLabel(nextDue.a, nextDue.due)} · ${dueDays === 0 ? 'hoje' : `em ${dueDays} ${dueDays === 1 ? 'dia' : 'dias'}`}` : 'sem prazos',
         dueTag: nextDue ? assessmentTag(nextDue.a.title || '') : undefined,
         tone: toneOf.get(x.id) ?? OVERFLOW_TONE,
       };

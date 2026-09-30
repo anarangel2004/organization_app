@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'rea
 import type { WorkProject, WorkTask } from '@/lib/workData';
 import { parseDueDate } from '@/app/components/homeAgenda';
 import d from '@/app/components/denso/denso.module.css';
+import { DateField } from '@/components/ui/DateTimeFields';
 import { DeleteButton, Field } from '@/app/components/denso/DensoForm';
 import type { DensoLayout } from '@/app/components/denso/DensoTouch';
 
@@ -441,7 +442,7 @@ export function TasksPanel({
           placeholder={filterProject ? `Nova tarefa em ${filterProject.name}…` : 'Nova tarefa… (Enter)'}
           aria-label="Nova tarefa"
         />
-        <input className={d.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Prazo da nova tarefa" style={{ width: 150, colorScheme: 'dark' }} />
+        <DateField className={d.input} invalidClassName={d.inputInvalid} value={date} onChange={setDate} aria-label="Prazo da nova tarefa" style={{ width: 150, flexShrink: 0, colorScheme: 'dark' }} />
       </div>
 
       {tasks.length === 0 && (
@@ -593,7 +594,7 @@ export function TaskDrawer({
             </button>
           ))}
         </div>
-        <input className={d.input} type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} style={{ colorScheme: 'dark' }} />
+        <DateField className={d.input} invalidClassName={d.inputInvalid} value={draft.date} onChange={(date) => setDraft({ ...draft, date })} style={{ colorScheme: 'dark' }} />
       </Field>
       <Field label="NOTAS" hint="Ficam guardadas só neste dispositivo (ainda não há coluna para notas no Supabase).">
         <textarea

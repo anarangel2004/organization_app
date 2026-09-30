@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { putMirror, generateLocalId } from '@/lib/offline/db';
 import { queueMutation, isNetworkError } from '@/lib/offline/sync';
 import d from '@/app/components/denso/denso.module.css';
+import { TimeField } from '@/components/ui/DateTimeFields';
 
 // Painel lateral "Nova disciplina", em 4 passos + resumo.
 // Grava o mesmo que o formulário antigo (AddSubjectForm), e os pesos também nas
@@ -363,10 +364,10 @@ export function NewSubjectPanel({
           </div>
           <div className={`${d.fieldRow} ${d.fieldRow2}`}>
             <Field label="INÍCIO">
-              <input className={d.input} type="time" value={s.startTime} onChange={(e) => updateSlot(s.id, { startTime: e.target.value })} />
+              <TimeField className={d.input} invalidClassName={d.inputInvalid} value={s.startTime} onChange={(startTime) => updateSlot(s.id, { startTime })} />
             </Field>
             <Field label="FIM">
-              <input className={`${d.input} ${invalid(slotErrors[i])}`} type="time" value={s.endTime} onChange={(e) => updateSlot(s.id, { endTime: e.target.value })} />
+              <TimeField className={`${d.input} ${invalid(slotErrors[i])}`} invalidClassName={d.inputInvalid} value={s.endTime} onChange={(endTime) => updateSlot(s.id, { endTime })} />
             </Field>
           </div>
           {tried && slotErrors[i] && <span className={d.errorText}>{slotErrors[i]}</span>}

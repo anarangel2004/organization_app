@@ -4,6 +4,7 @@
 // de evento, usado pelo índice do dia, grelha semanal e calendário mensal.
 
 import type { WorkProject, WorkTask } from '@/lib/workData';
+import { addMinutes, fmtDuration, normTime } from '@/app/faculdade/[id]/components/disciplinaData';
 import {
   AssessmentLite,
   ClassOccurrence,
@@ -33,6 +34,8 @@ export interface AssessmentFull extends AssessmentLite {
   weight_percent?: number | null;
   category?: string | null;
   grade?: number | null;
+  due_time?: string | null;
+  duration_minutes?: number | null;
 }
 
 export interface ChapterLite {
@@ -219,14 +222,18 @@ export function buildEventsForDate(date: Date, src: EventSources): PainelEvent[]
     if (!due || due.getTime() !== dayMs) return;
     const subject = src.subjectLookup.get(a.subject_id);
     const weight = typeof a.weight_percent === 'number' ? ` Peso: ${a.weight_percent}%.` : '';
+    // Testes com hora entram na grelha no sítio certo, com a duração.
+    const start = normTime(a.due_time);
+    const until = start && a.duration_minutes ? addMinutes(start, a.duration_minutes) : null;
+    const when = start ? (until ? ` Das ${start} às ${until} (${fmtDuration(a.duration_minutes)}).` : ` Às ${start}.`) : '';
     out.push({
       id: `prazo-${a.id}`,
       cat: 'prazo',
-      time: null,
-      until: null,
+      time: start,
+      until,
       title: a.title || 'Avaliação',
       place: subjectShortName(subject),
-      desc: `Avaliação de ${subjectLongName(subject)}.${weight}`,
+      desc: `Avaliação de ${subjectLongName(subject)}.${when}${weight}`,
       href: `/faculdade/${a.subject_id}`,
       subjectId: a.subject_id,
       isDeadline: true,
