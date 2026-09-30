@@ -636,10 +636,40 @@ const FILTERS: [Filter, string][] = [
 
 const TYPE_ORDER: DocType[] = ['PDF', 'DOC', 'MD', 'IMG', 'ZIP', 'LINK'];
 
-function DocLine({ doc, pinned, onTogglePin, showDate }: { doc: LibDoc; pinned: boolean; onTogglePin: () => void; showDate: boolean }) {
+// Apagar um documento: o primeiro toque pede confirmação, o segundo apaga.
+function DocDelete({ doc, onDelete }: { doc: LibDoc; onDelete: (id: string) => void }) {
+  const [armed, setArmed] = useState(false);
+  return (
+    <button
+      type="button"
+      className={`${d.pin} ${armed ? d.pinOn : ''}`}
+      onClick={() => (armed ? onDelete(doc.id) : setArmed(true))}
+      onBlur={() => setArmed(false)}
+      aria-label={armed ? `Confirmar: apagar ${doc.title}` : `Apagar ${doc.title}`}
+      title={armed ? 'Toca outra vez para apagar' : 'Apagar'}
+      style={{ width: '100%', minHeight: 28, textAlign: 'right', whiteSpace: 'nowrap', fontSize: armed ? 11 : 12, color: armed ? '#e38b7a' : undefined }}
+    >
+      {armed ? 'Apagar?' : '✕'}
+    </button>
+  );
+}
+
+function DocLine({
+  doc,
+  pinned,
+  onTogglePin,
+  onDelete,
+  showDate,
+}: {
+  doc: LibDoc;
+  pinned: boolean;
+  onTogglePin: () => void;
+  onDelete: (id: string) => void;
+  showDate: boolean;
+}) {
   const created = new Date(doc.createdAt);
   return (
-    <div className={d.docRow} style={showDate ? undefined : { gridTemplateColumns: '40px minmax(0, 1fr) 48px 20px', minHeight: 28, borderBottomColor: '#1f1f1f' }}>
+    <div className={d.docRow} style={showDate ? undefined : { gridTemplateColumns: '40px minmax(0, 1fr) 48px 20px 52px', minHeight: 28, borderBottomColor: '#1f1f1f' }}>
       <span style={{ fontSize: 10, letterSpacing: '0.04em', color: TYPE_COLOR[doc.type], border: '1px solid #333', textAlign: 'center' }}>{doc.type}</span>
       {doc.url ? (
         <a href={doc.url} target="_blank" rel="noreferrer" className={d.ellipsis} title={doc.title}>{doc.title}</a>
@@ -662,6 +692,7 @@ function DocLine({ doc, pinned, onTogglePin, showDate }: { doc: LibDoc; pinned: 
       >
         {pinned ? '●' : '○'}
       </button>
+      <DocDelete doc={doc} onDelete={onDelete} />
     </div>
   );
 }
@@ -677,6 +708,7 @@ export function Library({
   fullscreen,
   onToggleFullscreen,
   onManage,
+  onDelete,
   searchRef,
   layout = 'desktop',
 }: {
@@ -691,6 +723,7 @@ export function Library({
   fullscreen: boolean;
   onToggleFullscreen: () => void;
   onManage: () => void;
+  onDelete: (id: string) => void;
   searchRef: RefObject<HTMLInputElement | null>;
 }) {
   const [filter, setFilter] = useState<Filter>('todos');
@@ -752,6 +785,7 @@ export function Library({
           >
             {pins.includes(doc.id) ? '●' : '○'}
           </button>
+          <DocDelete doc={doc} onDelete={onDelete} />
         </div>
       );
     };
@@ -908,18 +942,19 @@ export function Library({
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--sky)', fontWeight: 600, paddingBottom: 2 }}>FIXADOS</div>
           {pinned.map((doc) => (
-            <DocLine key={doc.id} doc={doc} pinned onTogglePin={() => onTogglePin(doc.id)} showDate={false} />
+            <DocLine key={doc.id} doc={doc} pinned onTogglePin={() => onTogglePin(doc.id)} onDelete={onDelete} showDate={false} />
           ))}
         </div>
       )}
 
       <div
-        style={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) 48px 44px 20px', gap: 10, fontSize: 10, letterSpacing: '0.08em', color: 'var(--mut2)', paddingTop: 4, borderBottom: '1px solid var(--line)', paddingBottom: 4, flexShrink: 0 }}
+        style={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) 48px 44px 20px 52px', gap: 10, fontSize: 10, letterSpacing: '0.08em', color: 'var(--mut2)', paddingTop: 4, borderBottom: '1px solid var(--line)', paddingBottom: 4, flexShrink: 0 }}
       >
         <span>TIPO</span>
         <span>NOME</span>
         <span style={{ textAlign: 'right' }}>SECÇÃO</span>
         <span style={{ textAlign: 'right' }}>DATA</span>
+        <span />
         <span />
       </div>
       <div className={d.libList} style={{ marginTop: -10 }}>
@@ -930,7 +965,7 @@ export function Library({
           </p>
         )}
         {shown.map((doc) => (
-          <DocLine key={doc.id} doc={doc} pinned={pins.includes(doc.id)} onTogglePin={() => onTogglePin(doc.id)} showDate />
+          <DocLine key={doc.id} doc={doc} pinned={pins.includes(doc.id)} onTogglePin={() => onTogglePin(doc.id)} onDelete={onDelete} showDate />
         ))}
       </div>
 

@@ -361,6 +361,28 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
     [subjectId]
   );
 
+  // Apaga um documento da biblioteca (linha em subject_files e o ficheiro no Storage).
+  const handleDeleteDoc = useCallback(
+    async (id: string) => {
+      const row = files.find((f) => String(f.id) === id);
+      if (!row) return;
+      setUploadError(null);
+      setFiles((prev) => prev.filter((f) => String(f.id) !== id));
+      setPins((prev) => prev.filter((p) => p !== id));
+      try {
+        const { error } = await supabase.from('subject_files').delete().eq('id', row.id);
+        if (error) throw error;
+        const path = row.file_url?.includes('/academic_materials/') ? row.file_url.split('/academic_materials/')[1] : null;
+        if (path) await supabase.storage.from('academic_materials').remove([path]);
+      } catch (err) {
+        console.error('Erro ao apagar documento:', err);
+        setFiles((prev) => [row, ...prev.filter((f) => f.id !== row.id)]);
+        setUploadError(`Não foi possível apagar: ${err instanceof Error ? err.message : 'erro desconhecido'}`);
+      }
+    },
+    [files, setPins]
+  );
+
   const togglePin = useCallback(
     (id: string) => setPins((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id])),
     [setPins]
@@ -496,6 +518,7 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
       fullscreen={libFull}
       onToggleFullscreen={() => setLibFull((v) => !v)}
       onManage={() => openManage('biblioteca')}
+      onDelete={handleDeleteDoc}
       searchRef={librarySearchRef}
     />
   );
