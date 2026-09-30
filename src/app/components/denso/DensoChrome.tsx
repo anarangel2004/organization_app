@@ -12,7 +12,7 @@ export interface SearchHit {
   external?: boolean;
 }
 
-export type DensoSection = 'home' | 'trabalho' | 'faculdade';
+export type DensoSection = 'home' | 'trabalho' | 'faculdade' | 'estudo';
 
 // Fecha um pop-up ao tocar/clicar fora dele ou com Esc. Usa pointerdown:
 // no Safari do iPhone um toque numa zona "vazia" não gera mousedown/click.
@@ -81,6 +81,7 @@ export function DensoHeader({
     ['home', 'Visão Geral', '/'],
     ['trabalho', 'Trabalho', '/trabalho'],
     ['faculdade', 'Faculdade', '/faculdade'],
+    ['estudo', 'Estudo', '/estudo'],
   ];
 
   return (

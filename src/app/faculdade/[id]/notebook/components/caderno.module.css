@@ -882,6 +882,49 @@
   display: inline-block;
 }
 
+/* Contador de estudo (barra de estado) */
+.study {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.studyBtn {
+  height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
+  background: transparent;
+  border: 1px solid var(--box);
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1;
+}
+.studyBtn:hover {
+  border-color: var(--box2);
+}
+.ledPulse {
+  animation: studyPulse 2s ease-in-out infinite;
+}
+@keyframes studyPulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ledPulse {
+    animation: none;
+  }
+}
+.manualInput {
+  height: 36px;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--box);
+  padding: 0 10px;
+  font-size: 14px;
+  width: 100%;
+}
+
 .hideNarrow {
   display: none !important;
 }

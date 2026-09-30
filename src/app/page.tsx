@@ -55,7 +55,6 @@ import {
   MOCK_EXPENSES,
   MOCK_LOCATION,
   MOCK_QUOTE,
-  MOCK_STUDY_HOURS,
 } from './components/painel/mockData';
 import {
   AssessmentFull,
@@ -81,6 +80,9 @@ import {
   subjectShortName,
 } from './components/painel/painelData';
 import { dueLabel, fmtDuration } from './faculdade/[id]/components/disciplinaData';
+import type { AssessmentItem } from '@/types';
+import { loadSessionsSince, loadStudySettings, type StudySessionRow } from '@/lib/study';
+import { DEFAULT_SETTINGS, computePlan, type StudySettings } from '@/lib/studyPlan';
 
 // "TESTE 1" → "Teste 1" (títulos todos em maiúsculas, como os gravados pelo editor antigo).
 function niceTitle(title: string): string {
@@ -129,21 +131,30 @@ export default function HomePage() {
   // iPhone / iPad de pé / iPad deitado / computador (ver DensoTouch).
   const layout = useDensoLayout();
 
+  const [studySessions, setStudySessions] = useState<StudySessionRow[]>([]);
+  const [studySettings, setStudySettings] = useState<StudySettings>(DEFAULT_SETTINGS);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [subjectsRes, assessmentsRes, chaptersRes, projects, tasks] = await Promise.all([
-        supabase.from('subjects').select('id, name, code, schedules'),
-        supabase.from('assessments').select('id, subject_id, title, due_date, due_time, duration_minutes, weight_percent, category, grade'),
+      // Sessões desde 14 dias antes desta semana (janela de preparação dos testes).
+      const studySince = new Date(mondayOf(new Date()).getTime() - 14 * 86400000);
+      const [subjectsRes, assessmentsRes, chaptersRes, projects, tasks, sessions, sett] = await Promise.all([
+        supabase.from('subjects').select('id, name, code, schedules, ects, theoretical_weight, practical_weight'),
+        supabase.from('assessments').select('id, subject_id, title, due_date, due_time, duration_minutes, weight_percent, category, grade, has_defense, defense_grade'),
         supabase.from('chapters').select('id, subject_id, category, title, updated_at'),
         getWorkProjects(),
         getWorkTasks(),
+        loadSessionsSince(studySince),
+        loadStudySettings(),
       ]);
       setSubjects(subjectsRes.data || []);
       setAssessments(assessmentsRes.data || []);
       setChapters(chaptersRes.data || []);
       setWorkProjects(projects);
       setWorkTasks(tasks);
+      setStudySessions(sessions);
+      setStudySettings(sett.settings);
     } catch (err) {
       console.error('Erro ao carregar a página principal:', err);
     } finally {
@@ -296,6 +307,21 @@ export default function HomePage() {
     return cols.slice(5).some((c) => c.events.length > 0) ? cols : cols.slice(0, 5);
   }, [monday, getEvents]);
   // O número no atalho "Semana" conta sempre a semana atual.
+  // Horas de estudo reais desta semana (contador do caderno) vs. a sugestão do /estudo.
+  const studyHours = useMemo(() => {
+    const { rows } = computePlan({
+      subjects,
+      assessments: assessments as unknown as AssessmentItem[],
+      sessions: studySessions,
+      settings: studySettings,
+      today,
+    });
+    return {
+      done: rows.reduce((n, r) => n + r.doneWeek, 0),
+      target: rows.reduce((n, r) => n + r.suggestedWeek, 0),
+    };
+  }, [subjects, assessments, studySessions, studySettings, today]);
+
   const weekBlocks = useMemo(() => {
     const start = mondayOf(today);
     return Array.from({ length: 7 }, (_, i) => getEvents(addDays(start, i)).length).reduce((a, b) => a + b, 0);
@@ -456,7 +482,7 @@ export default function HomePage() {
     { id: 'semana', key: '2', label: 'Semana', badge: String(weekBlocks) },
     { id: 'prazos', key: '3', label: 'Prazos', badge: String(deadlines.length) },
     { id: 'mes', key: '4', label: 'Mês' },
-    { id: 'balanco', key: '5', label: 'Balanço', badge: `${fmtNum(MOCK_BILLABLE_HOURS.done + MOCK_STUDY_HOURS.done)} h` },
+    { id: 'balanco', key: '5', label: 'Balanço', badge: `${fmtNum(MOCK_BILLABLE_HOURS.done + studyHours.done)} h` },
   ];
 
   // iPhone: barra de secções fixa no topo (como na Faculdade e nas disciplinas).
@@ -575,7 +601,7 @@ export default function HomePage() {
         sheet={phone}
       />
     );
-    const balance = <BalanceB billable={MOCK_BILLABLE_HOURS} study={MOCK_STUDY_HOURS} expenses={MOCK_EXPENSES} monthName={monthName} />;
+    const balance = <BalanceB billable={MOCK_BILLABLE_HOURS} study={studyHours} expenses={MOCK_EXPENSES} monthName={monthName} />;
 
     return (
       <div className={`${d.root} ${layout === 'tabletH' ? d.touch : layoutClasses(layout)}`}>
@@ -742,7 +768,7 @@ export default function HomePage() {
               <DeadlinesB items={deadlines} today={today} bind={bind} />
               <MonthB today={today} getEvents={getEvents} onAddEvent={handleAddEvent} onRemoveEvent={handleRemoveEvent} titleRef={eventTitleRef} bind={bind} />
             </div>
-            <BalanceB billable={MOCK_BILLABLE_HOURS} study={MOCK_STUDY_HOURS} expenses={MOCK_EXPENSES} monthName={monthName} />
+            <BalanceB billable={MOCK_BILLABLE_HOURS} study={studyHours} expenses={MOCK_EXPENSES} monthName={monthName} />
           </div>
         </div>
       )}

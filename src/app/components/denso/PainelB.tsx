@@ -1208,11 +1208,11 @@ export function BalanceB({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 13, whiteSpace: 'nowrap' }}>
         <span>{label}</span>
         <span>
-          <span className={d.serif} style={{ fontSize: 22 }}>{fmtNum(m.done)}</span> <span style={{ color: 'var(--mut2)' }}>de {m.target} h</span>
+          <span className={d.serif} style={{ fontSize: 22 }}>{fmtNum(m.done)}</span> <span style={{ color: 'var(--mut2)' }}>de {fmtNum(m.target)} h</span>
         </span>
       </div>
       <div style={{ display: 'flex', height: 4, background: '#262626' }}>
-        <div style={{ width: `${Math.min(100, (m.done / m.target) * 100)}%`, background: color }} />
+        <div style={{ width: `${m.target > 0 ? Math.min(100, (m.done / m.target) * 100) : m.done > 0 ? 100 : 0}%`, background: color }} />
       </div>
     </div>
   );
@@ -1221,7 +1221,9 @@ export function BalanceB({
       <section id="balanco" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, scrollMarginTop: 16 }}>
         <SectionHeadB title="BALANÇO" aside="esta semana" />
         {meter('Horas faturáveis', billable, 'var(--bone)')}
-        {meter('Horas de estudo', study, 'var(--accent)')}
+        <Link href="/estudo" style={{ display: 'block' }} title="Ver o estudo por disciplina">
+          {meter('Horas de estudo →', study, 'var(--accent)')}
+        </Link>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 'auto', paddingTop: 16, whiteSpace: 'nowrap' }}>
           <span className={d.muted} style={{ fontSize: 12 }}>Total acumulado</span>
           <span className={d.serif} style={{ fontSize: 34, color: 'var(--sky)' }}>{fmtNum(billable.done + study.done)} h</span>
@@ -1241,7 +1243,7 @@ export function BalanceB({
         </div>
       </section>
       <p className={d.muted} style={{ gridColumn: '1 / -1', margin: 0, fontSize: 11 }}>
-        Balanço e despesas são valores de exemplo: ainda não há registo de horas nem de despesas.
+        As horas de estudo são reais (contadas no caderno) e a meta é a sugestão do Estudo. Horas faturáveis e despesas ainda são valores de exemplo.
       </p>
     </div>
   );

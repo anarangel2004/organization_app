@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import c from './caderno.module.css';
 import { NextAssessment, NotebookTab, PAPER_LABEL, PaperStyle, SyncStatus, TABS, inDaysLabel } from './types';
+import { fmtStudy, type StudyState } from '@/lib/study';
 
 // ==========================================
 // BARRA DE CONTEXTO: disciplina + volume
@@ -224,6 +225,49 @@ export function MenuBar({
 }
 
 // ==========================================
+// CONTADOR DE ESTUDO
+// ==========================================
+export interface StudyInfo {
+  state: StudyState;
+  todaySec: number;
+  sessionSec: number;
+  onPause: () => void;
+  onResume: () => void;
+  onAdd: () => void;
+}
+
+// "● Estudo · 34 min" com pausa e "+ sessão". data-study-ignore: tocar aqui não conta como estudo.
+export function StudyCounter({ study }: { study: StudyInfo }) {
+  const color = study.state === 'counting' ? 'var(--ok)' : study.state === 'paused' ? 'var(--amber)' : 'var(--faint)';
+  const label = study.state === 'paused' ? 'Pausa' : 'Estudo';
+  const title =
+    study.state === 'counting'
+      ? `A contar · sessão atual ${fmtStudy(study.sessionSec)} · hoje nesta disciplina ${fmtStudy(study.todaySec)}`
+      : study.state === 'paused'
+        ? 'Em pausa · volta a contar quando escreveres'
+        : 'Parado · conta quando escreves, desenhas ou mexes no PDF (sessões com mais de 2 min)';
+  return (
+    <span className={c.study} data-study-ignore title={title}>
+      <span className={`${c.led} ${study.state === 'counting' ? c.ledPulse : ''}`} style={{ background: color }} />
+      <span style={{ color: 'var(--ink)' }}>
+        {label} · {fmtStudy(study.todaySec)}
+      </span>
+      <button
+        type="button"
+        className={c.studyBtn}
+        aria-label={study.state === 'paused' ? 'Retomar contagem' : 'Pausar contagem'}
+        onClick={study.state === 'paused' ? study.onResume : study.onPause}
+      >
+        {study.state === 'paused' ? '▶' : '❚❚'}
+      </button>
+      <button type="button" className={c.studyBtn} aria-label="Registar sessão de estudo feita fora da app" title="+ sessão (estudo fora da app)" onClick={study.onAdd}>
+        +
+      </button>
+    </span>
+  );
+}
+
+// ==========================================
 // BARRA DE ESTADO
 // ==========================================
 export function StatusBar({
@@ -237,6 +281,7 @@ export function StatusBar({
   sync,
   zoom,
   onZoom,
+  study,
 }: {
   line: number;
   col: number;
@@ -248,6 +293,7 @@ export function StatusBar({
   sync: SyncStatus;
   zoom: number;
   onZoom: (delta: number) => void;
+  study?: StudyInfo;
 }) {
   const syncLabel = sync === 'saving' ? 'A guardar…' : sync === 'error' ? 'Erro ao guardar' : 'Sincronizado';
   const syncColor = sync === 'saving' ? 'var(--amber)' : sync === 'error' ? '#e38b7a' : 'var(--ok)';
@@ -276,6 +322,7 @@ export function StatusBar({
         )}
       </span>
       <span style={{ justifyContent: 'flex-end' }}>
+        {study && <StudyCounter study={study} />}
         <span className={c.hideNarrow} style={{ alignItems: 'center', gap: 6 }}>
           <span className={c.led} style={{ background: 'var(--sky)' }} />
           {deviceLabel}

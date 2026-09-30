@@ -46,6 +46,7 @@ const NAV: [DensoSection, string, string][] = [
   ['home', 'Visão Geral', '/'],
   ['trabalho', 'Trabalho', '/trabalho'],
   ['faculdade', 'Faculdade', '/faculdade'],
+  ['estudo', 'Estudo', '/estudo'],
 ];
 
 function SearchIcon({ size = 18 }: { size?: number }) {
@@ -381,6 +382,13 @@ const TAB_ICONS: Record<DensoSection, ReactNode> = {
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
       <path d="M4 5.5h6.5a2 2 0 012 2V20a1.5 1.5 0 00-1.5-1.5H4z" />
       <path d="M20 5.5h-6.5a2 2 0 00-2 2V20a1.5 1.5 0 011.5-1.5H20z" />
+    </svg>
+  ),
+  estudo: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <circle cx="12" cy="13" r="7.5" />
+      <path d="M12 9v4.5l3 2" />
+      <path d="M9.5 3.5h5" />
     </svg>
   ),
 };

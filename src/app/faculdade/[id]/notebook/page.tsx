@@ -36,7 +36,9 @@ import {
   assessmentTag,
   htmlToText,
 } from './components/types';
-import { ContextBar, MenuBar, MenuDef, StatusBar, SubjectChip } from './components/CadernoBars';
+import { ContextBar, MenuBar, MenuDef, StatusBar, StudyInfo, SubjectChip } from './components/CadernoBars';
+import { ManualSessionDialog } from './components/ManualSessionDialog';
+import { fmtStudy, useStudyTimer } from '@/lib/study';
 import { ChapterSidebar } from './components/ChapterSidebar';
 import { FormatState, NotesLayout, NotesPane, NotesPaneRef } from './components/NotesPane';
 import { PdfPane } from './components/PdfPane';
@@ -301,6 +303,20 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   }, [active?.content]);
 
   const subject = subjects.find((s) => s.id === subjectId);
+
+  // ==========================================
+  // CONTADOR DE ESTUDO (só tempo ativo; guarda por capítulo)
+  // ==========================================
+  const studyTimer = useStudyTimer(subjectId, active?.id ?? null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const study: StudyInfo = {
+    state: studyTimer.state,
+    todaySec: studyTimer.todaySec,
+    sessionSec: studyTimer.sessionSec,
+    onPause: studyTimer.pause,
+    onResume: studyTimer.resume,
+    onAdd: () => setManualOpen(true),
+  };
   const tabLabel = TABS.find(([id]) => id === tab)?.[1] ?? 'Teóricas';
   const showSide = drawerMode ? mobileSide : sideOpen && !focusMode;
   // No iPhone o PDF abre numa folha que sobe de baixo, nunca lado a lado.
@@ -679,6 +695,16 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
         { label: 'Diminuir zoom', keys: keys('mod+-'), onClick: () => changeZoom(-0.1) },
       ],
     },
+    {
+      label: 'Estudo',
+      items: [
+        {
+          label: study.state === 'paused' ? `Retomar contagem (hoje ${fmtStudy(study.todaySec)})` : `Pausar contagem (hoje ${fmtStudy(study.todaySec)})`,
+          onClick: study.state === 'paused' ? study.onResume : study.onPause,
+        },
+        { label: '+ Sessão de estudo feita fora da app…', onClick: study.onAdd },
+      ],
+    },
   ];
 
   // ==========================================
@@ -863,6 +889,18 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
       sync={sync}
       zoom={zoom}
       onZoom={changeZoom}
+      study={study}
+    />
+  );
+
+  const manualDialog = manualOpen && (
+    <ManualSessionDialog
+      subjectId={subjectId}
+      subjectLabel={subject?.name || subject?.code || 'Disciplina'}
+      chapters={chapters}
+      currentChapterId={active?.id ?? null}
+      onSave={studyTimer.addManual}
+      onClose={() => setManualOpen(false)}
     />
   );
 
@@ -906,7 +944,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
             subjectId={subjectId}
             subjectCode={subject?.code || '…'}
             chapterLabel={chapterLabel}
-            subLabel={`${tabLabel} · ${syncText(sync)}`}
+            subLabel={`${tabLabel} · ${syncText(sync)} · ${study.state === 'paused' ? 'Pausa' : 'Estudo'} ${fmtStudy(study.todaySec)}`}
             onChapters={toggleSide}
             onPdf={() => setPdfSheetOpen(true)}
             onOptions={() => setOptionsOpen(true)}
@@ -940,7 +978,8 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
           )}
         </div>
 
-        {device === 'tablet-h' && statusBar}
+        {tablet && statusBar}
+        {manualDialog}
         {device === 'phone' && (
           <PhoneFormatBar
             format={format}
@@ -1067,6 +1106,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
       </div>
 
       {statusBar}
+      {manualDialog}
 
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} user={profileUser} />
     </div>
