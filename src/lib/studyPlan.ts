@@ -22,14 +22,56 @@ const DEFAULT_CLASS_WEEKS = 14;
 const DEFAULT_TOTAL_WEEKS = 18;
 const DAY_MS = 86400000;
 
+// Período "indisponível" solto: semanal (weekday) ou num dia (date).
+export interface Unavailable {
+  weekday: number | null; // 0 = domingo
+  date: string | null; // AAAA-MM-DD
+  start: string; // HH:MM
+  end: string;
+  label: string;
+}
+
 export interface StudySettings {
   hoursPerEcts: number;
   semesterStart: string | null; // AAAA-MM-DD
   semesterEnd: string | null;
   examsEnd: string | null;
+  // Plano de blocos (fase 3)
+  weekdayStart: string; // HH:MM
+  weekdayEnd: string;
+  weekendStart: string;
+  weekendEnd: string;
+  maxHoursDay: number;
+  blockMin: number; // minutos
+  blockMax: number;
+  classMargin: number; // minutos antes e depois de cada aula
+  unavailable: Unavailable[];
+  // Fase 5
+  breakMinutes: number; // pausa entre blocos seguidos
+  shortBlocks: 'allow' | 'round'; // resto < bloco mínimo: bloco curto ou arredonda ao mínimo
+  reminders: boolean;
+  reminderMinutes: number; // aviso X minutos antes de cada bloco
 }
 
-export const DEFAULT_SETTINGS: StudySettings = { hoursPerEcts: 28, semesterStart: null, semesterEnd: null, examsEnd: null };
+export const DEFAULT_SETTINGS: StudySettings = {
+  hoursPerEcts: 28,
+  semesterStart: null,
+  semesterEnd: null,
+  examsEnd: null,
+  weekdayStart: '09:00',
+  weekdayEnd: '22:00',
+  weekendStart: '10:00',
+  weekendEnd: '19:00',
+  maxHoursDay: 5, // dá para duas sessões de 2–2h30
+  blockMin: 120,
+  blockMax: 150,
+  classMargin: 15,
+  unavailable: [],
+  breakMinutes: 10,
+  shortBlocks: 'allow',
+  reminders: false,
+  reminderMinutes: 10,
+};
 
 export interface PlanSubject {
   id: string;
@@ -301,6 +343,374 @@ export function weekTotals(sessions: PlanSession[], today: Date, weeks: number):
       bySubject.set(s.subject_id, (bySubject.get(s.subject_id) || 0) + h);
     }
     return { start, hours, bySubject };
+  });
+}
+
+// ==========================================
+// PLANO DA SEMANA: blocos de estudo nos espaços livres
+// ==========================================
+export interface BusyShift {
+  weekday: number | null;
+  date: string | null;
+  start_time: string;
+  end_time: string;
+}
+
+export interface PlanBlock {
+  id: string;
+  subjectId: string;
+  code: string;
+  name: string;
+  date: Date;
+  start: string; // HH:MM
+  end: string;
+  minutes: number;
+  reason: string;
+  // Só nos blocos fixados (tabela study_blocks)
+  status?: 'planned' | 'done';
+  saved?: boolean;
+}
+
+export interface PlanDay {
+  date: Date;
+  blocks: PlanBlock[];
+  freeMinutes: number; // livre na disponibilidade, antes dos blocos
+  busy: { start: string; end: string; label: string }[];
+}
+
+const hm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const onDay = (x: { weekday: number | null; date: string | null }, day: Date) =>
+  x.date ? sameDay(parseDueDate(x.date) ?? new Date(0), day) : x.weekday === day.getDay();
+
+// Tira [a, b) de uma lista de intervalos livres.
+function subtract(free: [number, number][], a: number, b: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (const [s, e] of free) {
+    if (b <= s || a >= e) out.push([s, e]);
+    else {
+      if (a > s) out.push([s, a]);
+      if (b < e) out.push([b, e]);
+    }
+  }
+  return out;
+}
+
+export function buildWeekPlan({
+  rows,
+  subjects,
+  assessments,
+  shifts,
+  settings,
+  now,
+}: {
+  rows: SubjectPlan[];
+  subjects: PlanSubject[];
+  assessments: AssessmentItem[];
+  shifts: BusyShift[];
+  settings: StudySettings;
+  now: Date;
+}): { days: PlanDay[]; unplaced: { subjectId: string; code: string; minutes: number }[] } {
+  const period = planPeriod(settings, now);
+  const t0 = startOfDay(now);
+  const weekEnd = addDays(mondayOf(now), 7);
+  const dates: Date[] = [];
+  for (let dd = new Date(t0); dd < weekEnd; dd = addDays(dd, 1)) dates.push(dd);
+
+  // Espaços livres de cada dia.
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const days: PlanDay[] = dates.map((date) => {
+    const weekend = date.getDay() === 0 || date.getDay() === 6;
+    let from = parseMinutes(weekend ? settings.weekendStart : settings.weekdayStart);
+    const to = parseMinutes(weekend ? settings.weekendEnd : settings.weekdayEnd);
+    // Hoje só a partir do próximo quarto de hora.
+    if (sameDay(date, now)) from = Math.max(from, Math.ceil((nowMin + 5) / 15) * 15);
+    let free: [number, number][] = from < to ? [[from, to]] : [];
+    const busy: PlanDay['busy'] = [];
+    const block = (a: number, b: number, label: string, margin: number) => {
+      free = subtract(free, a - margin, b + margin);
+      busy.push({ start: hm(a), end: hm(b), label });
+    };
+
+    // Aulas (só durante o período de aulas, se houver datas).
+    const classesOn = !period.classesEnd || !period.start || (date >= period.start && date <= period.classesEnd);
+    if (classesOn) {
+      for (const s of subjects) {
+        for (const e of parseSchedulesRaw(s.schedules)) {
+          if (normalizeDayNum(e.day ?? e.dayOfWeek) !== date.getDay()) continue;
+          const st = e.startTime || e.start_time;
+          if (!st) continue;
+          const a = parseMinutes(st);
+          const en = e.endTime || e.end_time;
+          block(a, en ? parseMinutes(en) : a + 90, `Aula ${s.code || s.name || ''}`.trim(), settings.classMargin);
+        }
+      }
+    }
+    // Testes marcados com hora.
+    for (const a of assessments) {
+      const due = parseDueDate(a.due_date);
+      if (!due || !sameDay(due, date) || !a.due_time) continue;
+      const st = parseMinutes(a.due_time);
+      block(st, st + (a.duration_minutes || 90), a.title || 'Avaliação', settings.classMargin);
+    }
+    for (const s of shifts) if (onDay(s, date)) block(parseMinutes(s.start_time), parseMinutes(s.end_time), 'Turno', 0);
+    for (const u of settings.unavailable) if (onDay(u, date)) block(parseMinutes(u.start), parseMinutes(u.end), u.label || 'Indisponível', 0);
+
+    busy.sort((x, y) => x.start.localeCompare(y.start));
+    return { date, blocks: [], freeMinutes: free.reduce((n, [s, e]) => n + (e - s), 0), busy, free } as PlanDay & { free: [number, number][] };
+  });
+
+  // O que falta estudar esta semana, por disciplina (primeiro as com avaliação mais perto).
+  const need = rows
+    .map((r) => ({ r, left: Math.round(Math.max(0, r.suggestedWeek - r.doneWeek) * 60) }))
+    .filter((x) => x.left >= settings.blockMin / 2)
+    .sort((a, b) => (a.r.next?.days ?? 999) - (b.r.next?.days ?? 999) || b.left - a.left);
+
+  const doneTodayMin = rows.reduce((n, r) => n + r.doneToday, 0) * 60;
+  const BREAK = Math.max(0, settings.breakMinutes ?? 10);
+  const roundShort = settings.shortBlocks === 'round';
+
+  days.forEach((day, di) => {
+    const free = (day as PlanDay & { free: [number, number][] }).free;
+    let capacity = settings.maxHoursDay * 60 - (sameDay(day.date, now) ? doneTodayMin : 0);
+    const perSubject = new Map<string, number>();
+
+    let placed = true;
+    while (placed && capacity >= settings.blockMin / 2) {
+      placed = false;
+      for (const item of need) {
+        if (item.left <= 0) continue;
+        // Preparação: só antes do dia da avaliação.
+        const due = item.r.next?.due;
+        if (due && item.r.next!.days <= 7 && day.date >= startOfDay(due)) continue;
+        // Espalha pelos dias que sobram (até 2 blocos por dia e disciplina).
+        const daysLeft = days.slice(di).filter((x) => !due || x.date < startOfDay(due)).length || 1;
+        const quota = Math.max(settings.blockMin, Math.ceil(item.left / daysLeft));
+        const already = perSubject.get(item.r.subjectId) || 0;
+        if (already >= quota || already >= settings.blockMax * 2) continue;
+
+        // Resto curto: bloco só com o que falta, ou arredondado ao mínimo.
+        const rest = roundShort ? Math.max(item.left, settings.blockMin) : item.left;
+        const want = Math.min(settings.blockMax, Math.max(settings.blockMin, Math.min(rest, quota - already)), capacity);
+        const slotIdx = free.findIndex(([s, e]) => e - s >= Math.min(want, settings.blockMin));
+        if (slotIdx < 0 || want < Math.min(settings.blockMin, rest)) continue;
+        const [s, e] = free[slotIdx];
+        const len = Math.min(want, e - s);
+        free[slotIdx] = [s + len + BREAK, e];
+        if (free[slotIdx][1] - free[slotIdx][0] <= 0) free.splice(slotIdx, 1);
+
+        const reasonSrc = item.r.reasons.filter((x) => x.kind === 'prep').sort((x, y) => (y.hours ?? 0) - (x.hours ?? 0))[0];
+        day.blocks.push({
+          id: `${item.r.subjectId}-${di}-${s}`,
+          subjectId: item.r.subjectId,
+          code: item.r.code,
+          name: item.r.name,
+          date: day.date,
+          start: hm(s),
+          end: hm(s + len),
+          minutes: len,
+          reason: reasonSrc ? reasonSrc.text.split(' → ')[0] : 'Ritmo base do semestre',
+        });
+        item.left -= len;
+        capacity -= len;
+        perSubject.set(item.r.subjectId, already + len);
+        placed = true;
+        if (capacity < settings.blockMin / 2) break;
+      }
+    }
+    day.blocks.sort((x, y) => x.start.localeCompare(y.start));
+  });
+
+  return {
+    days: days.map(({ date, blocks, freeMinutes, busy }) => ({ date, blocks, freeMinutes, busy })),
+    unplaced: need.filter((x) => x.left >= settings.blockMin / 2).map((x) => ({ subjectId: x.r.subjectId, code: x.r.code, minutes: x.left })),
+  };
+}
+
+// ==========================================
+// PLANO FIXADO (fase 5): blocos guardados em study_blocks
+// ==========================================
+export interface SavedBlock {
+  id: string;
+  subject_id: string;
+  week_start: string; // AAAA-MM-DD
+  date: string;
+  start_time: string;
+  end_time: string;
+  status: 'planned' | 'done';
+  reason: string | null;
+}
+
+export const isoDay = (dt: Date) =>
+  `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+
+// Com blocos por fazer guardados para a semana, o plano é esse (não é refeito
+// sozinho). Sem nenhum, é a sugestão calculada, mais os blocos já feitos.
+export function resolveWeekPlan(
+  generated: PlanDay[],
+  saved: SavedBlock[],
+  rows: SubjectPlan[]
+): { days: PlanDay[]; fixed: boolean } {
+  const fixed = saved.some((b) => b.status === 'planned');
+  if (saved.length === 0) return { days: generated, fixed: false };
+  const byId = new Map(rows.map((r) => [r.subjectId, r]));
+  const days = generated.map((day) => {
+    const key = isoDay(day.date);
+    const kept = fixed ? [] : day.blocks;
+    const blocks = saved
+      .filter((b) => b.date.slice(0, 10) === key && (fixed || b.status === 'done'))
+      .map<PlanBlock>((b) => {
+        const r = byId.get(String(b.subject_id));
+        const start = b.start_time.slice(0, 5);
+        const end = b.end_time.slice(0, 5);
+        return {
+          id: b.id,
+          subjectId: String(b.subject_id),
+          code: r?.code ?? '?',
+          name: r?.name ?? 'Disciplina',
+          date: day.date,
+          start,
+          end,
+          minutes: Math.max(0, parseMinutes(end) - parseMinutes(start)),
+          reason: b.reason || 'Bloco fixado',
+          status: b.status,
+          saved: true,
+        };
+      })
+      .concat(kept)
+      .sort((x, y) => x.start.localeCompare(y.start));
+    return { ...day, blocks };
+  });
+  return { days, fixed };
+}
+
+// Lembretes: blocos por fazer que ainda não começaram.
+export function reminderItems(days: PlanDay[], now: Date): { id: string; startsAt: string; title: string; body: string; url: string }[] {
+  const out: { id: string; startsAt: string; title: string; body: string; url: string }[] = [];
+  for (const day of days) {
+    for (const b of day.blocks) {
+      if (b.status === 'done') continue;
+      const [h, m] = b.start.split(':').map(Number);
+      const at = new Date(day.date);
+      at.setHours(h, m, 0, 0);
+      if (at.getTime() + 5 * 60000 < now.getTime()) continue;
+      out.push({
+        // Mesmo id para o mesmo bloco (cadeira + dia + hora): não repete o aviso.
+        id: `${b.subjectId}-${isoDay(day.date)}-${b.start}`,
+        startsAt: at.toISOString(),
+        title: `Estudo: ${b.code} às ${b.start}`,
+        body: `${b.name} · ${fmtHours(b.minutes / 60)} · ${b.reason}`,
+        url: `/faculdade/${b.subjectId}/notebook`,
+      });
+    }
+  }
+  return out;
+}
+
+// ==========================================
+// EXTRAS (fase 4)
+// ==========================================
+export const STALE_DAYS = 7;
+
+// Disciplinas há mais de 7 dias sem estudo (ou nunca estudadas desde que há registo).
+export function staleSubjects(rows: SubjectPlan[], today: Date): { row: SubjectPlan; days: number | null }[] {
+  return rows
+    .filter((r) => r.ects > 0 || r.suggestedWeek > 0)
+    .map((r) => ({ row: r, days: r.lastStudied ? Math.floor((startOfDay(today).getTime() - startOfDay(r.lastStudied).getTime()) / DAY_MS) : null }))
+    .filter((x) => x.days === null || x.days > STALE_DAYS)
+    .sort((a, b) => (b.days ?? 999) - (a.days ?? 999));
+}
+
+export interface ReviewChapter {
+  chapterId: string;
+  subjectId: string;
+  label: string;
+  category: string;
+  lastStudied: Date | null;
+  daysSince: number | null;
+  assessment: string;
+  dueDays: number;
+}
+
+// Revisão espaçada: capítulos de disciplinas com avaliação nos próximos 14
+// dias que não estudas há 7 dias ou mais (os nunca estudados primeiro).
+export function chaptersToReview({
+  chapters,
+  sessions,
+  assessments,
+  today,
+}: {
+  chapters: { id: string; subject_id: string; number: string | number | null; title: string | null; category: string | null }[];
+  sessions: PlanSession[];
+  assessments: AssessmentItem[];
+  today: Date;
+}): ReviewChapter[] {
+  const t0 = startOfDay(today);
+  const nextBySubject = new Map<string, { title: string; days: number }>();
+  for (const a of assessments) {
+    if (getItemEffectiveGrade(a) !== null) continue;
+    const due = parseDueDate(a.due_date);
+    if (!due || due < t0) continue;
+    const days = Math.round((due.getTime() - t0.getTime()) / DAY_MS);
+    if (days > PREP_DAYS) continue;
+    const cur = nextBySubject.get(a.subject_id);
+    if (!cur || days < cur.days) nextBySubject.set(a.subject_id, { title: a.title || 'Avaliação', days });
+  }
+  const last = new Map<string, number>();
+  for (const s of sessions) {
+    if (!s.chapter_id) continue;
+    const t = new Date(s.started_at).getTime();
+    if (t > (last.get(String(s.chapter_id)) ?? 0)) last.set(String(s.chapter_id), t);
+  }
+  const out: ReviewChapter[] = [];
+  for (const ch of chapters) {
+    const next = nextBySubject.get(ch.subject_id);
+    if (!next) continue;
+    const cat = (ch.category || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (cat !== 'TEORICAS' && cat !== 'PRATICAS' && cat !== 'TESTES') continue;
+    const lt = last.get(ch.id);
+    const daysSince = lt ? Math.floor((t0.getTime() - startOfDay(new Date(lt)).getTime()) / DAY_MS) : null;
+    if (daysSince !== null && daysSince < STALE_DAYS) continue;
+    out.push({
+      chapterId: ch.id,
+      subjectId: ch.subject_id,
+      label: `${String(ch.number ?? '').padStart(2, '0')} · ${ch.title || 'Sem título'}`,
+      category: cat,
+      lastStudied: lt ? new Date(lt) : null,
+      daysSince,
+      assessment: next.title,
+      dueDays: next.days,
+    });
+  }
+  return out.sort((a, b) => a.dueDays - b.dueDays || (b.daysSince ?? 999) - (a.daysSince ?? 999));
+}
+
+export interface HoursGradeRow {
+  subjectId: string;
+  code: string;
+  name: string;
+  hours: number;
+  average: number | null;
+  graded: number;
+  total: number;
+}
+
+// Horas estudadas no semestre vs. média atual de cada disciplina.
+export function hoursVsGrade(subjects: PlanSubject[], assessments: AssessmentItem[], sessions: PlanSession[], since: Date): HoursGradeRow[] {
+  return subjects.map((s) => {
+    const items = assessments.filter((a) => a.subject_id === s.id);
+    const theory = typeof s.theoretical_weight === 'number' ? s.theoretical_weight : 50;
+    const practice = typeof s.practical_weight === 'number' ? s.practical_weight : 50;
+    const graded = items.filter((a) => getItemEffectiveGrade(a) !== null).length;
+    return {
+      subjectId: s.id,
+      code: s.code || (s.name || '?').slice(0, 3).toUpperCase(),
+      name: s.name || s.code || 'Disciplina',
+      hours: hoursIn(sessions.filter((x) => x.subject_id === s.id), since, new Date(8640000000000000)),
+      average: graded ? currentAverage(items, theory, practice) : null,
+      graded,
+      total: items.length,
+    };
   });
 }
 

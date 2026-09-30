@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { DEFAULT_SETTINGS, type StudySettings } from '@/lib/studyPlan';
+import { DEFAULT_SETTINGS, type SavedBlock, type StudySettings } from '@/lib/studyPlan';
 
 export const IDLE_MS = 5 * 60 * 1000;
 export const MIN_SESSION_SEC = 120;
@@ -151,7 +151,7 @@ export type StudyState = 'counting' | 'idle' | 'paused';
 export function useStudyTimer(subjectId: string, chapterId: string | null) {
   const segRef = useRef<Segment | null>(null);
   const lastActivity = useRef(0);
-  const lastTick = useRef(Date.now());
+  const lastTick = useRef(0); // 0 = ainda sem tique (o primeiro não conta)
   const pausedRef = useRef(false);
   const chapterRef = useRef(chapterId);
   const [state, setState] = useState<StudyState>('idle');
@@ -215,7 +215,7 @@ export function useStudyTimer(subjectId: string, chapterId: string | null) {
     const tick = () => {
       const now = Date.now();
       // Timers em segundo plano atrasam; nunca conta mais de 5 s de uma vez.
-      const delta = Math.min(now - lastTick.current, 5000) / 1000;
+      const delta = lastTick.current ? Math.min(now - lastTick.current, 5000) / 1000 : 0;
       lastTick.current = now;
       const visible = document.visibilityState === 'visible';
       const recent = now - lastActivity.current <= IDLE_MS;
@@ -285,34 +285,196 @@ export async function loadStudySettings(): Promise<{ settings: StudySettings; mi
     const { data, error } = await supabase.from('study_settings').select('*').eq('id', 'default').maybeSingle();
     if (error) {
       const missing = (error as { code?: string }).code === '42P01' || /does not exist|schema cache/i.test(error.message || '');
-      return { settings: cached ?? DEFAULT_SETTINGS, missingTable: missing };
+      return { settings: { ...DEFAULT_SETTINGS, ...(cached ?? {}) }, missingTable: missing };
     }
+    const t = (v: unknown, fb: string) => (typeof v === 'string' && /^\d{2}:\d{2}/.test(v) ? v.slice(0, 5) : fb);
+    const n = (v: unknown, fb: number) => (v === null || v === undefined || Number.isNaN(Number(v)) ? fb : Number(v));
+    // Colunas da fase 3 podem não existir ainda: ficam os valores por omissão (ou os deste browser).
+    const base: StudySettings = { ...DEFAULT_SETTINGS, ...(cached ?? {}) };
     const settings: StudySettings = data
       ? {
-          hoursPerEcts: Number(data.hours_per_ects) || DEFAULT_SETTINGS.hoursPerEcts,
+          hoursPerEcts: n(data.hours_per_ects, DEFAULT_SETTINGS.hoursPerEcts),
           semesterStart: data.semester_start,
           semesterEnd: data.semester_end,
           examsEnd: data.exams_end,
+          weekdayStart: t(data.weekday_start, base.weekdayStart ?? DEFAULT_SETTINGS.weekdayStart),
+          weekdayEnd: t(data.weekday_end, base.weekdayEnd ?? DEFAULT_SETTINGS.weekdayEnd),
+          weekendStart: t(data.weekend_start, base.weekendStart ?? DEFAULT_SETTINGS.weekendStart),
+          weekendEnd: t(data.weekend_end, base.weekendEnd ?? DEFAULT_SETTINGS.weekendEnd),
+          maxHoursDay: n(data.max_hours_day, base.maxHoursDay ?? DEFAULT_SETTINGS.maxHoursDay),
+          blockMin: n(data.block_min, base.blockMin ?? DEFAULT_SETTINGS.blockMin),
+          blockMax: n(data.block_max, base.blockMax ?? DEFAULT_SETTINGS.blockMax),
+          classMargin: n(data.class_margin, base.classMargin ?? DEFAULT_SETTINGS.classMargin),
+          unavailable: Array.isArray(data.unavailable) ? data.unavailable : base.unavailable ?? [],
+          breakMinutes: n(data.break_minutes, base.breakMinutes),
+          shortBlocks: data.short_blocks === 'round' || data.short_blocks === 'allow' ? data.short_blocks : base.shortBlocks,
+          reminders: typeof data.reminders === 'boolean' ? data.reminders : base.reminders,
+          reminderMinutes: n(data.reminder_minutes, base.reminderMinutes),
         }
       : DEFAULT_SETTINGS;
     writeJson(SETTINGS_KEY, settings);
     return { settings, missingTable: false };
   } catch {
-    return { settings: cached ?? DEFAULT_SETTINGS, missingTable: false };
+    return { settings: { ...DEFAULT_SETTINGS, ...(cached ?? {}) }, missingTable: false };
   }
 }
 
 export async function saveStudySettings(s: StudySettings): Promise<void> {
   writeJson(SETTINGS_KEY, s);
-  const { error } = await supabase.from('study_settings').upsert({
+  const base = {
     id: 'default',
     hours_per_ects: s.hoursPerEcts,
     semester_start: s.semesterStart,
     semester_end: s.semesterEnd,
     exams_end: s.examsEnd,
     updated_at: new Date().toISOString(),
-  });
+  };
+  const phase3 = {
+    ...base,
+    weekday_start: s.weekdayStart,
+    weekday_end: s.weekdayEnd,
+    weekend_start: s.weekendStart,
+    weekend_end: s.weekendEnd,
+    max_hours_day: s.maxHoursDay,
+    block_min: s.blockMin,
+    block_max: s.blockMax,
+    class_margin: s.classMargin,
+    unavailable: s.unavailable,
+  };
+  const full = {
+    ...phase3,
+    break_minutes: s.breakMinutes,
+    short_blocks: s.shortBlocks,
+    reminders: s.reminders,
+    reminder_minutes: s.reminderMinutes,
+  };
+  // Se faltarem colunas (SQL de uma fase por correr), grava o que der e avisa.
+  const attempts: [Record<string, unknown>, string | null][] = [
+    [full, null],
+    [phase3, 'pausa, blocos curtos e lembretes só ficam neste browser até correres o supabase-study-phase5.sql'],
+    [base, 'horas/ECTS e datas guardadas; o resto só fica neste browser até correres o supabase-study-plan.sql e o supabase-study-phase5.sql'],
+  ];
+  for (const [row, warning] of attempts) {
+    const { error } = await supabase.from('study_settings').upsert(row);
+    if (!error) {
+      if (warning) throw new Error(warning);
+      return;
+    }
+    const missingColumn = error.code === 'PGRST204' || error.code === '42703' || /column/i.test(error.message || '');
+    if (!missingColumn) throw error;
+  }
+  throw new Error('Não foi possível guardar as definições.');
+}
+
+// ==========================================
+// CORRIGIR SESSÕES (fase 5)
+// ==========================================
+export async function deleteSession(id: string): Promise<void> {
+  // Pode ainda estar só no dispositivo.
+  writeJson(PENDING_KEY, getPending().filter((r) => r.id !== id));
+  const { error } = await supabase.from('study_sessions').delete().eq('id', id);
   if (error) throw error;
+}
+
+export async function updateSession(id: string, patch: Partial<Pick<StudySessionRow, 'chapter_id' | 'duration_seconds' | 'subject_id'>>): Promise<void> {
+  const pending = getPending();
+  if (pending.some((r) => r.id === id)) {
+    writeJson(PENDING_KEY, pending.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    void flushSessions();
+    return;
+  }
+  const row: Record<string, unknown> = { ...patch };
+  if (patch.duration_seconds) {
+    // Mantém o início e acerta o fim à nova duração.
+    const { data } = await supabase.from('study_sessions').select('started_at').eq('id', id).maybeSingle();
+    if (data?.started_at) row.ended_at = new Date(new Date(data.started_at).getTime() + patch.duration_seconds * 1000).toISOString();
+  }
+  const { error } = await supabase.from('study_sessions').update(row).eq('id', id);
+  if (error) throw error;
+}
+
+// ==========================================
+// PLANO FIXADO (tabela study_blocks)
+// ==========================================
+export async function loadSavedBlocks(weekStart: string): Promise<SavedBlock[]> {
+  try {
+    const { data, error } = await supabase.from('study_blocks').select('*').eq('week_start', weekStart).order('date').order('start_time');
+    if (error) return [];
+    return (data ?? []) as SavedBlock[];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveBlocks(rows: SavedBlock[]): Promise<void> {
+  if (rows.length === 0) return;
+  const { error } = await supabase.from('study_blocks').upsert(rows);
+  if (error) throw error;
+}
+
+export async function updateBlock(id: string, patch: Partial<Pick<SavedBlock, 'date' | 'start_time' | 'end_time' | 'status'>>): Promise<void> {
+  const { error } = await supabase.from('study_blocks').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteBlocks(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await supabase.from('study_blocks').delete().in('id', ids);
+  if (error) throw error;
+}
+
+// ==========================================
+// LEMBRETES (notificações antes dos blocos)
+// ==========================================
+// As páginas que calculam o plano (/estudo, Visão Geral) publicam aqui os
+// próximos blocos; o StudyReminders (no layout) avisa à hora certa.
+export type NotifState = 'granted' | 'denied' | 'default' | 'unsupported';
+
+export function notificationState(): NotifState {
+  if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
+  return Notification.permission as NotifState;
+}
+
+export async function askNotificationPermission(): Promise<NotifState> {
+  if (notificationState() === 'unsupported') return 'unsupported';
+  try {
+    return (await Notification.requestPermission()) as NotifState;
+  } catch {
+    return notificationState();
+  }
+}
+
+export interface ReminderItem {
+  id: string;
+  startsAt: string; // ISO
+  title: string;
+  body: string;
+  url: string;
+}
+
+export interface ReminderSchedule {
+  enabled: boolean;
+  minutesBefore: number;
+  items: ReminderItem[];
+}
+
+export const REMINDERS_KEY = 'estudo:lembretes';
+
+export function publishReminders(schedule: ReminderSchedule) {
+  writeJson(REMINDERS_KEY, schedule);
+}
+
+export function readReminders(): ReminderSchedule | null {
+  return readJson<ReminderSchedule | null>(REMINDERS_KEY, null);
+}
+
+// Mensagem legível para erros das tabelas do estudo.
+export function studyErrorMessage(err: unknown): string {
+  const e = err as { code?: string; message?: string } | null;
+  const msg = e?.message || String(err ?? '');
+  if (e?.code === '42P01' || e?.code === 'PGRST205' || /could not find the table|does not exist/i.test(msg)) return 'Falta a tabela: corre o supabase-study-phase5.sql no Supabase.';
+  if (e?.code === '42501' || /permission denied/i.test(msg)) return 'Sem permissão: corre o supabase-grants.sql e o supabase-study-phase5.sql no Supabase.';
+  return msg;
 }
 
 // Sessões desde uma data (servidor + as que faltam enviar), para os cálculos.

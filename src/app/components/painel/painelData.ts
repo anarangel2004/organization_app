@@ -3,7 +3,7 @@
 // tarefas (`work_tasks`) e eventos locais (localStorage) num único tipo
 // de evento, usado pelo índice do dia, grelha semanal e calendário mensal.
 
-import type { WorkProject, WorkTask } from '@/lib/workData';
+import { shiftOnDate, type WorkProject, type WorkShift, type WorkTask } from '@/lib/workData';
 import { addMinutes, fmtDuration, normTime } from '@/app/faculdade/[id]/components/disciplinaData';
 import {
   AssessmentLite,
@@ -28,6 +28,8 @@ export interface PainelEvent {
   href?: string;
   subjectId?: string;
   isDeadline: boolean;
+  // Bloco de estudo sugerido pelo plano (desenhado a tracejado na grelha).
+  planned?: boolean;
 }
 
 export interface AssessmentFull extends AssessmentLite {
@@ -187,6 +189,7 @@ export interface EventSources {
   localEvents: LocalEvent[];
   subjectLookup: Map<string, SubjectLite>;
   projectLookup: Map<string, WorkProject>;
+  shifts?: WorkShift[];
 }
 
 // Eventos de UM dia (`date` à meia-noite local), ordenados por hora;
@@ -255,6 +258,26 @@ export function buildEventsForDate(date: Date, src: EventSources): PainelEvent[]
         place: project?.name || 'Sem projeto',
         desc: `Tarefa de ${project?.name || 'trabalho'}, com prazo neste dia.`,
         href: '/trabalho',
+        isDeadline: false,
+      });
+    });
+
+  // Turnos de trabalho (semanais ou num dia).
+  (src.shifts ?? [])
+    .filter((s) => shiftOnDate(s, date))
+    .forEach((s) => {
+      const project = s.project_id ? src.projectLookup.get(s.project_id) : undefined;
+      const start = s.start_time.slice(0, 5);
+      const end = s.end_time.slice(0, 5);
+      out.push({
+        id: `turno-${s.id}-${key}`,
+        cat: 'trab',
+        time: start,
+        until: end,
+        title: s.title && s.title !== 'Turno' ? s.title : `Turno${project ? ` · ${project.name}` : ''}`,
+        place: s.place || project?.name || 'Trabalho',
+        desc: `Turno das ${start} às ${end}${s.place ? `, ${s.place}` : ''}.`,
+        href: '/trabalho#turnos',
         isDeadline: false,
       });
     });

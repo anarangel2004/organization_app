@@ -1,10 +1,28 @@
-const CACHE_NAME = 'hub-pwa-v1';
+const CACHE_NAME = 'hub-pwa-v2';
 const STATIC_ASSETS = [
   '/',
   '/faculdade',
   '/trabalho',
+  '/estudo',
   '/manifest.json'
 ];
+
+// Lembretes de estudo: tocar na notificação abre (ou foca) a app no caderno.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/estudo';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ('focus' in client) {
+          client.navigate(url).catch(() => {});
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

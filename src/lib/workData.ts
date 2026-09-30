@@ -204,3 +204,82 @@ export function updateWorkProject(id: string, patch: Partial<Pick<WorkProject, '
 export function updateWorkTask(id: string, patch: Partial<Pick<WorkTask, 'title' | 'project_id' | 'due_date' | 'completed'>>): Promise<void> {
   return updateRow<WorkTask>(TABLE_TASKS, id, patch);
 }
+
+// ==========================================
+// TURNOS (semanais ou num dia concreto)
+// ==========================================
+export interface WorkShift {
+  id: string;
+  title: string;
+  weekday: number | null; // 0 = domingo; preenchido nos turnos semanais
+  date: string | null; // AAAA-MM-DD nos turnos de um só dia
+  start_time: string; // "HH:MM" ou "HH:MM:SS"
+  end_time: string;
+  place: string | null;
+  project_id: string | null;
+  created_at?: string;
+}
+
+export type WorkShiftInput = Omit<WorkShift, 'id' | 'created_at'>;
+
+const TABLE_SHIFTS = 'work_shifts';
+
+// Sem a tabela (SQL por correr) devolve [] em vez de partir a página.
+export async function getWorkShifts(): Promise<WorkShift[]> {
+  const supabase = createClient();
+  try {
+    const { data, error } = await supabase.from(TABLE_SHIFTS).select('*').order('created_at', { ascending: true });
+    if (error) {
+      if (error.code === '42P01' || /does not exist|schema cache/i.test(error.message || '')) return [];
+      throw error;
+    }
+    const rows = (data ?? []) as WorkShift[];
+    await reconcileMirror(TABLE_SHIFTS, rows);
+    return rows;
+  } catch (err) {
+    if (isNetworkError(err)) return getAllMirror<WorkShift>(TABLE_SHIFTS);
+    throw err;
+  }
+}
+
+export async function createWorkShift(input: WorkShiftInput): Promise<WorkShift> {
+  const supabase = createClient();
+  try {
+    const { data, error } = await supabase.from(TABLE_SHIFTS).insert(input).select('*').single();
+    if (error) throw error;
+    await putMirror(TABLE_SHIFTS, data);
+    return data as WorkShift;
+  } catch (err) {
+    if (!isNetworkError(err)) throw err;
+    const optimistic: WorkShift = { id: generateLocalId(), created_at: new Date().toISOString(), ...input };
+    await putMirror(TABLE_SHIFTS, optimistic);
+    await queueMutation({ table: TABLE_SHIFTS, op: 'insert', tempId: optimistic.id, payload: { ...input } });
+    return optimistic;
+  }
+}
+
+export function updateWorkShift(id: string, patch: Partial<WorkShiftInput>): Promise<void> {
+  return updateRow<WorkShift>(TABLE_SHIFTS, id, patch);
+}
+
+export async function deleteWorkShift(id: string): Promise<void> {
+  const supabase = createClient();
+  try {
+    const { error } = await supabase.from(TABLE_SHIFTS).delete().eq('id', id);
+    if (error) throw error;
+    await deleteMirror(TABLE_SHIFTS, id);
+  } catch (err) {
+    if (!isNetworkError(err)) throw err;
+    await deleteMirror(TABLE_SHIFTS, id);
+    await queueMutation({ table: TABLE_SHIFTS, op: 'delete', targetId: id, payload: {} });
+  }
+}
+
+// O turno acontece neste dia? (semanal pelo dia da semana, ou pela data)
+export function shiftOnDate(s: WorkShift, date: Date): boolean {
+  if (s.date) {
+    const [y, m, d] = s.date.split('T')[0].split('-').map(Number);
+    return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+  }
+  return s.weekday === date.getDay();
+}

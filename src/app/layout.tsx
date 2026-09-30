@@ -3,6 +3,7 @@ import { Anton, Hanken_Grotesk, Instrument_Sans, Newsreader, Space_Mono } from '
 import './globals.css';
 import SWRegister from '@/components/SWRegister';
 import OfflineIndicator from '@/components/OfflineIndicator';
+import StudyReminders from '@/components/StudyReminders';
 
 const anton = Anton({
   weight: '400',
@@ -58,6 +59,7 @@ export default function RootLayout({
     >
       <body className="bg-[#FCF9F2] text-[#111111] font-sans antialiased" suppressHydrationWarning>
         <SWRegister />
+        <StudyReminders />
         {children}
         <OfflineIndicator />
       </body>

@@ -644,6 +644,12 @@ export function WeekB({ columns, today, weekNumber, bind, nav }: { columns: Week
               {label}
             </span>
           ))}
+          {columns.some((c) => c.events.some((e) => e.planned)) && (
+            <Link href="/estudo" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'inherit' }}>
+              <span style={{ width: 9, height: 9, border: '1px dashed var(--sky)' }} />
+              Estudo sugerido
+            </Link>
+          )}
         </span>
       </div>
       {/* Sem contentor com overflow: um overflow-x auto torna também o eixo
@@ -716,24 +722,37 @@ export function WeekB({ columns, today, weekNumber, bind, nav }: { columns: Week
                     .map((ev) => {
                       const start = parseMinutes(ev.time);
                       const end = ev.until ? parseMinutes(ev.until) : start + 60;
-                      const st = CAT_STYLE[ev.cat];
+                      // Blocos sugeridos pelo plano de estudo: tracejado, sem fundo cheio.
+                      const st = ev.planned
+                        ? { bg: 'repeating-linear-gradient(135deg, rgba(127,176,203,0.16) 0 4px, transparent 4px 8px)', fg: 'var(--ink)', bd: 'var(--sky)' }
+                        : CAT_STYLE[ev.cat];
                       const b = bind(`w-${ev.id}`);
-                      const pop: PopData = {
-                        title: ev.title,
-                        tag: ev.cat === 'prazo' ? deadlineKind(ev.title) : undefined,
-                        lines: [
-                          ['Quando', `${WEEKDAY_SHORT_PT[c.date.getDay()]} ${c.date.getDate()} · ${ev.time}${ev.until ? `–${ev.until}` : ''}`],
-                          ['Onde', ev.place],
-                          ['Tipo', CAT_LABEL[ev.cat]],
-                        ],
-                        action: ev.href ? { label: 'Abrir →', href: ev.href } : undefined,
-                      };
+                      const pop: PopData = ev.planned
+                        ? {
+                            title: ev.title,
+                            tag: 'SUGESTÃO',
+                            lines: [
+                              ['Quando', `${WEEKDAY_SHORT_PT[c.date.getDay()]} ${c.date.getDate()} · ${ev.time}${ev.until ? `–${ev.until}` : ''}`],
+                              ['Porquê', ev.place],
+                            ],
+                            action: ev.href ? { label: 'Começar →', href: ev.href } : undefined,
+                          }
+                        : {
+                            title: ev.title,
+                            tag: ev.cat === 'prazo' ? deadlineKind(ev.title) : undefined,
+                            lines: [
+                              ['Quando', `${WEEKDAY_SHORT_PT[c.date.getDay()]} ${c.date.getDate()} · ${ev.time}${ev.until ? `–${ev.until}` : ''}`],
+                              ['Onde', ev.place],
+                              ['Tipo', CAT_LABEL[ev.cat]],
+                            ],
+                            action: ev.href ? { label: 'Abrir →', href: ev.href } : undefined,
+                          };
                       return (
                         <div key={ev.id} className={d.hoverable} data-hoverpin style={{ position: 'absolute', left: 0, right: 0, top: Math.round(((start - h0 * 60) / 60) * PX), height: Math.max(Math.round(((end - start) / 60) * PX) - 2, 16), zIndex: b.open ? 50 : 'auto' }}>
                           <button
                             type="button"
                             {...b.handlers}
-                            style={{ width: '100%', height: '100%', background: st.bg, color: st.fg, border: `1px solid ${st.bd}`, padding: '3px 6px', fontSize: 11, lineHeight: 1.25, overflow: 'hidden', textAlign: 'left', display: 'block' }}
+                            style={{ width: '100%', height: '100%', background: st.bg, color: st.fg, border: `1px ${ev.planned ? 'dashed' : 'solid'} ${st.bd}`, padding: '3px 6px', fontSize: 11, lineHeight: 1.25, overflow: 'hidden', textAlign: 'left', display: 'block' }}
                           >
                             <span style={{ display: 'block', fontWeight: 600 }}>{ev.time}</span>
                             <span className={d.ellipsis} style={{ display: 'block' }}>{ev.title}</span>
@@ -808,15 +827,29 @@ export function PhoneWeekB({ columns, today, weekNumber, nav }: { columns: WeekC
         })}
       </div>
       {picked && picked.events.length === 0 && <p className={d.muted} style={{ margin: '12px 0 0', fontSize: 13 }}>Nada marcado neste dia.</p>}
-      {picked?.events.map((ev) => {
+      {[...(picked?.events ?? [])]
+        .sort((a, b) => (a.time ?? '99').localeCompare(b.time ?? '99'))
+        .map((ev) => {
         const st = CAT_STYLE[ev.cat];
         const row = (
           <>
-            <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{ev.time ? `${ev.time}${ev.until ? `–${ev.until}` : ''}` : 'dia inteiro'}</span>
-            <span style={{ width: 10, height: 10, background: st.bg, border: `1px solid ${st.bd}`, alignSelf: 'center' }} />
+            <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', color: ev.planned ? 'var(--sky)' : undefined }}>
+              {ev.time ? `${ev.time}${ev.until ? `–${ev.until}` : ''}` : 'dia inteiro'}
+            </span>
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                background: ev.planned ? 'transparent' : st.bg,
+                border: `1px ${ev.planned ? 'dashed var(--sky)' : `solid ${st.bd}`}`,
+                alignSelf: 'center',
+              }}
+            />
             <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-              <span className={d.ellipsis} style={{ fontSize: 14 }}>{ev.title}</span>
-              <span style={{ fontSize: 12, color: 'var(--mut2)' }}>{CAT_LABEL[ev.cat]} · {ev.place}</span>
+              <span className={`${d.ellipsis} ${d.wrapPhone}`} style={{ fontSize: 14 }}>{ev.title}</span>
+              <span className={d.wrapPhone} style={{ fontSize: 12, color: 'var(--mut2)' }}>
+                {ev.planned ? `Sugestão · ${ev.place} · toca para começar` : `${CAT_LABEL[ev.cat]} · ${ev.place}`}
+              </span>
             </span>
           </>
         );

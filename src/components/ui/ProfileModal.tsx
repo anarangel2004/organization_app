@@ -1,9 +1,14 @@
 'use client';
 
-import React from 'react';
-import { X, LogOut, User, ShieldAlert } from 'lucide-react';
+// Perfil: conta (nome, email, último acesso, terminar sessão) e as
+// definições do estudo (horas por ECTS, semestre, disponibilidade, blocos).
+// Usa as variáveis do estilo "denso" da página onde está aberto.
+
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
+import d from '@/app/components/denso/denso.module.css';
+import { StudySettingsPanel } from '@/app/estudo/EstudoView';
 
 interface ProfileModalUser {
   name: string;
@@ -18,24 +23,30 @@ interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   user?: ProfileModalUser | null;
+  // Abre já na secção do estudo (ex.: botão "Definições" do /estudo).
+  focusStudy?: boolean;
 }
 
-const FALLBACK_USER: ProfileModalUser = {
-  name: 'A CARREGAR…',
-  email: '',
-  role: '—',
-  institution: '—',
-  code: '—',
-  lastAccess: '—',
-};
-
-export default function ProfileModal({ isOpen, onClose, user }: ProfileModalProps) {
+export default function ProfileModal({ isOpen, onClose, user, focusStudy = false }: ProfileModalProps) {
   const router = useRouter();
+  const studyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    if (focusStudy) window.setTimeout(() => studyRef.current?.scrollIntoView({ block: 'start' }), 50);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen, onClose, focusStudy]);
 
   if (!isOpen) return null;
 
-  const displayUser = user ?? FALLBACK_USER;
-
+  const name = user?.name || 'A carregar…';
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -45,84 +56,63 @@ export default function ProfileModal({ isOpen, onClose, user }: ProfileModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 font-mono">
-      <div className="bg-[#FBF9F5] border-2 border-black w-full max-w-lg shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] relative">
-
-        {/* Cabeçalho do Modal */}
-        <div className="flex items-center justify-between bg-black text-white px-4 py-3">
-          <span className="text-xs uppercase font-bold tracking-widest flex items-center gap-2">
-            <User className="w-4 h-4" /> {'// REGISTO DE PERFIL DE UTILIZADOR'}
-          </span>
-          <button
-            onClick={onClose}
-            className="hover:bg-neutral-800 p-1 transition-colors"
-          >
-            <X className="w-5 h-5" />
+    <div
+      role="presentation"
+      onClick={onClose}
+      data-study-ignore
+      style={{ position: 'fixed', inset: 0, zIndex: 96, background: 'rgba(0,0,0,0.65)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'max(16px, env(safe-area-inset-top)) 12px 16px', overflowY: 'auto' }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Perfil"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(640px, 100%)', background: 'var(--panel, #111)', color: 'var(--ink, #efe9df)', border: '1px solid #262626', display: 'flex', flexDirection: 'column', margin: 'auto 0' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 18px', borderBottom: '1px solid var(--line, #2a2a2a)' }}>
+          <h2 className={d.h2}>PERFIL</h2>
+          <button type="button" className={`${d.btnGhost} ${d.sm}`} onClick={onClose}>
+            Fechar ✕
           </button>
         </div>
 
-        {/* Corpo do Modal */}
-        <div className="p-6 space-y-6">
-
-          {/* Identificação Principal */}
-          <div className="border border-black p-4 bg-white flex items-center gap-4">
-            <div className="w-16 h-16 bg-black text-white font-extrabold text-2xl flex items-center justify-center border border-black">
-              {displayUser.name.charAt(0)}
+        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 22 }}>
+          {/* Conta */}
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span
+                className={d.round}
+                aria-hidden="true"
+                style={{ width: 52, height: 52, flex: 'none', background: 'var(--ink, #efe9df)', color: 'var(--bg, #0d0d0d)', fontSize: 22, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                {name.charAt(0).toUpperCase()}
+              </span>
+              <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span className={d.serif} style={{ fontSize: 22, lineHeight: 1.15 }}>{name.charAt(0) + name.slice(1).toLowerCase()}</span>
+                {user?.email && <span className={d.ellipsis} style={{ fontSize: 13, color: 'var(--mut)' }}>{user.email}</span>}
+              </span>
             </div>
-            <div>
-              <p className="text-xs text-neutral-500 uppercase tracking-wider">{displayUser.code}</p>
-              <h2 className="text-xl font-extrabold text-black uppercase tracking-tight">{displayUser.name}</h2>
-              <p className="text-xs font-bold text-neutral-700 mt-0.5">{displayUser.email}</p>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {[
+                ['CÓDIGO', user?.code ?? '—'],
+                ['ÚLTIMO ACESSO', user?.lastAccess ?? '—'],
+              ].map(([k, v]) => (
+                <div key={k} className={d.row} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--mut2)' }}>{k}</span>
+                  <span>{v}</span>
+                </div>
+              ))}
             </div>
-          </div>
-
-          {/* Tabela de Parâmetros Curriculares / Sistema */}
-          <div className="border border-black bg-white">
-            <div className="bg-neutral-100 px-3 py-1.5 border-b border-black text-[10px] font-bold uppercase tracking-wider text-neutral-600">
-              DADOS DE CREDENCIAÇÃO
-            </div>
-
-            <div className="divide-y divide-neutral-200 text-xs">
-              <div className="p-3 flex justify-between items-center">
-                <span className="text-neutral-500 uppercase">CURSO / CARGO</span>
-                <span className="font-bold text-black uppercase">{displayUser.role}</span>
-              </div>
-              <div className="p-3 flex justify-between items-center">
-                <span className="text-neutral-500 uppercase">DEPARTAMENTO</span>
-                <span className="font-bold text-black uppercase">{displayUser.institution}</span>
-              </div>
-              <div className="p-3 flex justify-between items-center">
-                <span className="text-neutral-500 uppercase">ÚLTIMO ACESSO</span>
-                <span className="font-bold text-black uppercase">{displayUser.lastAccess}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Aviso de Encerramento */}
-          <div className="p-3 bg-neutral-100 border border-neutral-300 text-[11px] text-neutral-600 flex items-start gap-2">
-            <ShieldAlert className="w-4 h-4 text-black shrink-0 mt-0.5" />
-            <span>Ao encerrar a sessão, todas as instâncias locais serão desincronizadas temporariamente até ao próximo login.</span>
-          </div>
-
-          {/* Botões de Ação */}
-          <div className="flex flex-col sm:flex-row gap-3 pt-2">
-            <button
-              onClick={handleLogout}
-              className="flex-1 bg-black text-white py-3 px-4 font-bold text-xs uppercase hover:bg-red-600 transition-colors flex items-center justify-center gap-2 border border-black"
-            >
-              <LogOut className="w-4 h-4" />
-              ENCERRAR SESSÃO // LOGOUT
+            <button type="button" className={`${d.btnLine} ${d.sm}`} onClick={handleLogout} style={{ alignSelf: 'flex-start' }}>
+              Terminar sessão
             </button>
-            <button
-              onClick={onClose}
-              className="py-3 px-6 bg-white text-black font-bold text-xs uppercase hover:bg-neutral-200 transition-colors border border-black"
-            >
-              FECHAR
-            </button>
-          </div>
+          </section>
 
+          {/* Estudo */}
+          <div ref={studyRef} style={{ scrollMarginTop: 16 }}>
+            <StudySettingsPanel />
+          </div>
         </div>
-
       </div>
     </div>
   );

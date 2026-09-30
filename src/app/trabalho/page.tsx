@@ -11,13 +11,16 @@ import {
   deleteWorkProject,
   deleteWorkTask,
   getWorkProjects,
+  getWorkShifts,
   getWorkTasks,
   toggleWorkTask,
   updateWorkProject,
   updateWorkTask,
   type WorkProject,
+  type WorkShift,
   type WorkTask,
 } from '@/lib/workData';
+import { ShiftsPanel } from './components/ShiftsPanel';
 import ProfileModal from '@/components/ui/ProfileModal';
 import d from '@/app/components/denso/denso.module.css';
 import { DensoHeader, ShortcutBar, useShortcuts, type SearchHit, type ShortcutItem } from '@/app/components/denso/DensoChrome';
@@ -50,7 +53,7 @@ const WEEKDAY_LONG = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta
 const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
 const HELP: [string, string][] = [
-  ['1–3', 'Ir para a secção'],
+  ['1–4', 'Ir para a secção'],
   ['N', 'Nova tarefa (escrever)'],
   ['T', 'Nova tarefa (painel)'],
   ['P', 'Novo projeto'],
@@ -70,6 +73,7 @@ export default function TrabalhoPage() {
 
   const [projects, setProjects] = useState<WorkProject[]>([]);
   const [tasks, setTasks] = useState<WorkTask[]>([]);
+  const [shifts, setShifts] = useState<WorkShift[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -98,9 +102,10 @@ export default function TrabalhoPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [p, t] = await Promise.all([getWorkProjects(), getWorkTasks()]);
+      const [p, t, s] = await Promise.all([getWorkProjects(), getWorkTasks(), getWorkShifts().catch(() => [] as WorkShift[])]);
       setProjects(p);
       setTasks(t);
+      setShifts(s);
     } catch (err) {
       console.error('Erro ao carregar o trabalho:', err);
       setLoadError('Não foi possível carregar os projetos e tarefas. Tenta atualizar a página.');
@@ -365,6 +370,7 @@ export default function TrabalhoPage() {
       if (key === '1') goTo('resumo');
       else if (key === '2') goTo('projetos');
       else if (key === '3') goTo('tarefas');
+      else if (key === '4') goTo('turnos');
       else if (key === 'n') {
         goTo('tarefas');
         window.setTimeout(() => quickRef.current?.focus(), 250);
@@ -461,6 +467,8 @@ export default function TrabalhoPage() {
     />
   );
 
+  const shiftsEl = <ShiftsPanel shifts={shifts} projects={projects} onChange={setShifts} boxed={layout === 'desktop' || layout === 'tabletH'} />;
+
   const editingTask = editing?.kind === 'task' ? editing.task : null;
   const drawer =
     editing?.kind === 'task' ? (
@@ -504,6 +512,7 @@ export default function TrabalhoPage() {
       { id: 'resumo', key: '', label: 'Resumo' },
       { id: 'tarefas', key: '', label: 'Tarefas', badge: pending.length ? String(pending.length) : undefined },
       { id: 'projetos', key: '', label: 'Projetos', badge: projects.length ? String(projects.length) : undefined },
+      { id: 'turnos', key: '', label: 'Turnos', badge: shifts.length ? String(shifts.length) : undefined },
     ];
     return (
       <div className={`${d.root} ${d.touch} ${phone ? d.phone : layout === 'tabletV' ? d.tabletV : ''}`}>
@@ -519,7 +528,10 @@ export default function TrabalhoPage() {
               {statsEl}
               {projectsEl}
             </div>
-            {tasksEl}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 22, minWidth: 0 }}>
+              {tasksEl}
+              {shiftsEl}
+            </div>
           </div>
         ) : (
           <div className={d.inner} style={{ display: 'flex', flexDirection: 'column', gap: phone ? 28 : 26, paddingTop: phone ? 14 : 12, paddingBottom: phone ? 110 : 40 }}>
@@ -535,6 +547,7 @@ export default function TrabalhoPage() {
                 {tasksEl}
               </>
             )}
+            {shiftsEl}
           </div>
         )}
         {phone && <PhoneTabBar active="trabalho" searchIndex={searchIndex} />}
@@ -551,6 +564,7 @@ export default function TrabalhoPage() {
     { id: 'resumo', key: '1', label: 'Resumo' },
     { id: 'projetos', key: '2', label: 'Projetos', badge: String(projects.length) },
     { id: 'tarefas', key: '3', label: 'Tarefas', badge: String(pending.length) },
+    { id: 'turnos', key: '4', label: 'Turnos', badge: String(shifts.length) },
   ];
 
   return (
@@ -575,7 +589,10 @@ export default function TrabalhoPage() {
             {statsEl}
             {projectsEl}
           </div>
-          <div className={d.col4}>{tasksEl}</div>
+          <div className={d.col4} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+            {tasksEl}
+            {shiftsEl}
+          </div>
         </div>
       )}
       {drawer}

@@ -8,9 +8,11 @@ import { formatRelativeDate } from '@/lib/utils';
 import {
   createWorkTask,
   getWorkProjects,
+  getWorkShifts,
   getWorkTasks,
   toggleWorkTask,
   WorkProject,
+  WorkShift,
   WorkTask,
 } from '@/lib/workData';
 import ProfileModal from '@/components/ui/ProfileModal';
@@ -63,6 +65,7 @@ import {
   LocalEvent,
   MONTHS_PT,
   PainelCat,
+  PainelEvent,
   WEEKDAY_LONG_PT,
   addDays,
   buildEventsForDate,
@@ -81,8 +84,9 @@ import {
 } from './components/painel/painelData';
 import { dueLabel, fmtDuration } from './faculdade/[id]/components/disciplinaData';
 import type { AssessmentItem } from '@/types';
-import { loadSessionsSince, loadStudySettings, type StudySessionRow } from '@/lib/study';
-import { DEFAULT_SETTINGS, computePlan, type StudySettings } from '@/lib/studyPlan';
+import { loadSavedBlocks, loadSessionsSince, loadStudySettings, publishReminders, type StudySessionRow } from '@/lib/study';
+import { DEFAULT_SETTINGS, buildWeekPlan, computePlan, reminderItems, resolveWeekPlan, type SavedBlock, type StudySettings } from '@/lib/studyPlan';
+import { SETTINGS_EVENT } from './estudo/EstudoView';
 
 // "TESTE 1" → "Teste 1" (títulos todos em maiúsculas, como os gravados pelo editor antigo).
 function niceTitle(title: string): string {
@@ -132,27 +136,43 @@ export default function HomePage() {
   const layout = useDensoLayout();
 
   const [studySessions, setStudySessions] = useState<StudySessionRow[]>([]);
+  const [workShifts, setWorkShifts] = useState<WorkShift[]>([]);
   const [studySettings, setStudySettings] = useState<StudySettings>(DEFAULT_SETTINGS);
+  const [studyBlocks, setStudyBlocks] = useState<SavedBlock[]>([]);
+
+  // Definições do estudo gravadas no perfil: o Balanço recalcula logo.
+  useEffect(() => {
+    const onSettings = (e: Event) => {
+      const s = (e as CustomEvent<StudySettings>).detail;
+      if (s) setStudySettings(s);
+    };
+    window.addEventListener(SETTINGS_EVENT, onSettings);
+    return () => window.removeEventListener(SETTINGS_EVENT, onSettings);
+  }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
       // Sessões desde 14 dias antes desta semana (janela de preparação dos testes).
       const studySince = new Date(mondayOf(new Date()).getTime() - 14 * 86400000);
-      const [subjectsRes, assessmentsRes, chaptersRes, projects, tasks, sessions, sett] = await Promise.all([
+      const [subjectsRes, assessmentsRes, chaptersRes, projects, tasks, shiftRows, sessions, sett] = await Promise.all([
         supabase.from('subjects').select('id, name, code, schedules, ects, theoretical_weight, practical_weight'),
         supabase.from('assessments').select('id, subject_id, title, due_date, due_time, duration_minutes, weight_percent, category, grade, has_defense, defense_grade'),
         supabase.from('chapters').select('id, subject_id, category, title, updated_at'),
         getWorkProjects(),
         getWorkTasks(),
+        getWorkShifts().catch(() => [] as WorkShift[]),
         loadSessionsSince(studySince),
         loadStudySettings(),
       ]);
+      // Blocos fixados no /estudo para esta semana (sem a tabela: fica a sugestão).
+      setStudyBlocks(await loadSavedBlocks(isoKey(mondayOf(new Date()))));
       setSubjects(subjectsRes.data || []);
       setAssessments(assessmentsRes.data || []);
       setChapters(chaptersRes.data || []);
       setWorkProjects(projects);
       setWorkTasks(tasks);
+      setWorkShifts(shiftRows);
       setStudySessions(sessions);
       setStudySettings(sett.settings);
     } catch (err) {
@@ -179,8 +199,8 @@ export default function HomePage() {
   const classes = useMemo(() => collectClasses(subjects), [subjects]);
 
   const sources = useMemo<EventSources>(
-    () => ({ classes, assessments, tasks: workTasks, localEvents, subjectLookup, projectLookup }),
-    [classes, assessments, workTasks, localEvents, subjectLookup, projectLookup]
+    () => ({ classes, assessments, tasks: workTasks, localEvents, subjectLookup, projectLookup, shifts: workShifts }),
+    [classes, assessments, workTasks, localEvents, subjectLookup, projectLookup, workShifts]
   );
   const getEvents = useCallback((date: Date) => buildEventsForDate(date, sources), [sources]);
   const todayEvents = useMemo(() => getEvents(today), [getEvents, today]);
@@ -299,28 +319,82 @@ export default function HomePage() {
   // 0 = esta semana; ‹ › andam de 7 em 7 dias.
   const [weekOffset, setWeekOffset] = useState(0);
   const monday = useMemo(() => addDays(mondayOf(today), weekOffset * 7), [today, weekOffset]);
+
+  // Sugestão de estudo desta semana (mesmo cálculo do /estudo).
+  const studyRows = useMemo(
+    () =>
+      computePlan({
+        subjects,
+        assessments: assessments as unknown as AssessmentItem[],
+        sessions: studySessions,
+        settings: studySettings,
+        today,
+      }).rows,
+    [subjects, assessments, studySessions, studySettings, today]
+  );
+  // Horas de estudo reais desta semana (contador do caderno) vs. a sugestão.
+  const studyHours = useMemo(
+    () => ({
+      done: studyRows.reduce((n, r) => n + r.doneWeek, 0),
+      target: studyRows.reduce((n, r) => n + r.suggestedWeek, 0),
+    }),
+    [studyRows]
+  );
+  // Blocos de estudo (de hoje a domingo): os fixados no /estudo ou a sugestão.
+  const planTick = Math.floor(now.getTime() / 900000);
+  const studyPlanDays = useMemo(() => {
+    const { days: generated } = buildWeekPlan({
+      rows: studyRows,
+      subjects,
+      assessments: assessments as unknown as AssessmentItem[],
+      shifts: workShifts,
+      settings: studySettings,
+      now,
+    });
+    return resolveWeekPlan(generated, studyBlocks, studyRows).days;
+    // `now` muda a cada 30 s; o plano só precisa de acompanhar o quarto de hora.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studyRows, subjects, assessments, workShifts, studySettings, studyBlocks, planTick]);
+
+  // Lembretes antes de cada bloco (quem avisa é o StudyReminders).
+  useEffect(() => {
+    if (loading) return;
+    publishReminders({ enabled: studySettings.reminders, minutesBefore: studySettings.reminderMinutes, items: reminderItems(studyPlanDays, new Date()) });
+  }, [studyPlanDays, studySettings.reminders, studySettings.reminderMinutes, loading]);
+
+  // Para a grelha a tracejado (os feitos já contam como estudo real).
+  const plannedByDay = useMemo(() => {
+    const map = new Map<string, PainelEvent[]>();
+    for (const day of studyPlanDays) {
+      map.set(
+        isoKey(day.date),
+        day.blocks.filter((b) => b.status !== 'done').map((b) => ({
+          id: `plano-${b.id}`,
+          cat: 'fac' as const,
+          time: b.start,
+          until: b.end,
+          title: `Estudo · ${b.code}`,
+          place: b.reason,
+          desc: `Bloco de estudo ${b.saved ? 'planeado' : 'sugerido'}: ${b.name}, ${b.start}–${b.end}. ${b.reason}.`,
+          href: `/faculdade/${b.subjectId}/notebook`,
+          subjectId: b.subjectId,
+          isDeadline: false,
+          planned: true,
+        }))
+      );
+    }
+    return map;
+  }, [studyPlanDays]);
+
   const weekColumns = useMemo<WeekCol[]>(() => {
     const cols = Array.from({ length: 7 }, (_, i) => {
       const date = addDays(monday, i);
-      return { date, events: getEvents(date) };
+      const planned = plannedByDay.get(isoKey(date)) ?? [];
+      return { date, events: [...getEvents(date), ...planned] };
     });
     return cols.slice(5).some((c) => c.events.length > 0) ? cols : cols.slice(0, 5);
-  }, [monday, getEvents]);
+  }, [monday, getEvents, plannedByDay]);
   // O número no atalho "Semana" conta sempre a semana atual.
-  // Horas de estudo reais desta semana (contador do caderno) vs. a sugestão do /estudo.
-  const studyHours = useMemo(() => {
-    const { rows } = computePlan({
-      subjects,
-      assessments: assessments as unknown as AssessmentItem[],
-      sessions: studySessions,
-      settings: studySettings,
-      today,
-    });
-    return {
-      done: rows.reduce((n, r) => n + r.doneWeek, 0),
-      target: rows.reduce((n, r) => n + r.suggestedWeek, 0),
-    };
-  }, [subjects, assessments, studySessions, studySettings, today]);
 
   const weekBlocks = useMemo(() => {
     const start = mondayOf(today);

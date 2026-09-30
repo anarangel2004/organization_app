@@ -53,3 +53,7 @@ create policy "study_sessions: utilizadores com sessão"
   to authenticated
   using (true)
   with check (true);
+
+-- Permissões para a app (projetos Supabase recentes não as dão sozinhos).
+grant select, insert, update, delete on table public.study_sessions to authenticated;
+notify pgrst, 'reload schema';

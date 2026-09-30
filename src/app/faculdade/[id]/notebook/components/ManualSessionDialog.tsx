@@ -5,7 +5,14 @@ import c from './caderno.module.css';
 import { DateField, TimeField } from '@/components/ui/DateTimeFields';
 import { fmtDuration } from '@/app/faculdade/[id]/components/disciplinaData';
 import { chapterOrNull, type StudySessionRow } from '@/lib/study';
-import type { Chapter } from './types';
+
+// O mínimo de um capítulo que o painel precisa (serve o do caderno e o do /estudo).
+export interface DialogChapter {
+  id: string;
+  subjectId: string;
+  number: string;
+  title: string;
+}
 
 // "+ sessão": estudo feito fora da app (livro, papel), registado à mão.
 
@@ -25,19 +32,25 @@ export function ManualSessionDialog({
   currentChapterId,
   onSave,
   onClose,
+  subjects,
 }: {
   subjectId: string;
   subjectLabel: string;
-  chapters: Chapter[];
+  chapters: DialogChapter[];
   currentChapterId: string | null;
   onSave: (row: Omit<StudySessionRow, 'id' | 'source'>) => void;
   onClose: () => void;
+  // No /estudo: escolher a disciplina (no caderno é a do caderno).
+  subjects?: { id: string; label: string }[];
 }) {
   // Por omissão: 1 hora que acabou agora.
   const [duration, setDuration] = useState(60);
   const [date, setDate] = useState(() => isoDay(new Date()));
   const [start, setStart] = useState(() => hhmm(new Date(Date.now() - 60 * 60 * 1000)));
   const [chapter, setChapter] = useState(chapterOrNull(currentChapterId) ?? '');
+  const [subj, setSubj] = useState(subjectId);
+  const subjectChapters = chapters.filter((ch) => ch.subjectId === subj);
+  const shownLabel = subjects ? subjects.find((s) => s.id === subj)?.label ?? subjectLabel : subjectLabel;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -47,13 +60,15 @@ export function ManualSessionDialog({
 
   const startDate = date && start ? new Date(`${date}T${start}:00`) : null;
   const valid = !!startDate && !Number.isNaN(startDate.getTime()) && duration > 0;
-  const inFuture = !!startDate && startDate.getTime() > Date.now();
+  // Hora de abertura do painel (+1 min de folga): o render não pode ler o relógio.
+  const [openedAt] = useState(() => Date.now() + 60_000);
+  const inFuture = !!startDate && startDate.getTime() > openedAt;
 
   const save = () => {
     if (!valid || !startDate || inFuture) return;
     const end = new Date(startDate.getTime() + duration * 60 * 1000);
     onSave({
-      subject_id: subjectId,
+      subject_id: subj,
       chapter_id: chapter || null,
       started_at: startDate.toISOString(),
       ended_at: end.toISOString(),
@@ -82,8 +97,26 @@ export function ManualSessionDialog({
       >
         <div>
           <div style={{ fontSize: 16, fontWeight: 600 }}>Registar sessão de estudo</div>
-          <div style={{ fontSize: 12, color: 'var(--mut)' }}>{subjectLabel} · estudo fora da app (livro, papel…)</div>
+          <div style={{ fontSize: 12, color: 'var(--mut)' }}>{shownLabel} · estudo fora da app (livro, papel…)</div>
         </div>
+
+        {subjects && (
+          <label style={field}>
+            <span style={label}>DISCIPLINA</span>
+            <select
+              value={subj}
+              onChange={(e) => {
+                setSubj(e.target.value);
+                setChapter('');
+              }}
+              style={input}
+            >
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12 }}>
           <label style={field}>
@@ -109,7 +142,7 @@ export function ManualSessionDialog({
           <span style={label}>CAPÍTULO (OPCIONAL)</span>
           <select value={chapter} onChange={(e) => setChapter(e.target.value)} style={input}>
             <option value="">Sem capítulo</option>
-            {chapters
+            {subjectChapters
               .filter((ch) => chapterOrNull(ch.id))
               .map((ch) => (
                 <option key={ch.id} value={ch.id}>
