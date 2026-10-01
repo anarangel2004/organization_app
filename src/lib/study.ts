@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { DEFAULT_SETTINGS, type SavedBlock, type StudySettings } from '@/lib/studyPlan';
+import { MERGE_GAP_MIN, mergeGroups } from '@/lib/studyPath';
 
 export const IDLE_MS = 5 * 60 * 1000;
 export const MIN_SESSION_SEC = 120;
@@ -146,9 +147,18 @@ function toRow(seg: Segment): StudySessionRow {
   };
 }
 
-export type StudyState = 'counting' | 'idle' | 'paused';
+export type StudyState = 'counting' | 'idle' | 'paused' | 'class';
 
-export function useStudyTimer(subjectId: string, chapterId: string | null) {
+// Última sessão fechada: se o estudo recomeça em ≤ 15 min no mesmo capítulo,
+// continua a mesma sessão em vez de abrir outra.
+const LAST_KEY = 'estudo:ultima';
+
+export function useStudyTimer(subjectId: string, chapterId: string | null, inClass?: () => boolean) {
+  // Lido a cada segundo pelo relógio (a função muda quando muda o horário).
+  const inClassRef = useRef(inClass);
+  useEffect(() => {
+    inClassRef.current = inClass;
+  });
   const segRef = useRef<Segment | null>(null);
   const lastActivity = useRef(0);
   const lastTick = useRef(0); // 0 = ainda sem tique (o primeiro não conta)
@@ -166,6 +176,7 @@ export function useStudyTimer(subjectId: string, chapterId: string | null) {
     if (seg && seg.activeSec >= MIN_SESSION_SEC) {
       queueSession(toRow(seg));
       setBaseSec((s) => s + Math.round(seg.activeSec));
+      writeJson(LAST_KEY, seg);
     }
   }, []);
 
@@ -219,21 +230,30 @@ export function useStudyTimer(subjectId: string, chapterId: string | null) {
       lastTick.current = now;
       const visible = document.visibilityState === 'visible';
       const recent = now - lastActivity.current <= IDLE_MS;
-      const counting = visible && recent && !pausedRef.current && lastActivity.current > 0;
+      // Durante a aula desta disciplina (pelo horário) não conta como estudo.
+      const inClassNow = !!inClassRef.current?.();
+      const counting = visible && recent && !pausedRef.current && lastActivity.current > 0 && !inClassNow;
 
       if (counting) {
         if (!segRef.current) {
-          segRef.current = { id: newId(), subjectId, chapterId: chapterRef.current, startedAt: now, lastAt: now, activeSec: 0 };
+          const last = readJson<Segment | null>(LAST_KEY, null);
+          if (last && last.subjectId === subjectId && last.chapterId === chapterRef.current && now - last.lastAt <= MERGE_GAP_MIN * 60000) {
+            // Pausa curta: continua a sessão anterior (o total de hoje já a contava).
+            segRef.current = { ...last, lastAt: now };
+            setBaseSec((s) => Math.max(0, s - Math.round(last.activeSec)));
+          } else {
+            segRef.current = { id: newId(), subjectId, chapterId: chapterRef.current, startedAt: now, lastAt: now, activeSec: 0 };
+          }
         }
         const seg = segRef.current;
         seg.activeSec += delta;
         seg.lastAt = now;
         writeJson(CURRENT_KEY, seg);
         setLiveSec(Math.round(seg.activeSec));
-      } else if (segRef.current && (!recent || pausedRef.current)) {
+      } else if (segRef.current && (!recent || pausedRef.current || inClassNow)) {
         close();
       }
-      setState(pausedRef.current ? 'paused' : counting ? 'counting' : 'idle');
+      setState(pausedRef.current ? 'paused' : inClassNow ? 'class' : counting ? 'counting' : 'idle');
     };
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
@@ -369,6 +389,43 @@ export async function saveStudySettings(s: StudySettings): Promise<void> {
 // ==========================================
 // CORRIGIR SESSÕES (fase 5)
 // ==========================================
+// Junta no servidor as sessões seguidas (mesma disciplina e capítulo, pausa
+// ≤ 15 min): a primeira fica com o fim da última e a soma do tempo; as outras
+// apagam-se. Devolve a lista já junta (as que ainda não foram enviadas ficam).
+export async function mergeCloseSessions(rows: StudySessionRow[]): Promise<StudySessionRow[]> {
+  const pendingIds = new Set(getPending().map((r) => r.id));
+  const groups = mergeGroups(rows.filter((r) => !pendingIds.has(r.id)));
+  const out = rows.filter((r) => pendingIds.has(r.id));
+  for (const g of groups) {
+    if (g.length === 1) {
+      out.push(g[0]);
+      continue;
+    }
+    const first = g[0];
+    const merged: StudySessionRow = {
+      ...first,
+      ended_at: g.reduce((m, r) => (r.ended_at > m ? r.ended_at : m), first.ended_at),
+      duration_seconds: g.reduce((n, r) => n + r.duration_seconds, 0),
+      source: g.some((r) => r.source === 'auto') ? 'auto' : first.source,
+    };
+    try {
+      const { error } = await supabase
+        .from('study_sessions')
+        .update({ ended_at: merged.ended_at, duration_seconds: merged.duration_seconds })
+        .eq('id', first.id);
+      if (error) throw error;
+      const { error: delErr } = await supabase.from('study_sessions').delete().in('id', g.slice(1).map((r) => r.id));
+      if (delErr) throw delErr;
+      out.push(merged);
+    } catch (err) {
+      // Sem rede ou sem permissão: fica como estava (tenta-se na próxima vez).
+      console.warn('Não foi possível juntar sessões:', err);
+      out.push(...g);
+    }
+  }
+  return out.sort((a, b) => a.started_at.localeCompare(b.started_at));
+}
+
 export async function deleteSession(id: string): Promise<void> {
   // Pode ainda estar só no dispositivo.
   writeJson(PENDING_KEY, getPending().filter((r) => r.id !== id));

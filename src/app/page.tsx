@@ -85,7 +85,8 @@ import {
 import { dueLabel, fmtDuration } from './faculdade/[id]/components/disciplinaData';
 import type { AssessmentItem } from '@/types';
 import { loadSavedBlocks, loadSessionsSince, loadStudySettings, publishReminders, type StudySessionRow } from '@/lib/study';
-import { DEFAULT_SETTINGS, buildWeekPlan, computePlan, reminderItems, resolveWeekPlan, type SavedBlock, type StudySettings } from '@/lib/studyPlan';
+import { classSlots, withoutClassTime } from '@/lib/studyPath';
+import { DEFAULT_SETTINGS, buildWeekPlan, computePlan, planPeriod, reminderItems, resolveWeekPlan, type SavedBlock, type StudySettings } from '@/lib/studyPlan';
 import { SETTINGS_EVENT } from './estudo/EstudoView';
 
 // "TESTE 1" → "Teste 1" (títulos todos em maiúsculas, como os gravados pelo editor antigo).
@@ -153,12 +154,12 @@ export default function HomePage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      // Sessões desde 14 dias antes desta semana (janela de preparação dos testes).
-      const studySince = new Date(mondayOf(new Date()).getTime() - 14 * 86400000);
+      // Sessões das últimas 12 semanas (a matéria de um teste vem desde o anterior).
+      const studySince = new Date(mondayOf(new Date()).getTime() - 12 * 7 * 86400000);
       const [subjectsRes, assessmentsRes, chaptersRes, projects, tasks, shiftRows, sessions, sett] = await Promise.all([
         supabase.from('subjects').select('id, name, code, schedules, ects, theoretical_weight, practical_weight'),
         supabase.from('assessments').select('id, subject_id, title, due_date, due_time, duration_minutes, weight_percent, category, grade, has_defense, defense_grade'),
-        supabase.from('chapters').select('id, subject_id, category, title, updated_at'),
+        supabase.from('chapters').select('id, subject_id, category, title, updated_at, number, is_completed, created_at'),
         getWorkProjects(),
         getWorkTasks(),
         getWorkShifts().catch(() => [] as WorkShift[]),
@@ -320,17 +321,25 @@ export default function HomePage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const monday = useMemo(() => addDays(mondayOf(today), weekOffset * 7), [today, weekOffset]);
 
-  // Sugestão de estudo desta semana (mesmo cálculo do /estudo).
+  // Sugestão de estudo desta semana (mesmo cálculo do /estudo): sem o tempo
+  // das aulas da própria disciplina e com o percurso até ao próximo teste.
+  const studied = useMemo(() => {
+    const p = planPeriod(studySettings, today);
+    const range = p.usingDefaults ? { start: null, end: null } : { start: p.start, end: p.classesEnd };
+    return withoutClassTime(studySessions, new Map(subjects.map((x) => [String(x.id), classSlots(x.schedules)])), range);
+  }, [studySessions, subjects, studySettings, today]);
+  const pathChapters = useMemo(() => chapters.map((c) => ({ ...c, number: c.number ?? null })), [chapters]);
   const studyRows = useMemo(
     () =>
       computePlan({
         subjects,
         assessments: assessments as unknown as AssessmentItem[],
-        sessions: studySessions,
+        sessions: studied,
         settings: studySettings,
         today,
+        chapters: pathChapters,
       }).rows,
-    [subjects, assessments, studySessions, studySettings, today]
+    [subjects, assessments, studied, studySettings, today, pathChapters]
   );
   // Horas de estudo reais desta semana (contador do caderno) vs. a sugestão.
   const studyHours = useMemo(
@@ -376,7 +385,7 @@ export default function HomePage() {
           title: `Estudo · ${b.code}`,
           place: b.reason,
           desc: `Bloco de estudo ${b.saved ? 'planeado' : 'sugerido'}: ${b.name}, ${b.start}–${b.end}. ${b.reason}.`,
-          href: `/faculdade/${b.subjectId}/notebook`,
+          href: b.href ?? `/faculdade/${b.subjectId}/notebook`,
           subjectId: b.subjectId,
           isDeadline: false,
           planned: true,

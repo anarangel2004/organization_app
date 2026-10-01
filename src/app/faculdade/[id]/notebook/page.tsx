@@ -38,7 +38,9 @@ import {
 } from './components/types';
 import { ContextBar, MenuBar, MenuDef, StatusBar, StudyInfo, SubjectChip } from './components/CadernoBars';
 import { ManualSessionDialog } from './components/ManualSessionDialog';
-import { fmtStudy, useStudyTimer } from '@/lib/study';
+import { fmtStudy, loadStudySettings, useStudyTimer } from '@/lib/study';
+import { classSlots, isInClass, type ClassRange } from '@/lib/studyPath';
+import { planPeriod } from '@/lib/studyPlan';
 import { ChapterSidebar } from './components/ChapterSidebar';
 import { FormatState, NotesLayout, NotesPane, NotesPaneRef, ZOOM_MAX, ZOOM_MIN } from './components/NotesPane';
 import { PdfPane } from './components/PdfPane';
@@ -67,6 +69,7 @@ interface SubjectRow {
   id: string;
   code: string | null;
   name: string | null;
+  schedules?: unknown;
 }
 
 interface ChapterDbRow {
@@ -170,7 +173,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     setLoadError(null);
     try {
       const [subj, chaps, assess, fileRows] = await Promise.all([
-        supabase.from('subjects').select('id, code, name'),
+        supabase.from('subjects').select('id, code, name, schedules'),
         supabase.from('chapters').select('*').eq('subject_id', subjectId).order('created_at', { ascending: true }),
         supabase.from('assessments').select('*').eq('subject_id', subjectId),
         supabase.from('subject_files').select('*').eq('subject_id', subjectId).order('created_at', { ascending: false }),
@@ -351,7 +354,22 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   // ==========================================
   // CONTADOR DE ESTUDO (só tempo ativo; guarda por capítulo)
   // ==========================================
-  const studyTimer = useStudyTimer(subjectId, active?.id ?? null);
+  // Durante a aula desta disciplina (pelo horário e dentro do período de aulas) o contador não conta.
+  const [classRange, setClassRange] = useState<ClassRange>({ start: null, end: null });
+  useEffect(() => {
+    let alive = true;
+    loadStudySettings().then(({ settings }) => {
+      if (!alive) return;
+      const period = planPeriod(settings, new Date());
+      setClassRange({ start: period.usingDefaults ? null : period.start, end: period.usingDefaults ? null : period.classesEnd });
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const mySlots = useMemo(() => classSlots(subjects.find((x) => x.id === subjectId)?.schedules), [subjects, subjectId]);
+  const inClass = useCallback(() => isInClass(mySlots, new Date(), classRange), [mySlots, classRange]);
+  const studyTimer = useStudyTimer(subjectId, active?.id ?? null, inClass);
   const [manualOpen, setManualOpen] = useState(false);
   const study: StudyInfo = {
     state: studyTimer.state,
@@ -1056,7 +1074,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
             subjectId={subjectId}
             subjectCode={subject?.code || '…'}
             chapterLabel={chapterLabel}
-            subLabel={`${tabLabel} · ${syncText(sync)} · ${study.state === 'paused' ? 'Pausa' : 'Estudo'} ${fmtStudy(study.todaySec)}`}
+            subLabel={`${tabLabel} · ${syncText(sync)} · ${study.state === 'paused' ? 'Pausa' : study.state === 'class' ? 'Aula' : 'Estudo'} ${fmtStudy(study.todaySec)}`}
             onChapters={toggleSide}
             onPdf={() => setPdfSheetOpen(true)}
             onOptions={() => setOptionsOpen(true)}

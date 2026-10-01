@@ -46,6 +46,10 @@ export interface ChapterLite {
   category: string | null;
   title: string | null;
   updated_at: string | null;
+  // Para o percurso de estudo (T1 → P1 → …).
+  number?: string | number | null;
+  is_completed?: boolean | null;
+  created_at?: string | null;
 }
 
 // Eventos criados no calendário mensal. Não há tabela de eventos no

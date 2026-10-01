@@ -238,13 +238,15 @@ export interface StudyInfo {
 
 // "● Estudo · 34 min" com pausa e "+ sessão". data-study-ignore: tocar aqui não conta como estudo.
 export function StudyCounter({ study }: { study: StudyInfo }) {
-  const color = study.state === 'counting' ? 'var(--ok)' : study.state === 'paused' ? 'var(--amber)' : 'var(--faint)';
-  const label = study.state === 'paused' ? 'Pausa' : 'Estudo';
+  const color = study.state === 'counting' ? 'var(--ok)' : study.state === 'paused' ? 'var(--amber)' : study.state === 'class' ? 'var(--sky)' : 'var(--faint)';
+  const label = study.state === 'paused' ? 'Pausa' : study.state === 'class' ? 'Aula' : 'Estudo';
   const title =
     study.state === 'counting'
       ? `A contar · sessão atual ${fmtStudy(study.sessionSec)} · hoje nesta disciplina ${fmtStudy(study.todaySec)}`
       : study.state === 'paused'
         ? 'Em pausa · volta a contar quando escreveres'
+        : study.state === 'class'
+        ? 'Aula desta disciplina (pelo horário) · o tempo de aula não conta como estudo'
         : 'Parado · conta quando escreves, desenhas ou mexes no PDF (sessões com mais de 2 min)';
   return (
     <span className={c.study} data-study-ignore title={title}>

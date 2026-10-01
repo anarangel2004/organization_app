@@ -20,6 +20,7 @@ import {
   loadSavedBlocks,
   loadSessionsSince,
   loadStudySettings,
+  mergeCloseSessions,
   newId,
   publishReminders,
   queueSession,
@@ -38,6 +39,7 @@ import {
   hoursVsGrade,
   isoDay,
   mondayOf,
+  planPeriod,
   reminderItems,
   resolveWeekPlan,
   staleSubjects,
@@ -50,6 +52,7 @@ import {
   type StudySettings,
 } from '@/lib/studyPlan';
 import { ManualSessionDialog } from '@/app/faculdade/[id]/notebook/components/ManualSessionDialog';
+import { classSlots, withoutClassTime } from '@/lib/studyPath';
 import {
   EstudoChapterHours,
   EstudoHeading,
@@ -76,6 +79,8 @@ interface ChapterLite {
   number: string | number | null;
   title: string | null;
   category: string | null;
+  is_completed: boolean | null;
+  created_at: string | null;
 }
 
 const HISTORY_WEEKS = 8;
@@ -130,7 +135,7 @@ export default function EstudoPage() {
       const [subj, assess, chaps, sess, shiftRows] = await Promise.all([
         supabase.from('subjects').select('*'),
         supabase.from('assessments').select('*'),
-        supabase.from('chapters').select('id, subject_id, number, title, category'),
+        supabase.from('chapters').select('id, subject_id, number, title, category, is_completed, created_at'),
         loadSessionsSince(since),
         getWorkShifts().catch(() => [] as WorkShift[]),
       ]);
@@ -139,7 +144,8 @@ export default function EstudoPage() {
       setSubjects(((subj.data ?? []) as PlanSubject[]).map((s) => ({ ...s, id: String(s.id) })));
       setAssessments((assess.data ?? []) as AssessmentItem[]);
       setChapters(((chaps.data ?? []) as ChapterLite[]).map((c) => ({ ...c, id: String(c.id), subject_id: String(c.subject_id) })));
-      setSessions(sess);
+      // Sessões seguidas (≤ 15 min) passam a ser uma só, também no servidor.
+      setSessions(await mergeCloseSessions(sess));
       setSettings(sett.settings);
     } catch (err) {
       console.error('Erro ao carregar o estudo:', err);
@@ -188,9 +194,19 @@ export default function EstudoPage() {
   }, [sorted]);
   const toneOf = useCallback((id: string) => toneMap.get(id) ?? '#7fb0cb', [toneMap]);
 
+  // O tempo das aulas da própria disciplina não conta como estudo (também nas sessões antigas).
+  const classRange = useMemo(() => {
+    const p = planPeriod(settings, today);
+    return p.usingDefaults ? { start: null, end: null } : { start: p.start, end: p.classesEnd };
+  }, [settings, today]);
+  const studied = useMemo(
+    () => withoutClassTime(sessions, new Map(subjects.map((x) => [x.id, classSlots(x.schedules)])), classRange),
+    [sessions, subjects, classRange]
+  );
+
   const { rows, period } = useMemo(
-    () => computePlan({ subjects: sorted, assessments, sessions, settings, today }),
-    [sorted, assessments, sessions, settings, today]
+    () => computePlan({ subjects: sorted, assessments, sessions: studied, settings, today, chapters, now }),
+    [sorted, assessments, studied, settings, today, chapters, now]
   );
   // Primeiro as disciplinas com mais a fazer esta semana.
   const planRows = useMemo(
@@ -360,13 +376,23 @@ export default function EstudoPage() {
     setSessions((prev) => [...prev, full]);
   }, []);
 
+  // Marcar um capítulo como concluído daqui: o percurso passa ao passo seguinte.
+  const onToggleChapter = useCallback(async (chapterId: string, done: boolean) => {
+    setChapters((prev) => prev.map((c) => (c.id === chapterId ? { ...c, is_completed: done } : c)));
+    const { error } = await supabase.from('chapters').update({ is_completed: done }).eq('id', chapterId);
+    if (error) {
+      console.error('Erro ao marcar o capítulo:', error);
+      setChapters((prev) => prev.map((c) => (c.id === chapterId ? { ...c, is_completed: !done } : c)));
+    }
+  }, []);
+
   // Resumo da semana passada: o mesmo cálculo, visto do domingo passado.
   const lastWeekRows = useMemo(() => {
     const lastSunday = new Date(mondayOf(today).getTime() - 86400000);
-    return computePlan({ subjects: sorted, assessments, sessions, settings, today: startOfDay(lastSunday) }).rows;
-  }, [sorted, assessments, sessions, settings, today]);
+    return computePlan({ subjects: sorted, assessments, sessions: studied, settings, today: startOfDay(lastSunday), chapters, now: lastSunday }).rows;
+  }, [sorted, assessments, studied, settings, today, chapters]);
 
-  const weeks = useMemo(() => weekTotals(sessions, today, HISTORY_WEEKS), [sessions, today]);
+  const weeks = useMemo(() => weekTotals(studied, today, HISTORY_WEEKS), [studied, today]);
   const weekBars = useMemo<WeekBar[]>(
     () =>
       weeks.map((w) => ({
@@ -384,16 +410,16 @@ export default function EstudoPage() {
   const doneToday = rows.reduce((n, r) => n + r.doneToday, 0);
   const last4 = weeks.slice(-5, -1);
   const avg4 = last4.length ? last4.reduce((n, w) => n + w.hours, 0) / last4.length : 0;
-  const streak = useMemo(() => studyStreak(sessions, today), [sessions, today]);
+  const streak = useMemo(() => studyStreak(studied, today), [studied, today]);
 
   // Extras: disciplinas paradas, capítulos para rever, horas vs. nota.
   const stale = useMemo(() => staleSubjects(rows, today), [rows, today]);
-  const review = useMemo(() => chaptersToReview({ chapters, sessions, assessments, today }), [chapters, sessions, assessments, today]);
+  const review = useMemo(() => chaptersToReview({ chapters, sessions: studied, assessments, today }), [chapters, studied, assessments, today]);
   const hoursGradeSince = useMemo(
     () => period.start ?? new Date(mondayOf(today).getTime() - HISTORY_WEEKS * 7 * 86400000),
     [period.start, today]
   );
-  const hoursGrade = useMemo(() => hoursVsGrade(sorted, assessments, sessions, hoursGradeSince), [sorted, assessments, sessions, hoursGradeSince]);
+  const hoursGrade = useMemo(() => hoursVsGrade(sorted, assessments, studied, hoursGradeSince), [sorted, assessments, studied, hoursGradeSince]);
   const codeOf = useCallback((id: string) => {
     const s = subjects.find((x) => x.id === id);
     return s?.code || (s?.name || '?').slice(0, 3).toUpperCase();
@@ -403,7 +429,7 @@ export default function EstudoPage() {
   const chapterRows = useMemo(() => {
     const byChapter = new Map<string, number>();
     let none = 0;
-    for (const s of sessions) {
+    for (const s of studied) {
       const h = s.duration_seconds / 3600;
       if (s.chapter_id) byChapter.set(String(s.chapter_id), (byChapter.get(String(s.chapter_id)) || 0) + h);
       else none += h;
@@ -426,7 +452,7 @@ export default function EstudoPage() {
       .slice(0, 10);
     if (none > 0) list.push({ label: 'Sem capítulo', sub: '', hours: none });
     return list;
-  }, [sessions, chapters, subjects, toneOf]);
+  }, [studied, chapters, subjects, toneOf]);
 
   // ==========================================
   // CABEÇALHO, SEPARADORES, CONTA
@@ -561,13 +587,13 @@ export default function EstudoPage() {
     onRedo,
   };
   const planEl = wide ? (
-    <EstudoWeekGrid {...planProps} sessions={sessions} monday={mondayOf(today)} codeOf={codeOf} />
+    <EstudoWeekGrid {...planProps} sessions={studied} monday={mondayOf(today)} codeOf={codeOf} />
   ) : (
     <EstudoPlanList {...planProps} />
   );
   const sessionsEl = (
     <EstudoSessions
-      sessions={sessions}
+      sessions={studied}
       chapters={chapters}
       toneOf={toneOf}
       codeOf={codeOf}
@@ -602,7 +628,7 @@ export default function EstudoPage() {
   // Conteúdo de cada separador: duas colunas em ecrãs largos, uma no resto.
   const panes: Record<Tab, [ReactNode, ReactNode?]> = {
     plano: [planEl, <EstudoReview key="r" items={review} toneOf={toneOf} codeOf={codeOf} />],
-    disciplinas: [<EstudoSubjects key="s" rows={planRows} toneOf={toneOf} cards={phone} today={today} />],
+    disciplinas: [<EstudoSubjects key="s" rows={planRows} toneOf={toneOf} cards={phone} today={today} onToggleChapter={onToggleChapter} />],
     sessoes: [sessionsEl, <EstudoChapterHours key="c" chapters={chapterRows} />],
     estatisticas: [
       <div key="w" style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>

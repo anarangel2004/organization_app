@@ -20,6 +20,7 @@ import {
   type SubjectPlan,
   type Unavailable,
 } from '@/lib/studyPlan';
+import { chapterHref, stepTitle } from '@/lib/studyPath';
 
 export const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 export const WD = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -99,9 +100,58 @@ export function EstudoHeading({
 // ==========================================
 // POR DISCIPLINA
 // ==========================================
-function Reasons({ row }: { row: SubjectPlan }) {
+// Percurso até ao teste: T1 → P1 → T2 → … → testes anteriores.
+function PathSteps({ row, onToggle }: { row: SubjectPlan; onToggle?: (chapterId: string, done: boolean) => void }) {
+  const path = row.path;
+  if (!path) return null;
+  const all = [...path.steps, path.training];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 0 4px' }}>
+      <span style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--mut2)' }}>
+        PERCURSO ATÉ {path.title.toUpperCase()} · {short(path.due)} · FALTAM {fmtHours(path.left).toUpperCase()}
+      </span>
+      {all.length === 1 && <span style={{ fontSize: 12 }}>Sem aulas registadas para esta matéria (define as datas do semestre ou cria os capítulos).</span>}
+      {all.map((st) => {
+        const isNext = path.next?.key === st.key;
+        const icon = st.done ? '✓' : isNext ? '→' : st.given ? '·' : '○';
+        const color = st.done ? 'var(--sky)' : isNext ? 'var(--ink)' : st.given ? 'var(--mut)' : 'var(--faint)';
+        return (
+          <div key={st.key} style={{ display: 'grid', gridTemplateColumns: '14px minmax(0, 1fr) auto', gap: 8, alignItems: 'center', minHeight: 26, fontSize: 12, color }}>
+            <span style={{ fontWeight: 700 }}>{icon}</span>
+            <span className={d.ellipsis} style={{ fontWeight: isNext ? 600 : 400 }}>
+              {st.chapterId ? (
+                <Link href={chapterHref(row.subjectId, st)} style={{ color: 'inherit' }}>
+                  {stepTitle(st)}
+                </Link>
+              ) : (
+                stepTitle(st)
+              )}
+              {!st.given ? ' · aula ainda por dar' : !st.chapterId && st.kind !== 'TESTES' ? ' · sem capítulo no caderno' : ''}
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+              {!st.done && st.given && <span>{st.left > 0.05 ? `~${fmtHours(st.left)}` : 'tempo feito'}</span>}
+              {onToggle && st.chapterId && st.kind !== 'TESTES' && st.given && (
+                <button
+                  type="button"
+                  className={`${d.btnGhost} ${d.xs}`}
+                  onClick={() => onToggle(st.chapterId!, !st.done)}
+                  title={st.done ? 'Voltar a marcar por concluir' : 'Marcar o capítulo como concluído (passa ao seguinte)'}
+                >
+                  {st.done ? 'Desmarcar' : 'Concluído ✓'}
+                </button>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Reasons({ row, onToggle }: { row: SubjectPlan; onToggle?: (chapterId: string, done: boolean) => void }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 0 12px 20px', fontSize: 12, color: 'var(--mut)' }}>
+      <PathSteps row={row} onToggle={onToggle} />
       {row.reasons.map((r, i) => (
         <span key={i} style={{ color: r.kind === 'prep' ? 'var(--amber)' : r.kind === 'grade' ? 'var(--sky)' : undefined }}>
           · {r.text}
@@ -120,7 +170,19 @@ function Reasons({ row }: { row: SubjectPlan }) {
 
 const COLS = 'minmax(0, 1.4fr) minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 1.6fr)';
 
-export function EstudoSubjects({ rows, toneOf, cards, today }: { rows: SubjectPlan[]; toneOf: (id: string) => string; cards: boolean; today: Date }) {
+export function EstudoSubjects({
+  rows,
+  toneOf,
+  cards,
+  today,
+  onToggleChapter,
+}: {
+  rows: SubjectPlan[];
+  toneOf: (id: string) => string;
+  cards: boolean;
+  today: Date;
+  onToggleChapter?: (chapterId: string, done: boolean) => void;
+}) {
   const [open, setOpen] = useState<string | null>(null);
   const done = rows.reduce((n, r) => n + r.doneWeek, 0);
   const target = rows.reduce((n, r) => n + r.suggestedWeek, 0);
@@ -176,7 +238,7 @@ export function EstudoSubjects({ rows, toneOf, cards, today }: { rows: SubjectPl
                   {stale ? ' · há mais de 7 dias sem estudo' : ''}
                 </span>
               </button>
-              {isOpen && <Reasons row={r} />}
+              {isOpen && <Reasons row={r} onToggle={onToggleChapter} />}
             </div>
           );
         }
@@ -213,11 +275,11 @@ export function EstudoSubjects({ rows, toneOf, cards, today }: { rows: SubjectPl
               </span>
               <span className={d.ellipsis} style={{ color: 'var(--mut)' }}>{r.main}</span>
             </button>
-            {isOpen && <Reasons row={r} />}
+            {isOpen && <Reasons row={r} onToggle={onToggleChapter} />}
           </div>
         );
       })}
-      <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 11 }}>Toca numa disciplina para ver como a sugestão foi calculada.</p>
+      <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 11 }}>Toca numa disciplina para ver o percurso até ao teste e como a sugestão foi calculada.</p>
     </section>
   );
 }

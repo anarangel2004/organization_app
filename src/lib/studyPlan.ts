@@ -14,6 +14,7 @@ import type { AssessmentItem } from '@/types';
 import { getItemEffectiveGrade } from '@/lib/utils';
 import { parseDueDate, parseMinutes, parseSchedulesRaw, normalizeDayNum } from '@/app/components/homeAgenda';
 import { currentAverage, effectiveWeight, fmtGrade } from '@/app/faculdade/[id]/components/disciplinaData';
+import { TEST_TRAINING_SHARE, buildTestPath, chapterHref, stepQueue, stepTitle, type PathChapter, type TestPath } from '@/lib/studyPath';
 
 export const PREP_SHARE = 0.35;
 export const PREP_DAYS = 14;
@@ -92,7 +93,7 @@ export interface PlanSession {
 }
 
 export interface Reason {
-  kind: 'base' | 'prep' | 'grade' | 'info';
+  kind: 'base' | 'prep' | 'grade' | 'info' | 'step';
   text: string;
   hours?: number; // contributo para esta semana
 }
@@ -113,6 +114,8 @@ export interface SubjectPlan {
   next: { title: string; due: Date; days: number; weight: number } | null;
   reasons: Reason[];
   main: string; // o motivo mais importante, numa linha
+  // Percurso até ao próximo teste (só quando há capítulos).
+  path: TestPath | null;
 }
 
 export interface PlanPeriod {
@@ -201,17 +204,24 @@ export function computePlan({
   sessions,
   settings,
   today,
+  chapters,
+  now,
 }: {
   subjects: PlanSubject[];
   assessments: AssessmentItem[];
   sessions: PlanSession[];
   settings: StudySettings;
   today: Date;
+  // Com os capítulos, o próximo teste tem percurso (T1 → P1 → … → testes) e as
+  // horas passam a ser o que falta estudar, não um valor fixo.
+  chapters?: PathChapter[];
+  now?: Date;
 }): { rows: SubjectPlan[]; period: PlanPeriod } {
   const period = planPeriod(settings, today);
   const t0 = startOfDay(today);
   const weekStart = mondayOf(today);
   const weekEnd = addDays(weekStart, 7);
+  const semester = { start: period.start, end: period.classesEnd };
 
   const rows = subjects.map<SubjectPlan>((s) => {
     const code = s.code || (s.name || '?').slice(0, 3).toUpperCase();
@@ -251,7 +261,52 @@ export function computePlan({
       const p = pending[0];
       next = { title: p.a.title || 'Avaliação', due: p.due, days: Math.round((p.due.getTime() - t0.getTime()) / DAY_MS), weight: effectiveWeight(p.a, theory, practice) };
     }
+    // Próximo teste com percurso: o que falta estudar, espalhado até ao teste.
+    let path: TestPath | null = null;
+    let pathWeek = 0;
+    if (chapters && pending[0]) {
+      const { a, due } = pending[0];
+      const weight = effectiveWeight(a, theory, practice);
+      const previousDue = items
+        .map((x) => parseDueDate(x.due_date))
+        .filter((d): d is Date => d !== null && d < due)
+        .sort((x, y) => y.getTime() - x.getTime())[0] ?? null;
+      const scopeStart = previousDue ? addDays(previousDue, 1) : period.start ?? addDays(due, -56);
+      const weeks = Math.max(1, (due.getTime() - scopeStart.getTime()) / (7 * DAY_MS));
+      // Orçamento do teste: a base das semanas desta matéria + a preparação pelo peso.
+      const budget = baseWeek * weeks + selfStudy * PREP_SHARE * (weight / 100);
+      path = buildTestPath({
+        subjectId: s.id,
+        schedules: s.schedules,
+        chapters,
+        sessions: mine.map((x) => ({ ...x, chapter_id: x.chapter_id ?? null })),
+        title: a.title || 'Avaliação',
+        due,
+        previousDue,
+        semester,
+        budget,
+        now: now ?? new Date(),
+      });
+      const daysLeft = Math.max(1, Math.round((due.getTime() - t0.getTime()) / DAY_MS));
+      const daysThisWeek = Math.min(daysLeft, Math.round((weekEnd.getTime() - t0.getTime()) / DAY_MS));
+      pathWeek = (path.left * daysThisWeek) / daysLeft;
+      // Dias desta semana depois do teste: volta a base.
+      const afterDue = Math.max(0, Math.round((weekEnd.getTime() - Math.max(due.getTime(), t0.getTime())) / DAY_MS) - 1);
+      pathWeek += baseDay * afterDue;
+      const open = path.steps.filter((x) => x.given && !x.done).length;
+      const days = Math.round((due.getTime() - t0.getTime()) / DAY_MS);
+      reasons.push({
+        kind: 'prep',
+        hours: pathWeek,
+        text: `${path.title} ${days === 0 ? 'hoje' : days === 1 ? 'amanhã' : `daqui a ${days} dias`}: faltam ${fmtHours(path.left)}${
+          path.steps.length ? ` (${open} de ${path.steps.length} aulas por concluir)` : ''
+        } → ${fmtHours(pathWeek)} esta semana`,
+      });
+      if (path.next) reasons.push({ kind: 'step', text: `Próximo: ${stepTitle(path.next)}` });
+    }
+
     for (const { a, due } of pending) {
+      if (path && a === pending[0].a) continue;
       const weight = effectiveWeight(a, theory, practice);
       const prepTotal = selfStudy * PREP_SHARE * (weight / 100);
       if (prepTotal <= 0) continue;
@@ -293,13 +348,18 @@ export function computePlan({
       if (factor !== 1) reasons.push({ kind: 'grade', text: `Média ${fmtGrade(avg)} → ${factor > 1 ? '+' : '−'}${Math.round(Math.abs(factor - 1) * 100)}%` });
     }
 
-    const suggestedWeek = roundHalf((baseWeek + prepWeek) * factor);
     const doneWeek = hoursIn(mine, weekStart, weekEnd);
+    // Com percurso, a semana é o já feito mais o que falta (com o fator da nota).
+    const suggestedWeek = path
+      ? roundHalf(doneWeek + (pathWeek + prepWeek) * factor)
+      : roundHalf((baseWeek + prepWeek) * factor);
     const doneToday = hoursIn(mine, t0, addDays(t0, 1));
     const last = mine.reduce<number>((m, x) => Math.max(m, new Date(x.started_at).getTime()), 0);
 
     const prepMain = reasons.filter((r) => r.kind === 'prep').sort((x, y) => (y.hours ?? 0) - (x.hours ?? 0))[0];
-    const main = prepMain
+    const main = path?.next
+      ? `Próximo: ${stepTitle(path.next)}`
+      : prepMain
       ? prepMain.text.split(' → ')[0]
       : reasons.find((r) => r.kind === 'info')?.text ?? (baseWeek > 0 ? 'Ritmo base do semestre' : '—');
 
@@ -319,6 +379,7 @@ export function computePlan({
       next,
       reasons,
       main,
+      path,
     };
   });
 
@@ -366,6 +427,8 @@ export interface PlanBlock {
   end: string;
   minutes: number;
   reason: string;
+  // Capítulo a estudar neste bloco (percurso até ao teste).
+  href?: string;
   // Só nos blocos fixados (tabela study_blocks)
   status?: 'planned' | 'done';
   saved?: boolean;
@@ -521,6 +584,31 @@ export function buildWeekPlan({
     day.blocks.sort((x, y) => x.start.localeCompare(y.start));
   });
 
+  // Cada bloco recebe um passo do percurso, por ordem (T1 → P1 → …); nos últimos
+  // dias antes do teste, treinar testes anteriores.
+  for (const r of rows) {
+    const path = r.path;
+    if (!path) continue;
+    const mine = days.flatMap((d) => d.blocks.filter((b) => b.subjectId === r.subjectId));
+    if (!mine.length) continue;
+    const queue = stepQueue(path).map((st) => ({ st, left: Math.max(st.left, 0.5) }));
+    const totalDays = Math.max(1, Math.round((path.due.getTime() - path.scopeStart.getTime()) / DAY_MS));
+    const trainingFrom = addDays(startOfDay(path.due), -Math.max(2, Math.round(totalDays * TEST_TRAINING_SHARE / 2)));
+    let i = 0;
+    const days2 = Math.round((path.due.getTime() - t0.getTime()) / DAY_MS);
+    const when = days2 <= 0 ? 'hoje' : days2 === 1 ? 'amanhã' : `em ${days2} dias`;
+    for (const b of mine) {
+      const training = b.date >= trainingFrom;
+      const item = training ? queue[queue.length - 1] : queue[Math.min(i, queue.length - 1)];
+      b.reason = `${stepTitle(item.st)} · ${path.title} ${when}`;
+      b.href = chapterHref(r.subjectId, item.st);
+      if (!training) {
+        item.left -= b.minutes / 60;
+        if (item.left <= 0 && i < queue.length - 1) i++;
+      }
+    }
+  }
+
   return {
     days: days.map(({ date, blocks, freeMinutes, busy }) => ({ date, blocks, freeMinutes, busy })),
     unplaced: need.filter((x) => x.left >= settings.blockMin / 2).map((x) => ({ subjectId: x.r.subjectId, code: x.r.code, minutes: x.left })),
@@ -600,7 +688,7 @@ export function reminderItems(days: PlanDay[], now: Date): { id: string; startsA
         startsAt: at.toISOString(),
         title: `Estudo: ${b.code} às ${b.start}`,
         body: `${b.name} · ${fmtHours(b.minutes / 60)} · ${b.reason}`,
-        url: `/faculdade/${b.subjectId}/notebook`,
+        url: b.href ?? `/faculdade/${b.subjectId}/notebook`,
       });
     }
   }

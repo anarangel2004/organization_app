@@ -115,7 +115,7 @@ export function EstudoNow({
                 {row?.next && !prep ? ` · ${row.next.title} em ${row.next.days} dias` : ''}
               </span>
               <span style={{ display: 'flex', gap: 8, paddingTop: 6, flexWrap: 'wrap' }}>
-                <Link href={`/faculdade/${next.b.subjectId}/notebook`} className={d.btnFill}>
+                <Link href={next.b.href ?? `/faculdade/${next.b.subjectId}/notebook`} className={d.btnFill}>
                   {running ? 'Continuar no caderno →' : 'Começar →'}
                 </Link>
                 {running && (
@@ -232,7 +232,7 @@ function BlockActions({
   return (
     <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
       {!done && (
-        <Link href={`/faculdade/${block.subjectId}/notebook`} className={`${d.btnFill} ${d.sm}`}>
+        <Link href={block.href ?? `/faculdade/${block.subjectId}/notebook`} className={`${d.btnFill} ${d.sm}`}>
           Começar →
         </Link>
       )}
