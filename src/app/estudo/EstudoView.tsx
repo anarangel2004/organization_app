@@ -14,8 +14,6 @@ import {
   fmtHours,
   planPeriod,
   type HoursGradeRow,
-  type PlanBlock,
-  type PlanDay,
   type PlanPeriod,
   type ReviewChapter,
   type StudySettings,
@@ -23,15 +21,27 @@ import {
   type Unavailable,
 } from '@/lib/studyPlan';
 
-const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const short = (dt: Date) => `${dt.getDate()} ${MONTHS[dt.getMonth()]}`;
+export const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+export const WD = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+export const short = (dt: Date) => `${dt.getDate()} ${MONTHS[dt.getMonth()]}`;
 
-function Dot({ color, size = 8 }: { color: string; size?: number }) {
+export function Dot({ color, size = 8 }: { color: string; size?: number }) {
   return <span aria-hidden="true" className={d.round} style={{ width: size, height: size, flex: 'none', background: color, display: 'inline-block' }} />;
 }
 
+// Cor do texto por cima de uma cor de disciplina (os tons vão do azul-escuro ao osso).
+function luminance(hex: string) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 0.5;
+  const n = parseInt(m[1], 16);
+  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+}
+export const inkOn = (tone: string) => (luminance(tone) > 0.45 ? '#0d0d0d' : '#efe9df');
+// Tons muito escuros quase não se veem como contorno no fundo preto: clareia-os.
+export const edgeOf = (tone: string) => (luminance(tone) < 0.3 ? `color-mix(in srgb, ${tone} 60%, #ffffff)` : tone);
+
 // Barra feito / sugerido. Passar da sugestão fica a azul-claro até ao fim.
-function Meter({ done, target, color = 'var(--accent)' }: { done: number; target: number; color?: string }) {
+export function Meter({ done, target, color = 'var(--accent)' }: { done: number; target: number; color?: string }) {
   const pct = target > 0 ? Math.min(100, (done / target) * 100) : done > 0 ? 100 : 0;
   return (
     <span style={{ display: 'flex', height: 5, background: '#262626', minWidth: 0 }}>
@@ -46,25 +56,26 @@ function Meter({ done, target, color = 'var(--accent)' }: { done: number; target
 export function EstudoHeading({
   layout,
   subtitle,
-  meta,
   trailing,
   onSettings,
+  onAdd,
 }: {
   layout: DensoLayout;
   subtitle: string;
-  meta: string;
   trailing?: ReactNode;
   onSettings: () => void;
+  onAdd: () => void;
 }) {
   if (layout === 'phone') {
     return (
-      <section className={d.inner} style={{ paddingTop: 12, paddingBottom: 12 }}>
+      <section className={d.inner} style={{ paddingTop: 12, paddingBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <h1 style={{ margin: 0, fontSize: 36, lineHeight: 1.05, fontWeight: 700, letterSpacing: '-0.04em' }}>Estudo</h1>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0 }}>
+            <h1 style={{ margin: 0, fontSize: 34, lineHeight: 1.05, fontWeight: 700, letterSpacing: '-0.04em' }}>Estudo</h1>
+            <span className={`${d.serif} ${d.ellipsis}`} style={{ fontStyle: 'italic', fontSize: 17, color: 'var(--sky)' }}>{subtitle}</span>
+          </span>
           {trailing}
         </div>
-        <div className={d.serif} style={{ fontStyle: 'italic', fontSize: 19, color: 'var(--sky)' }}>{subtitle}</div>
-        <div className={d.muted} style={{ fontSize: 13, paddingTop: 2 }}>{meta}</div>
       </section>
     );
   }
@@ -76,53 +87,11 @@ export function EstudoHeading({
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px 18px', flexWrap: 'wrap', minWidth: 0 }}>
         <h1 style={{ margin: 0, fontSize: layout === 'desktop' ? 48 : 40, lineHeight: 1, fontWeight: 700, letterSpacing: '-0.04em' }}>Estudo</h1>
         <span className={d.serif} style={{ fontStyle: 'italic', fontSize: layout === 'desktop' ? 24 : 21, color: 'var(--sky)' }}>{subtitle}</span>
-        <span className={d.muted} style={{ fontSize: 13 }}>{meta}</span>
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button type="button" className={d.btnLine} onClick={onSettings}>Definições</button>
-        <Link href="/faculdade" className={d.btnFill}>Abrir um caderno →</Link>
+        <button type="button" className={d.btnGhost} onClick={onSettings}>Definições</button>
+        <button type="button" className={d.btnLine} onClick={onAdd} title="Registar estudo feito fora da app (N)">+ Sessão</button>
       </div>
-    </section>
-  );
-}
-
-// ==========================================
-// RESUMO
-// ==========================================
-export interface StatTile {
-  label: string;
-  value: string;
-  unit?: string;
-  note: string;
-  pct?: number | null;
-  accent?: boolean;
-}
-
-export function EstudoStats({ tiles, columns }: { tiles: StatTile[]; columns: 2 | 4 }) {
-  return (
-    <section id="resumo" style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: columns === 2 ? 10 : 12, scrollMarginTop: 64 }}>
-      {tiles.map((t) => (
-        <div
-          key={t.label}
-          style={
-            t.accent
-              ? { background: 'var(--bone)', color: 'var(--bg)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 5, minHeight: 104, minWidth: 0 }
-              : { borderTop: '2px solid var(--accent)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 5, minHeight: 104, minWidth: 0 }
-          }
-        >
-          <div className={d.label} style={t.accent ? { color: 'var(--bg)', fontWeight: 600 } : undefined}>{t.label}</div>
-          <div className={d.serif} style={{ fontSize: 32, lineHeight: 1, whiteSpace: 'nowrap', color: t.accent ? 'var(--bg)' : 'var(--ink)' }}>
-            {t.value}
-            {t.unit && <span style={{ fontSize: 16, color: t.accent ? 'rgba(13,13,13,0.65)' : 'var(--mut)' }}> {t.unit}</span>}
-          </div>
-          {typeof t.pct === 'number' && (
-            <span style={{ display: 'flex', height: 4, background: t.accent ? 'rgba(13,13,13,0.15)' : '#262626' }}>
-              <span style={{ width: `${Math.min(100, t.pct)}%`, background: t.accent ? 'var(--bg)' : 'var(--accent)' }} />
-            </span>
-          )}
-          <div className={d.ellipsis} style={{ fontSize: 12, color: t.accent ? 'rgba(13,13,13,0.75)' : 'var(--mut)' }}>{t.note}</div>
-        </div>
-      ))}
     </section>
   );
 }
@@ -254,225 +223,6 @@ export function EstudoSubjects({ rows, toneOf, cards, today }: { rows: SubjectPl
 }
 
 // ==========================================
-// PLANO DA SEMANA: blocos nos espaços livres
-// ==========================================
-const WD = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-
-export type BlockAction =
-  | { kind: 'done'; block: PlanBlock }
-  | { kind: 'undone'; block: PlanBlock }
-  | { kind: 'delete'; block: PlanBlock }
-  | { kind: 'move'; block: PlanBlock; date: Date; start: string; end: string };
-
-// Mover um bloco: dia (desta semana), início e fim.
-function MoveForm({ block, days, onSave, onCancel }: { block: PlanBlock; days: PlanDay[]; onSave: (date: Date, start: string, end: string) => void; onCancel: () => void }) {
-  const [dayKey, setDayKey] = useState(block.date.toDateString());
-  const [start, setStart] = useState(block.start);
-  const [end, setEnd] = useState(block.end);
-  const invalid = !start || !end || end <= start;
-  return (
-    <div className={d.slot} style={{ borderColor: 'var(--box2)', margin: '6px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr)', gap: 6 }}>
-        <select className={d.input} aria-label="Dia" value={dayKey} onChange={(e) => setDayKey(e.target.value)}>
-          {days.map((dd) => (
-            <option key={dd.date.toDateString()} value={dd.date.toDateString()}>
-              {WD[dd.date.getDay()]}, {dd.date.getDate()} {MONTHS[dd.date.getMonth()]}
-            </option>
-          ))}
-        </select>
-        <TimeField className={d.input} invalidClassName={d.inputInvalid} value={start} onChange={setStart} aria-label="Início" />
-        <TimeField className={d.input} invalidClassName={d.inputInvalid} value={end} onChange={setEnd} aria-label="Fim" />
-      </div>
-      {invalid && <span className={d.errorText}>O fim tem de ser depois do início.</span>}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <button type="button" className={`${d.btnGhost} ${d.sm}`} onClick={onCancel}>Cancelar</button>
-        <button
-          type="button"
-          className={`${d.btnFill} ${d.sm}`}
-          disabled={invalid}
-          onClick={() => onSave(days.find((dd) => dd.date.toDateString() === dayKey)?.date ?? block.date, start, end)}
-        >
-          Mover
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export function EstudoPlan({
-  days,
-  unplaced,
-  toneOf,
-  today,
-  now,
-  compact,
-  fixed,
-  busy,
-  error,
-  onAction,
-  onRedo,
-}: {
-  days: PlanDay[];
-  unplaced: { subjectId: string; code: string; minutes: number }[];
-  toneOf: (id: string) => string;
-  today: Date;
-  now: Date;
-  compact: boolean;
-  fixed: boolean;
-  busy: boolean;
-  error: string | null;
-  onAction: (a: BlockAction) => void;
-  onRedo: () => void;
-}) {
-  const [moving, setMoving] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const total = days.reduce((n, dd) => n + dd.blocks.reduce((m, b) => m + b.minutes, 0), 0);
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  const started = (b: PlanBlock) => b.date < today || (b.date.toDateString() === today.toDateString() && Number(b.start.slice(0, 2)) * 60 + Number(b.start.slice(3, 5)) <= nowMin);
-
-  return (
-    <section id="plano" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, scrollMarginTop: 64 }}>
-      <div className={d.sectionHead}>
-        <h2 className={d.h2}>PLANO DA SEMANA</h2>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span className={d.muted} style={{ fontSize: 12 }}>
-            {total ? `${fmtHours(total / 60)} em ${days.reduce((n, dd) => n + dd.blocks.length, 0)} blocos` : 'nada por encaixar'}
-          </span>
-          {fixed && (
-            <button type="button" className={`${d.btnGhost} ${d.xs}`} onClick={onRedo} disabled={busy} title="Apaga as mudanças por fazer e volta à sugestão calculada (os blocos feitos ficam)">
-              Refazer plano
-            </button>
-          )}
-        </span>
-      </div>
-      {fixed && (
-        <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 12 }}>
-          Plano fixado: mudaste blocos esta semana, por isso já não é refeito sozinho. Avaliações novas só entram com “Refazer plano”.
-        </p>
-      )}
-      {error && <p role="alert" style={{ margin: '8px 0 0', fontSize: 12, color: '#e38b7a' }}>{error}</p>}
-
-      {unplaced.length > 0 && !fixed && (
-        <p role="status" style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--amber)', lineHeight: 1.5 }}>
-          Sem espaço livre para {unplaced.map((u) => `${fmtHours(u.minutes / 60)} de ${u.code}`).join(', ')} esta semana. Alarga a disponibilidade ou o máximo de horas por dia
-          nas definições.
-        </p>
-      )}
-
-      {days.map((day) => {
-        const isToday = day.date.toDateString() === today.toDateString();
-        return (
-          <div key={day.date.toISOString()} style={{ display: 'flex', flexDirection: 'column', paddingTop: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, paddingBottom: 4, borderBottom: '1px solid var(--line2)' }}>
-              <span style={{ fontSize: 11, letterSpacing: '0.08em', color: isToday ? 'var(--sky)' : 'var(--mut)' }}>
-                {isToday ? 'HOJE · ' : ''}
-                {WD[day.date.getDay()].toUpperCase()}, {day.date.getDate()} {MONTHS[day.date.getMonth()].toUpperCase()}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--mut2)' }} title={day.busy.map((x) => `${x.start}–${x.end} ${x.label}`).join('\n')}>
-                {fmtHours(day.freeMinutes / 60)} livres{day.busy.length ? ` · ${day.busy.length} ocupados` : ''}
-              </span>
-            </div>
-            {day.blocks.length === 0 && (
-              <span className={d.muted} style={{ fontSize: 13, padding: '8px 0' }}>{day.freeMinutes < 30 ? 'Dia cheio.' : 'Sem blocos: livre.'}</span>
-            )}
-            {day.blocks.map((b) => {
-              const done = b.status === 'done';
-              const actions = (
-                <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {!done && (
-                    <Link href={`/faculdade/${b.subjectId}/notebook`} className={`${d.btnFill} ${d.sm}`}>
-                      Começar →
-                    </Link>
-                  )}
-                  {started(b) && (
-                    <button
-                      type="button"
-                      className={`${d.btnLine} ${d.xs}`}
-                      disabled={busy}
-                      onClick={() => onAction({ kind: done ? 'undone' : 'done', block: b })}
-                      title={done ? 'Voltar a marcar por fazer' : 'Marcar como feito (se o caderno não contou este tempo, fica registado como sessão manual)'}
-                    >
-                      {done ? 'Desfazer ✓' : 'Feito ✓'}
-                    </button>
-                  )}
-                  {!done && (
-                    <button type="button" className={`${d.btnGhost} ${d.xs}`} disabled={busy} onClick={() => setMoving(moving === b.id ? null : b.id)}>
-                      Mover
-                    </button>
-                  )}
-                  {!done && (
-                    <button
-                      type="button"
-                      className={`${d.btnGhost} ${d.xs}`}
-                      disabled={busy}
-                      onClick={() => {
-                        if (confirmDelete === b.id) {
-                          setConfirmDelete(null);
-                          onAction({ kind: 'delete', block: b });
-                        } else setConfirmDelete(b.id);
-                      }}
-                      style={confirmDelete === b.id ? { color: '#e38b7a', borderColor: '#e38b7a' } : undefined}
-                    >
-                      {confirmDelete === b.id ? 'Apagar?' : 'Apagar'}
-                    </button>
-                  )}
-                </span>
-              );
-              return (
-                <div key={b.id} style={{ borderBottom: '1px solid var(--line2)', opacity: done ? 0.7 : 1 }}>
-                  <div
-                    style={{ display: 'grid', gridTemplateColumns: compact ? '64px 6px minmax(0, 1fr)' : '96px 6px minmax(0, 1fr) auto', gap: 12, alignItems: 'center', minHeight: compact ? 60 : 50, padding: '6px 0' }}
-                  >
-                    <span style={{ display: 'flex', flexDirection: 'column', fontSize: 13 }}>
-                      <span style={{ fontWeight: 600 }}>{b.start}</span>
-                      <span style={{ color: 'var(--mut2)' }}>{b.end}</span>
-                    </span>
-                    <span
-                      style={{
-                        alignSelf: 'stretch',
-                        border: `1px ${done ? 'solid' : 'dashed'} ${toneOf(b.subjectId)}`,
-                        background: done ? toneOf(b.subjectId) : `repeating-linear-gradient(135deg, ${toneOf(b.subjectId)} 0 3px, transparent 3px 6px)`,
-                      }}
-                    />
-                    <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, gap: 2 }}>
-                      <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
-                        <span style={{ fontWeight: 600 }}>{b.code}</span>
-                        <span className={`${d.serif} ${d.ellipsis}`} style={{ fontSize: 15, textDecoration: done ? 'line-through' : undefined }}>{b.name}</span>
-                        <span className={d.muted} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtHours(b.minutes / 60)}</span>
-                        {done && <span style={{ fontSize: 11, color: 'var(--sky)', whiteSpace: 'nowrap' }}>feito</span>}
-                      </span>
-                      <span className={`${d.ellipsis} ${d.wrapPhone}`} style={{ fontSize: 12, color: b.reason.startsWith('Ritmo') || done ? 'var(--mut)' : 'var(--amber)' }}>{b.reason}</span>
-                      {compact && <span style={{ marginTop: 4 }}>{actions}</span>}
-                    </span>
-                    {!compact && actions}
-                  </div>
-                  {moving === b.id && (
-                    <MoveForm
-                      block={b}
-                      days={days}
-                      onCancel={() => setMoving(null)}
-                      onSave={(date, start, end) => {
-                        setMoving(null);
-                        onAction({ kind: 'move', block: b, date, start, end });
-                      }}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
-      <p className={d.muted} style={{ margin: '10px 0 0', fontSize: 11 }}>
-        {fixed
-          ? 'Os blocos desta semana estão guardados como os deixaste.'
-          : 'Sugestão refeita sempre que abres a página: tira aulas (com margem), testes, turnos e períodos indisponíveis, e começa pelas disciplinas com avaliação mais perto. Ao mover, apagar ou marcar um bloco, o plano da semana fica fixado.'}
-      </p>
-    </section>
-  );
-}
-
-// ==========================================
 // HISTÓRICO: últimas 8 semanas + horas por capítulo
 // ==========================================
 export interface WeekBar {
@@ -481,14 +231,16 @@ export interface WeekBar {
   parts: { color: string; hours: number; label: string }[];
 }
 
-export function EstudoHistory({ weeks, chapters }: { weeks: WeekBar[]; chapters: { label: string; sub: string; hours: number; href?: string }[] }) {
+export function EstudoHistory({ weeks, avg }: { weeks: WeekBar[]; avg: number }) {
   const max = Math.max(1, ...weeks.map((w) => w.hours));
-  const H = 120;
+  const H = 140;
   return (
-    <section id="historico" style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, scrollMarginTop: 64 }}>
+    <section id="historico" style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
       <div className={d.sectionHead}>
         <h2 className={d.h2}>HISTÓRICO</h2>
-        <span className={d.muted} style={{ fontSize: 12 }}>últimas {weeks.length} semanas</span>
+        <span className={d.muted} style={{ fontSize: 12 }}>
+          últimas {weeks.length} semanas · média {fmtHours(avg)}/semana
+        </span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`, gap: 6, alignItems: 'end', height: H + 34 }}>
         {weeks.map((w, i) => {
@@ -506,28 +258,42 @@ export function EstudoHistory({ weeks, chapters }: { weeks: WeekBar[]; chapters:
           );
         })}
       </div>
+    </section>
+  );
+}
 
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <div style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--mut2)', padding: '6px 0' }}>HORAS POR CAPÍTULO</div>
-        {chapters.length === 0 && <p className={d.muted} style={{ margin: 0, fontSize: 13 }}>Ainda sem sessões ligadas a capítulos.</p>}
-        {chapters.map((ch) => {
-          const content = (
-            <>
-              <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span className={`${d.ellipsis} ${d.wrapPhone}`}>{ch.label}</span>
-                <span style={{ fontSize: 11, color: 'var(--mut2)' }}>{ch.sub}</span>
-              </span>
-              <span style={{ whiteSpace: 'nowrap' }}>{fmtHours(ch.hours)}</span>
-            </>
-          );
-          const style = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, alignItems: 'center', minHeight: 42, borderBottom: '1px solid var(--line2)', fontSize: 13 } as const;
-          return ch.href ? (
-            <Link key={ch.label + ch.sub} href={ch.href} style={style}>{content}</Link>
-          ) : (
-            <div key={ch.label + ch.sub} style={style}>{content}</div>
-          );
-        })}
+// Onde foi o tempo (sessões carregadas), capítulo a capítulo.
+export function EstudoChapterHours({ chapters }: { chapters: { label: string; sub: string; hours: number; href?: string; color?: string }[] }) {
+  const max = Math.max(0.01, ...chapters.map((c) => c.hours));
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div className={d.sectionHead}>
+        <h2 className={d.h2}>HORAS POR CAPÍTULO</h2>
+        <span className={d.muted} style={{ fontSize: 12 }}>top 10</span>
       </div>
+      {chapters.length === 0 && <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 13 }}>Ainda sem sessões ligadas a capítulos.</p>}
+      {chapters.map((ch) => {
+        const content = (
+          <>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+              <span className={d.ellipsis}>
+                {ch.sub && <strong style={{ fontWeight: 600 }}>{ch.sub} </strong>}
+                {ch.label}
+              </span>
+              <span style={{ display: 'flex', height: 3, background: '#222' }}>
+                <span style={{ width: `${(ch.hours / max) * 100}%`, background: ch.color ?? 'var(--mut2)' }} />
+              </span>
+            </span>
+            <span style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{fmtHours(ch.hours)}</span>
+          </>
+        );
+        const style = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, alignItems: 'center', minHeight: 44, borderBottom: '1px solid var(--line2)', fontSize: 13 } as const;
+        return ch.href ? (
+          <Link key={ch.label + ch.sub} href={ch.href} style={style}>{content}</Link>
+        ) : (
+          <div key={ch.label + ch.sub} style={style}>{content}</div>
+        );
+      })}
     </section>
   );
 }
@@ -558,13 +324,27 @@ export function EstudoSessions({
   onUpdate: (id: string, patch: { chapter_id?: string | null; duration_seconds?: number }) => void;
   onAdd: () => void;
 }) {
-  const [limit, setLimit] = useState(15);
+  const [limit, setLimit] = useState(20);
   const [confirm, setConfirm] = useState<string | null>(null);
   const sorted = [...sessions].sort((a, b) => b.started_at.localeCompare(a.started_at));
   const shown = sorted.slice(0, limit);
+  // Agrupadas por dia, com o total de cada dia.
+  const groups: { key: string; date: Date; items: StudySessionRow[]; total: number }[] = [];
+  for (const s of shown) {
+    const dt = new Date(s.started_at);
+    const key = dt.toDateString();
+    let g = groups[groups.length - 1];
+    if (!g || g.key !== key) {
+      g = { key, date: dt, items: [], total: 0 };
+      groups.push(g);
+    }
+    g.items.push(s);
+    g.total += s.duration_seconds / 3600;
+  }
+  const clock = (dt: Date) => `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
 
   return (
-    <section id="sessoes" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, scrollMarginTop: 64 }}>
+    <section id="sessoes" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <div className={d.sectionHead}>
         <h2 className={d.h2}>SESSÕES</h2>
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -573,76 +353,88 @@ export function EstudoSessions({
         </span>
       </div>
       {error && <p role="alert" style={{ margin: '8px 0 0', fontSize: 12, color: '#e38b7a' }}>{error}</p>}
-      {sessions.length === 0 && <p className={d.muted} style={{ margin: '8px 0 0', fontSize: 13 }}>Ainda não há sessões. Abre um caderno e estuda, ou regista uma com “+ Sessão”.</p>}
-      {shown.map((s) => {
-        const start = new Date(s.started_at);
-        const min = Math.round(s.duration_seconds / 60);
-        const subjectChapters = chapters.filter((c) => c.subject_id === String(s.subject_id));
-        return (
-          <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 0', borderBottom: '1px solid var(--line2)', fontSize: 13 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <Dot color={toneOf(String(s.subject_id))} />
-                <strong style={{ fontWeight: 600 }}>{codeOf(String(s.subject_id))}</strong>
-                <span className={d.muted} style={{ whiteSpace: 'nowrap' }}>
-                  {WD[start.getDay()].slice(0, 3)} {start.getDate()} {MONTHS[start.getMonth()]} ·{' '}
-                  {String(start.getHours()).padStart(2, '0')}:{String(start.getMinutes()).padStart(2, '0')}
-                </span>
-                <span style={{ fontSize: 10, letterSpacing: '0.06em', color: s.source === 'manual' ? 'var(--amber)' : 'var(--mut2)', border: '1px solid #333', padding: '0 4px' }}>
-                  {s.source === 'manual' ? 'MANUAL' : 'CADERNO'}
-                </span>
-              </span>
-              <button
-                type="button"
-                className={`${d.btnGhost} ${d.xs}`}
-                disabled={busy}
-                onClick={() => {
-                  if (confirm === s.id) {
-                    setConfirm(null);
-                    onDelete(s.id);
-                  } else setConfirm(s.id);
-                }}
-                style={confirm === s.id ? { color: '#e38b7a', borderColor: '#e38b7a' } : undefined}
-              >
-                {confirm === s.id ? 'Apagar?' : 'Apagar'}
-              </button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 0.8fr) minmax(0, 1.6fr)', gap: 6 }}>
-              <select
-                className={d.input}
-                aria-label="Duração"
-                value={min}
-                disabled={busy}
-                onChange={(e) => onUpdate(s.id, { duration_seconds: Number(e.target.value) * 60 })}
-                style={{ height: 32 }}
-              >
-                {!SESSION_MINUTES.includes(min) && <option value={min}>{fmtHours(min / 60)}</option>}
-                {SESSION_MINUTES.map((m) => (
-                  <option key={m} value={m}>{fmtHours(m / 60)}</option>
-                ))}
-              </select>
-              <select
-                className={d.input}
-                aria-label="Capítulo"
-                value={s.chapter_id ? String(s.chapter_id) : ''}
-                disabled={busy}
-                onChange={(e) => onUpdate(s.id, { chapter_id: e.target.value || null })}
-                style={{ height: 32 }}
-              >
-                <option value="">Sem capítulo</option>
-                {s.chapter_id && !subjectChapters.some((c) => c.id === String(s.chapter_id)) && <option value={String(s.chapter_id)}>Capítulo apagado</option>}
-                {subjectChapters.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {String(c.number ?? '').padStart(2, '0')} · {c.title || 'Sem título'}
-                  </option>
-                ))}
-              </select>
-            </div>
+      {sessions.length === 0 && <p className={d.muted} style={{ margin: '10px 0 0', fontSize: 13 }}>Ainda não há sessões. Abre um caderno e estuda, ou regista uma com “+ Sessão”.</p>}
+      {groups.map((g) => (
+        <div key={g.key} style={{ display: 'flex', flexDirection: 'column', paddingTop: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: 4 }}>
+            <span style={{ fontSize: 11, letterSpacing: '0.08em', fontWeight: 600, color: 'var(--mut)' }}>
+              {WD[g.date.getDay()].toUpperCase()}, {g.date.getDate()} {MONTHS[g.date.getMonth()].toUpperCase()}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--mut2)' }}>{fmtHours(g.total)}</span>
           </div>
-        );
-      })}
+          {g.items.map((s) => {
+            const start = new Date(s.started_at);
+            const end = new Date(s.ended_at);
+            const min = Math.round(s.duration_seconds / 60);
+            const sid = String(s.subject_id);
+            const subjectChapters = chapters.filter((c) => c.subject_id === sid);
+            return (
+              <div
+                key={s.id}
+                className={d.sessionRow}
+                style={{ borderTop: '1px solid var(--line2)', borderLeft: `3px solid ${edgeOf(toneOf(sid))}`, padding: '8px 0 8px 10px', fontSize: 13 }}
+              >
+                <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                  <strong style={{ fontWeight: 700 }}>{codeOf(sid)}</strong>
+                  <span className={d.muted} style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    {clock(start)}–{clock(end)}
+                  </span>
+                  <span style={{ fontSize: 10, letterSpacing: '0.06em', color: s.source === 'manual' ? 'var(--amber)' : 'var(--mut2)' }}>
+                    {s.source === 'manual' ? 'MANUAL' : 'CADERNO'}
+                  </span>
+                </span>
+                <select
+                  className={d.input}
+                  aria-label="Duração"
+                  value={min}
+                  disabled={busy}
+                  onChange={(e) => onUpdate(s.id, { duration_seconds: Number(e.target.value) * 60 })}
+                  style={{ height: 30 }}
+                >
+                  {!SESSION_MINUTES.includes(min) && <option value={min}>{fmtHours(min / 60)}</option>}
+                  {SESSION_MINUTES.map((m) => (
+                    <option key={m} value={m}>{fmtHours(m / 60)}</option>
+                  ))}
+                </select>
+                <select
+                  className={d.input}
+                  aria-label="Capítulo"
+                  value={s.chapter_id ? String(s.chapter_id) : ''}
+                  disabled={busy}
+                  onChange={(e) => onUpdate(s.id, { chapter_id: e.target.value || null })}
+                  style={{ height: 30 }}
+                >
+                  <option value="">Sem capítulo</option>
+                  {s.chapter_id && !subjectChapters.some((c) => c.id === String(s.chapter_id)) && <option value={String(s.chapter_id)}>Capítulo apagado</option>}
+                  {subjectChapters.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {String(c.number ?? '').padStart(2, '0')} · {c.title || 'Sem título'}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className={`${d.btnGhost} ${d.xs}`}
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirm === s.id) {
+                      setConfirm(null);
+                      onDelete(s.id);
+                    } else setConfirm(s.id);
+                  }}
+                  onBlur={() => setConfirm(null)}
+                  aria-label="Apagar sessão"
+                  style={confirm === s.id ? { color: '#e38b7a', borderColor: '#e38b7a' } : undefined}
+                >
+                  {confirm === s.id ? 'Apagar?' : '✕'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ))}
       {sorted.length > limit && (
-        <button type="button" className={`${d.btnGhost} ${d.sm}`} onClick={() => setLimit((l) => l + 30)} style={{ alignSelf: 'flex-start', marginTop: 8 }}>
+        <button type="button" className={`${d.btnGhost} ${d.sm}`} onClick={() => setLimit((l) => l + 30)} style={{ alignSelf: 'flex-start', marginTop: 12 }}>
           Mostrar mais ({sorted.length - limit})
         </button>
       )}
@@ -723,26 +515,6 @@ export function EstudoWeekSummary({
         </>
       )}
     </section>
-  );
-}
-
-// ==========================================
-// AVISO: disciplinas paradas há mais de 7 dias
-// ==========================================
-export function EstudoAlerts({ items }: { items: { row: SubjectPlan; days: number | null }[] }) {
-  if (items.length === 0) return null;
-  return (
-    <div role="status" style={{ border: '1px solid rgba(227,168,87,0.45)', background: 'rgba(227,168,87,0.08)', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <span style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--amber)', fontWeight: 600 }}>SEM ESTUDO HÁ MAIS DE 7 DIAS</span>
-      <span style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', fontSize: 13 }}>
-        {items.map(({ row, days }) => (
-          <Link key={row.subjectId} href={`/faculdade/${row.subjectId}/notebook`} style={{ whiteSpace: 'nowrap' }}>
-            <strong style={{ fontWeight: 600 }}>{row.code}</strong>{' '}
-            <span className={d.muted}>{days === null ? 'nunca registado' : `há ${days} dias`}</span>
-          </Link>
-        ))}
-      </span>
-    </div>
   );
 }
 

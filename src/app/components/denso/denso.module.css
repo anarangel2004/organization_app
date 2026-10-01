@@ -1135,3 +1135,19 @@
 .touch .segPick > button {
   height: 40px;
 }
+
+/* ---------- /estudo: linha de sessão (ver e corrigir) ---------- */
+.sessionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 96px minmax(0, 1.7fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.phone .sessionRow,
+.tabletV .sessionRow {
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+}
+.phone .sessionRow > :first-child,
+.tabletV .sessionRow > :first-child {
+  grid-column: 1 / -1;
+}

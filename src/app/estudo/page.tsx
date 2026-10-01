@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useCurrentUser } from '@/lib/useCurrentUser';
@@ -8,7 +8,7 @@ import { formatRelativeDate } from '@/lib/utils';
 import type { AssessmentItem } from '@/types';
 import ProfileModal from '@/components/ui/ProfileModal';
 import d from '@/app/components/denso/denso.module.css';
-import { DensoHeader, SearchHit, ShortcutBar, ShortcutItem, scrollToId, useShortcuts } from '@/app/components/denso/DensoChrome';
+import { DensoHeader, SearchHit, ShortcutBar, ShortcutItem, useShortcuts } from '@/app/components/denso/DensoChrome';
 import { AvatarMenu, PhoneTabBar, SectionChips, TabletHeader, useDensoLayout } from '@/app/components/denso/DensoTouch';
 import { useNow } from '@/app/components/painel/useLocalState';
 import { FAC_TONES, OVERFLOW_TONE } from '@/app/faculdade/components/FaculdadeDenso';
@@ -35,7 +35,6 @@ import {
   buildWeekPlan,
   chaptersToReview,
   computePlan,
-  fmtHours,
   hoursVsGrade,
   isoDay,
   mondayOf,
@@ -52,21 +51,24 @@ import {
 } from '@/lib/studyPlan';
 import { ManualSessionDialog } from '@/app/faculdade/[id]/notebook/components/ManualSessionDialog';
 import {
-  EstudoAlerts,
+  EstudoChapterHours,
   EstudoHeading,
   EstudoHistory,
   EstudoHoursGrade,
-  EstudoPlan,
   EstudoReview,
   EstudoSessions,
-  EstudoStats,
   EstudoSubjects,
   EstudoWeekSummary,
   SETTINGS_EVENT,
-  type BlockAction,
-  type StatTile,
   type WeekBar,
 } from './EstudoView';
+import { EstudoNow, EstudoPlanList, EstudoWeekGrid, type BlockAction } from './EstudoPlanViews';
+
+// Separadores da página (a ordem é a das teclas 1–4).
+const TABS = ['plano', 'disciplinas', 'sessoes', 'estatisticas'] as const;
+type Tab = (typeof TABS)[number];
+// Só estas categorias são capítulos do caderno (o "Programa" não).
+const NOTEBOOK_CATEGORIES = ['TEORICAS', 'PRATICAS', 'TESTES'];
 
 interface ChapterLite {
   id: string;
@@ -99,7 +101,7 @@ export default function EstudoPage() {
   const [settings, setSettings] = useState<StudySettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [active, setActive] = useState('resumo');
+  const [tab, setTab] = useState<Tab>('plano');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [savedBlocks, setSavedBlocks] = useState<SavedBlock[]>([]);
   const [planBusy, setPlanBusy] = useState(false);
@@ -380,7 +382,6 @@ export default function EstudoPage() {
   const doneWeek = rows.reduce((n, r) => n + r.doneWeek, 0);
   const suggestedWeek = rows.reduce((n, r) => n + r.suggestedWeek, 0);
   const doneToday = rows.reduce((n, r) => n + r.doneToday, 0);
-  const todaySubjects = rows.filter((r) => r.doneToday > 0).length;
   const last4 = weeks.slice(-5, -1);
   const avg4 = last4.length ? last4.reduce((n, w) => n + w.hours, 0) / last4.length : 0;
   const streak = useMemo(() => studyStreak(sessions, today), [sessions, today]);
@@ -398,25 +399,6 @@ export default function EstudoPage() {
     return s?.code || (s?.name || '?').slice(0, 3).toUpperCase();
   }, [subjects]);
 
-  const tiles: StatTile[] = [
-    {
-      label: 'ESTA SEMANA',
-      value: fmtHours(doneWeek).replace(' h', ''),
-      unit: doneWeek > 0 && doneWeek < 1 ? undefined : 'h',
-      note: `de ${fmtHours(suggestedWeek)} sugeridas`,
-      pct: suggestedWeek > 0 ? (doneWeek / suggestedWeek) * 100 : null,
-      accent: true,
-    },
-    {
-      label: 'HOJE',
-      value: fmtHours(doneToday).replace(' h', ''),
-      unit: doneToday > 0 && doneToday < 1 ? undefined : 'h',
-      note: todaySubjects ? `em ${todaySubjects} ${todaySubjects === 1 ? 'disciplina' : 'disciplinas'}` : 'ainda sem estudo hoje',
-    },
-    { label: 'MÉDIA · 4 SEMANAS', value: fmtHours(avg4).replace(' h', ''), unit: avg4 > 0 && avg4 < 1 ? undefined : 'h', note: 'por semana' },
-    { label: 'DIAS SEGUIDOS', value: String(streak), unit: streak === 1 ? 'dia' : 'dias', note: streak ? 'a estudar' : 'estuda hoje para começar' },
-  ];
-
   // Horas por capítulo (das sessões carregadas)
   const chapterRows = useMemo(() => {
     const byChapter = new Map<string, number>();
@@ -428,7 +410,7 @@ export default function EstudoPage() {
     }
     const chapterById = new Map(chapters.map((c) => [c.id, c]));
     const subjById = new Map(subjects.map((s) => [s.id, s]));
-    const list = Array.from(byChapter.entries())
+    const list: { label: string; sub: string; hours: number; href?: string; color?: string }[] = Array.from(byChapter.entries())
       .map(([id, hours]) => {
         const ch = chapterById.get(id);
         const subj = ch ? subjById.get(ch.subject_id) : undefined;
@@ -437,32 +419,37 @@ export default function EstudoPage() {
           sub: subj ? subj.code || subj.name || '' : '',
           hours,
           href: ch ? `/faculdade/${ch.subject_id}/notebook?tab=${(ch.category || 'TEORICAS').toUpperCase()}&chapter=${ch.id}` : undefined,
+          color: ch ? toneOf(ch.subject_id) : undefined,
         };
       })
       .sort((a, b) => b.hours - a.hours)
       .slice(0, 10);
-    if (none > 0) list.push({ label: 'Sem capítulo', sub: 'sessões manuais ou fora de um capítulo', hours: none, href: undefined });
+    if (none > 0) list.push({ label: 'Sem capítulo', sub: '', hours: none });
     return list;
-  }, [sessions, chapters, subjects]);
+  }, [sessions, chapters, subjects, toneOf]);
 
   // ==========================================
-  // CABEÇALHO, NAVEGAÇÃO, CONTA
+  // CABEÇALHO, SEPARADORES, CONTA
   // ==========================================
   const searchIndex = useMemo<SearchHit[]>(
     () => subjects.map((s) => ({ id: `s-${s.id}`, label: s.name || s.code || 'Disciplina', sublabel: 'Caderno da disciplina', href: `/faculdade/${s.id}/notebook` })),
     [subjects]
   );
 
-  const goTo = useCallback(
-    (id: string) => {
-      setActive(id);
-      const el = document.getElementById(id);
-      if (el && (layout === 'phone' || layout === 'tabletV')) {
-        window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 64, behavior: 'smooth' });
-      } else scrollToId(id);
-    },
-    [layout]
-  );
+  // O separador fica no endereço (#sessoes…): recarregar não volta ao início.
+  useEffect(() => {
+    const fromHash = window.location.hash.slice(1) as Tab;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- lido do endereço só depois de montar
+    if (TABS.includes(fromHash)) setTab(fromHash);
+  }, []);
+  const pickTab = useCallback((id: string) => {
+    if (!TABS.includes(id as Tab)) return;
+    setTab(id as Tab);
+    window.history.replaceState(null, '', `#${id}`);
+    // Se a página estiver rolada para baixo, sobe até aos separadores.
+    const bar = document.getElementById('estudo-tabs');
+    if (bar && bar.getBoundingClientRect().top < 0) window.scrollTo({ top: bar.getBoundingClientRect().top + window.scrollY - 8, behavior: 'smooth' });
+  }, []);
 
   const handleLogout = useCallback(async () => {
     await supabase.auth.signOut();
@@ -492,17 +479,14 @@ export default function EstudoPage() {
     : period.inSemester
       ? `semana ${period.weekNumber} de ${period.totalWeeks}`
       : 'fora do semestre';
-  const meta = `${fmtHours(doneWeek)} de ${fmtHours(suggestedWeek)} esta semana`;
   const dateLabel = `${WEEKDAY_LONG[today.getDay()]}${today.getDay() === 0 || today.getDay() === 6 ? '' : '-feira'}, ${today.getDate()} de ${MONTHS_LONG[today.getMonth()]}`;
 
+  const openBlocks = plan.days.reduce((n, dd) => n + dd.blocks.filter((b) => b.status !== 'done').length, 0);
   const items: ShortcutItem[] = [
-    { id: 'resumo', key: '1', label: 'Resumo' },
+    { id: 'plano', key: '1', label: 'Plano', badge: openBlocks ? String(openBlocks) : undefined },
     { id: 'disciplinas', key: '2', label: 'Disciplinas', badge: String(subjects.length) },
-    { id: 'plano', key: '3', label: 'Plano', badge: String(plan.days.reduce((n, dd) => n + dd.blocks.filter((b) => b.status !== 'done').length, 0)) },
-    { id: 'rever', key: '4', label: 'Rever', badge: review.length ? String(review.length) : undefined },
-    { id: 'historico', key: '5', label: 'Histórico' },
-    { id: 'sessoes', key: '6', label: 'Sessões' },
-    { id: 'resumo-semanal', key: '7', label: 'Semana' },
+    { id: 'sessoes', key: '3', label: 'Sessões' },
+    { id: 'estatisticas', key: '4', label: 'Estatísticas' },
   ];
 
   // As definições do estudo estão no perfil; "Definições" abre-o nessa secção.
@@ -519,47 +503,67 @@ export default function EstudoPage() {
   const [helpOpen, setHelpOpen] = useState(false);
   const onShortcut = useCallback(
     (key: string) => {
-      const target = ({ '1': 'resumo', '2': 'disciplinas', '3': 'plano', '4': 'rever', '5': 'historico', '6': 'sessoes', '7': 'resumo-semanal' } as Record<string, string>)[key];
+      const target = TABS[Number(key) - 1];
       if (key === 'escape') setHelpOpen(false);
       else if (key === '?') setHelpOpen((v) => !v);
       else if (key === 'd') openSettings();
       else if (key === 'n') setAddOpen(true);
-      else if (target) goTo(target);
+      else if (target) pickTab(target);
       else return false;
       return true;
     },
-    [goTo, openSettings]
+    [pickTab, openSettings]
   );
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
   useShortcuts(onShortcut, focusSearch);
 
+  // ==========================================
+  // PEÇAS
+  // ==========================================
+  const wide = layout === 'desktop' || layout === 'tabletH';
   const heading = (
     <EstudoHeading
       layout={layout}
       subtitle={subtitle}
-      meta={meta}
       trailing={phone ? <AvatarMenu {...profile} /> : undefined}
       onSettings={openSettings}
+      onAdd={() => setAddOpen(true)}
     />
   );
   const profileModal = <ProfileModal isOpen={isProfileOpen} onClose={closeProfile} user={profileUser} focusStudy={profileStudy} />;
-  const statsEl = <EstudoStats tiles={tiles} columns={phone ? 2 : 4} />;
-  const subjectsEl = <EstudoSubjects rows={planRows} toneOf={toneOf} cards={phone} today={today} />;
-  const historyEl = <EstudoHistory weeks={weekBars} chapters={chapterRows} />;
-  const planEl = (
-    <EstudoPlan
+  const nowEl = (
+    <EstudoNow
       days={plan.days}
-      unplaced={plan.fixed ? [] : weekPlan.unplaced}
-      toneOf={toneOf}
-      today={today}
       now={now}
-      compact={phone}
-      fixed={plan.fixed}
+      today={today}
+      toneOf={toneOf}
+      rows={rows}
       busy={planBusy}
-      error={planError}
       onAction={onBlockAction}
-      onRedo={onRedo}
+      todayDone={doneToday}
+      weekDone={doneWeek}
+      weekTarget={suggestedWeek}
+      streak={streak}
+      stale={stale}
+      compact={!wide}
     />
+  );
+  const planProps = {
+    days: plan.days,
+    unplaced: plan.fixed ? [] : weekPlan.unplaced,
+    toneOf,
+    today,
+    now,
+    fixed: plan.fixed,
+    busy: planBusy,
+    error: planError,
+    onAction: onBlockAction,
+    onRedo,
+  };
+  const planEl = wide ? (
+    <EstudoWeekGrid {...planProps} sessions={sessions} monday={mondayOf(today)} codeOf={codeOf} />
+  ) : (
+    <EstudoPlanList {...planProps} />
   );
   const sessionsEl = (
     <EstudoSessions
@@ -582,23 +586,48 @@ export default function EstudoPage() {
       subjectLabel={sorted[0].code || sorted[0].name || 'Disciplina'}
       subjects={sorted.map((s) => ({ id: s.id, label: [s.code, s.name].filter(Boolean).join(' · ') || 'Disciplina' }))}
       chapters={chapters
-        .filter((c) => ['TEORICAS', 'PRATICAS', 'TESTES'].includes((c.category || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')))
+        .filter((c) => NOTEBOOK_CATEGORIES.includes((c.category || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')))
         .map((c) => ({ id: c.id, subjectId: c.subject_id, number: String(c.number ?? '').padStart(2, '0'), title: c.title || '' }))}
       currentChapterId={null}
       onSave={onAddSession}
       onClose={() => setAddOpen(false)}
     />
   );
-  const alertsEl = <EstudoAlerts items={stale} />;
-  const reviewEl = <EstudoReview items={review} toneOf={toneOf} codeOf={codeOf} />;
-  const hoursGradeEl = (
-    <EstudoHoursGrade rows={hoursGrade} toneOf={toneOf} sinceLabel={period.start ? 'desde o início do semestre' : `últimas ${HISTORY_WEEKS} semanas`} />
-  );
   const status = loading && subjects.length === 0 ? (
     <p className={`${d.inner} ${d.muted}`} style={{ paddingTop: 40, paddingBottom: 40 }}>A carregar o estudo…</p>
   ) : loadError ? (
     <p className={d.inner} role="alert" style={{ paddingTop: 24, color: '#e38b7a' }}>{loadError}</p>
   ) : null;
+
+  // Conteúdo de cada separador: duas colunas em ecrãs largos, uma no resto.
+  const panes: Record<Tab, [ReactNode, ReactNode?]> = {
+    plano: [planEl, <EstudoReview key="r" items={review} toneOf={toneOf} codeOf={codeOf} />],
+    disciplinas: [<EstudoSubjects key="s" rows={planRows} toneOf={toneOf} cards={phone} today={today} />],
+    sessoes: [sessionsEl, <EstudoChapterHours key="c" chapters={chapterRows} />],
+    estatisticas: [
+      <div key="w" style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+        {summaryEl}
+        <EstudoHistory weeks={weekBars} avg={avg4} />
+      </div>,
+      <EstudoHoursGrade key="h" rows={hoursGrade} toneOf={toneOf} sinceLabel={period.start ? 'desde o início do semestre' : `últimas ${HISTORY_WEEKS} semanas`} />,
+    ],
+  };
+  const [main, side] = panes[tab];
+  const body = (
+    <div role="tabpanel" aria-label={items.find((i) => i.id === tab)?.label}>
+      {side && wide ? (
+        <div className={d.split84}>
+          <div className={d.col8}>{main}</div>
+          <div className={d.col4}>{side}</div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+          {main}
+          {side}
+        </div>
+      )}
+    </div>
+  );
 
   // ==========================================
   // IPAD E IPHONE
@@ -608,22 +637,14 @@ export default function EstudoPage() {
       <div className={`${d.root} ${d.touch} ${phone ? d.phone : layout === 'tabletV' ? d.tabletV : ''}`}>
         {!phone && <TabletHeader active="estudo" searchIndex={searchIndex} {...profile} />}
         {heading}
-        <SectionChips items={items} active={active} onPick={goTo} />
         {status ?? (
-          <div className={d.inner} style={{ display: 'flex', flexDirection: 'column', gap: phone ? 28 : 26, paddingTop: phone ? 14 : 18, paddingBottom: phone ? 110 : 40 }}>
-            {statsEl}
-            {alertsEl}
-            {subjectsEl}
-            {planEl}
-            {summaryEl}
-            {reviewEl}
-            {sessionsEl}
-            {historyEl}
-            {hoursGradeEl}
-            <button type="button" className={`${d.btnLine} ${d.sm}`} onClick={openSettings} style={{ alignSelf: 'flex-start' }}>
-              Definições do estudo (no perfil) →
-            </button>
-          </div>
+          <>
+            <div className={d.inner} style={{ paddingTop: 4, paddingBottom: 14 }}>{nowEl}</div>
+            <div id="estudo-tabs">
+              <SectionChips items={items} active={tab} onPick={pickTab} />
+            </div>
+            <div className={d.inner} style={{ paddingTop: phone ? 14 : 18, paddingBottom: phone ? 110 : 40 }}>{body}</div>
+          </>
         )}
         {phone && <PhoneTabBar active="estudo" searchIndex={searchIndex} />}
         {profileModal}
@@ -639,41 +660,29 @@ export default function EstudoPage() {
     <div className={d.root}>
       <DensoHeader active="estudo" dateLabel={dateLabel} searchIndex={searchIndex} searchRef={searchRef} {...profile} />
       {heading}
-      <ShortcutBar
-        items={items}
-        active={active}
-        onPick={goTo}
-        help={[
-          ['1–7', 'Ir para a secção'],
-          ['N', 'Registar sessão (+ sessão)'],
-          ['D', 'Definições do estudo (perfil)'],
-          ['Ctrl K', 'Pesquisa global'],
-          ['?', 'Mostrar/esconder esta ajuda'],
-          ['Esc', 'Fechar'],
-        ]}
-        helpOpen={helpOpen}
-        onToggleHelp={() => setHelpOpen((v) => !v)}
-        hint="O caderno conta o tempo sozinho · + sessão para estudo fora da app"
-      />
       {status ?? (
-        <div className={`${d.inner} ${d.split84}`} style={{ paddingTop: 20, paddingBottom: 40 }}>
-          <div className={d.col8} style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
-            {statsEl}
-            {alertsEl}
-            {subjectsEl}
-            {planEl}
-            {sessionsEl}
+        <>
+          <div className={d.inner} style={{ paddingTop: 4, paddingBottom: 18 }}>{nowEl}</div>
+          <div id="estudo-tabs">
+            <ShortcutBar
+              items={items}
+              active={tab}
+              onPick={pickTab}
+              help={[
+                ['1–4', 'Mudar de separador'],
+                ['N', 'Registar sessão (+ sessão)'],
+                ['D', 'Definições do estudo (perfil)'],
+                ['Ctrl K', 'Pesquisa global'],
+                ['?', 'Mostrar/esconder esta ajuda'],
+                ['Esc', 'Fechar'],
+              ]}
+              helpOpen={helpOpen}
+              onToggleHelp={() => setHelpOpen((v) => !v)}
+              hint="O caderno conta o tempo sozinho"
+            />
           </div>
-          <div className={d.col4} style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
-            {summaryEl}
-            {reviewEl}
-            {historyEl}
-            {hoursGradeEl}
-            <button type="button" className={`${d.btnLine} ${d.sm}`} onClick={openSettings} style={{ alignSelf: 'flex-start' }}>
-              Definições do estudo (no perfil) →
-            </button>
-          </div>
-        </div>
+          <div className={d.inner} style={{ paddingTop: 20, paddingBottom: 40 }}>{body}</div>
+        </>
       )}
       {profileModal}
       {addDialog}
