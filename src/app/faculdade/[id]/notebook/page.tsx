@@ -95,6 +95,31 @@ function toTab(raw: string | null | undefined): NotebookTab {
 
 // Só estas categorias são cadernos. Outras linhas da tabela (ex.: "Programa",
 // o programa da cadeira importado à parte) não são capítulos e ficam de fora.
+// Último capítulo usado em cada disciplina (e em cada aba), neste aparelho.
+interface LastChapter {
+  chapter: string;
+  byTab: Partial<Record<NotebookTab, string>>;
+}
+const lastKey = (subjectId: string) => `caderno:ultimo:${subjectId}`;
+function readLast(subjectId: string): LastChapter | null {
+  try {
+    const raw = window.localStorage.getItem(lastKey(subjectId));
+    const v = raw ? (JSON.parse(raw) as LastChapter) : null;
+    return v && typeof v.chapter === 'string' ? { chapter: v.chapter, byTab: v.byTab ?? {} } : null;
+  } catch {
+    return null;
+  }
+}
+function writeLast(subjectId: string, tab: NotebookTab, chapter: string) {
+  try {
+    const prev = readLast(subjectId);
+    const next: LastChapter = { chapter, byTab: { ...(prev?.byTab ?? {}), [tab]: chapter } };
+    window.localStorage.setItem(lastKey(subjectId), JSON.stringify(next));
+  } catch {
+    // Sem armazenamento (navegação privada): abre no primeiro capítulo, como antes.
+  }
+}
+
 function isNotebookRow(row: ChapterDbRow): boolean {
   const t = (row.category || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   return t === 'TEORICAS' || t === 'PRATICAS' || t === 'TESTES';
@@ -269,6 +294,25 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
   const inTab = useMemo(() => chapters.filter((ch) => ch.category === tab), [chapters, tab]);
   const active = inTab.find((ch) => ch.id === selectedId) ?? inTab[0];
+
+  // Abrir no último capítulo usado nesta disciplina (guardado neste aparelho),
+  // a não ser que o endereço diga outro (links da pesquisa, do /estudo…).
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || loading || chapters.length === 0) return;
+    restoredRef.current = true;
+    if (searchParams.get('chapter') || searchParams.get('tab')) return;
+    const last = readLast(subjectId);
+    const ch = last && chapters.find((x) => x.id === last.chapter);
+    if (!ch) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- repor o último capítulo depois de carregar
+    setTab(ch.category);
+    setSelectedId(ch.id);
+  }, [loading, chapters, searchParams, subjectId]);
+  useEffect(() => {
+    if (!restoredRef.current || !active || active.id.startsWith('temp-')) return;
+    writeLast(subjectId, active.category, active.id);
+  }, [active, subjectId]);
 
   const visibleChapters = useMemo(() => {
     const q = fold(query.trim());
@@ -456,14 +500,15 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const changeTab = useCallback(
     (next: NotebookTab) => {
       setTab(next);
-      setSelectedId('');
+      // Na aba nova, volta ao último capítulo que lá se usou.
+      setSelectedId(readLast(subjectId)?.byTab[next] ?? '');
       setCreating(false);
       const params = new URLSearchParams(searchParams.toString());
       params.set('tab', next);
       params.delete('chapter');
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     },
-    [pathname, router, searchParams]
+    [pathname, router, searchParams, subjectId]
   );
 
   const hrefFor = useCallback((id: string) => `/faculdade/${id}/notebook?tab=${tab}`, [tab]);

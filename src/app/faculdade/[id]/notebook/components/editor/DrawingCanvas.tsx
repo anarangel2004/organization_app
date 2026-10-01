@@ -384,6 +384,8 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     for (const s of strokesRef.current) for (const p of s.points) if (p.y > maxY) maxY = p.y;
     const wantMin = Math.max(MIN_HEIGHT, Math.ceil(maxY + 120));
     if (container.style.minHeight !== `${wantMin}px`) container.style.minHeight = `${wantMin}px`;
+    // A impressão usa esta altura (o CSS global de impressão anula o min-height).
+    container.style.setProperty('--ink-h', `${wantMin}px`);
 
     const w = container.offsetWidth;
     const h = container.offsetHeight;
@@ -403,6 +405,11 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     ratioRef.current = ratio;
     canvas.width = live.width = Math.round(w * ratio);
     canvas.height = live.height = Math.round(h * ratio);
+    // Tamanho fixo em px (igual ao da folha): ao imprimir, o canvas não estica nem esmaga.
+    for (const el of [canvas, live]) {
+      el.style.width = `${w}px`;
+      el.style.height = `${h}px`;
+    }
     liveBoxRef.current = null;
     redrawCanvas();
     if (currentStrokeRef.current) renderLive();
@@ -713,12 +720,26 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     // A caneta nunca deve acionar o Scribble nem selecionar texto.
     if (e.pointerType === 'pen') e.preventDefault();
     const tool = toolNow();
-    if (penOnly && e.pointerType === 'touch') {
+    if (e.pointerType === 'touch') {
       touchIdsRef.current.add(e.pointerId);
+      // Segundo dedo: é pinça. Larga o deslizar e o traço que o primeiro dedo começou.
       if (touchIdsRef.current.size > 1) {
         fingerRef.current = null;
+        if (currentStrokeRef.current) {
+          currentStrokeRef.current = null;
+          preStrokeSnapshotRef.current = null;
+          isDrawingRef.current = false;
+          if (liveFrameRef.current) {
+            cancelAnimationFrame(liveFrameRef.current);
+            liveFrameRef.current = 0;
+          }
+          clearLive();
+          redrawCanvas();
+        }
         return;
       }
+    }
+    if (penOnly && e.pointerType === 'touch') {
       e.currentTarget.setPointerCapture?.(e.pointerId);
       fingerRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY, box: e.currentTarget.closest('[data-scroll]') };
       return;

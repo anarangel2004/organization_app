@@ -780,10 +780,12 @@
 .slides {
   flex-grow: 1;
   min-height: 0;
-  overflow-y: auto;
+  /* Com zoom, as páginas ficam mais largas que a coluna: scroll para os lados. */
+  overflow: auto;
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 12px;
 }
 .slidesNote {
@@ -969,14 +971,22 @@
     width: auto !important;
     height: auto !important;
   }
-  .paper {
+  /* A folha imprime-se com a largura de sempre (900 px), só reduzida para caber
+     no A4 (186 mm úteis ≈ 703 px): o desenho mantém as proporções. */
+  .paper.paper {
     transform: none !important;
-    zoom: 1 !important;
-    width: 100% !important;
-    padding: 0;
+    zoom: 0.78 !important;
+    width: 900px !important;
+    max-width: none !important;
+    padding: 0 36px !important;
     box-shadow: none;
     background-image: none !important;
     min-height: 0;
+  }
+  /* O CSS global põe min-height: 0 em todos os div; a área da caneta tem de
+     manter a altura dos traços, senão o desenho sai esmagado. */
+  .inkWrap.inkWrap {
+    min-height: var(--ink-h, 640px) !important;
   }
   .body {
     display: block !important;

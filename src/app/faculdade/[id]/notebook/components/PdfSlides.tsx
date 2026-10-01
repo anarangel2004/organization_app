@@ -5,6 +5,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 type RenderTask = { cancel: () => void };
 import c from './caderno.module.css';
+import { usePinchZoom } from './usePinchZoom';
 
 // O pdf.js só existe no browser: carrega-se uma vez, quando é preciso.
 type PdfJs = typeof import('pdfjs-dist');
@@ -31,6 +32,9 @@ interface PdfSlidesProps {
 
 // Páginas desenhadas antes e depois das que estão à vista.
 const RENDER_MARGIN = 2;
+// Zoom do PDF (pinça): de "largura da coluna" até 4×.
+const PDF_ZOOM_MIN = 1;
+const PDF_ZOOM_MAX = 4;
 
 export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onError }: PdfSlidesProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -46,6 +50,15 @@ export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onErr
   const [width, setWidth] = useState(0);
   const [visible, setVisible] = useState<[number, number]>([1, 3]);
   const [loading, setLoading] = useState(true);
+  // Zoom: os cartões crescem logo; a nitidez acompanha quando a pinça pára.
+  const [zoom, setZoom] = useState(1);
+  const [sharpZoom, setSharpZoom] = useState(1);
+  usePinchZoom(scrollerRef, zoom, setZoom, PDF_ZOOM_MIN, PDF_ZOOM_MAX);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSharpZoom(zoom), 200);
+    return () => window.clearTimeout(t);
+  }, [zoom]);
+  const renderWidth = Math.round(width * sharpZoom);
 
   // Abrir o PDF e ler o formato de cada página.
   useEffect(() => {
@@ -178,19 +191,19 @@ export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onErr
 
   // Desenhar as páginas à vista na largura atual.
   useEffect(() => {
-    if (!doc || width === 0) return;
+    if (!doc || renderWidth === 0) return;
     const dpr = window.devicePixelRatio || 1;
     for (let n = visible[0]; n <= visible[1]; n++) {
-      if (renderedWidth.current.get(n) === width) continue;
+      if (renderedWidth.current.get(n) === renderWidth) continue;
       const canvas = canvasRefs.current[n - 1];
       if (!canvas) continue;
-      renderedWidth.current.set(n, width);
+      renderedWidth.current.set(n, renderWidth);
       tasks.current.get(n)?.cancel();
       doc
         .getPage(n)
         .then((p) => {
           const base = p.getViewport({ scale: 1 });
-          const viewport = p.getViewport({ scale: (width * dpr) / base.width });
+          const viewport = p.getViewport({ scale: (renderWidth * dpr) / base.width });
           const off = document.createElement('canvas');
           off.width = Math.floor(viewport.width);
           off.height = Math.floor(viewport.height);
@@ -213,10 +226,10 @@ export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onErr
           }
         });
     }
-  }, [doc, visible, width]);
+  }, [doc, visible, renderWidth]);
 
   return (
-    <div ref={scrollerRef} className={c.slides}>
+    <div ref={scrollerRef} className={c.slides} style={{ touchAction: 'pan-x pan-y' }}>
       {loading && <p className={c.slidesNote}>A abrir o PDF…</p>}
       {ratios.map((ratio, i) => {
         const n = i + 1;
@@ -229,7 +242,7 @@ export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onErr
               cardRefs.current[i] = el;
             }}
             className={`${c.slide} ${current ? c.slideOn : ''}`}
-            style={{ aspectRatio: `1 / ${ratio}` }}
+            style={{ aspectRatio: `1 / ${ratio}`, width: zoom === 1 ? undefined : `${zoom * 100}%` }}
             onClick={() => onPageChange(n)}
             role="button"
             tabIndex={0}

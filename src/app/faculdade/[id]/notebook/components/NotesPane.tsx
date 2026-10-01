@@ -5,7 +5,6 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -14,6 +13,7 @@ import {
 } from 'react';
 import c from './caderno.module.css';
 import { DrawingCanvas, DrawingCanvasRef } from './editor/DrawingCanvas';
+import { usePinchZoom } from './usePinchZoom';
 import {
   Chapter,
   EditorStats,
@@ -477,70 +477,8 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
   const scaled = availW > 0;
   // 100% = a folha ocupa a largura disponível; o zoom amplia a partir daí.
   const scale = scaled ? (availW / pageW) * zoom : zoom;
-  const scaleRef = useRef(scale);
-  const zoomRef = useRef(zoom);
-  useEffect(() => {
-    scaleRef.current = scale;
-    zoomRef.current = zoom;
-  });
-
-  // Pinça com dois dedos (iPad): muda o zoom à volta do ponto entre os dedos.
-  const anchorRef = useRef<{ cx: number; cy: number; mx: number; my: number } | null>(null);
-  useEffect(() => {
-    const area = areaRef.current;
-    if (!area || !onZoomChange) return;
-    const pts = new Map<number, { x: number; y: number }>();
-    let start: { dist: number; zoom: number; cx: number; cy: number } | null = null;
-    const pair = () => {
-      const [a, b] = Array.from(pts.values());
-      return { dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
-    };
-    const down = (e: PointerEvent) => {
-      if (e.pointerType !== 'touch') return;
-      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pts.size === 2) {
-        const { dist, mx, my } = pair();
-        const r = area.getBoundingClientRect();
-        const sc = scaleRef.current;
-        start = { dist: Math.max(dist, 1), zoom: zoomRef.current, cx: (mx - r.left + area.scrollLeft) / sc, cy: (my - r.top + area.scrollTop) / sc };
-      }
-    };
-    const move = (e: PointerEvent) => {
-      if (!pts.has(e.pointerId)) return;
-      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (!start || pts.size < 2) return;
-      e.preventDefault();
-      const { dist, mx, my } = pair();
-      const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(start.zoom * (dist / start.dist) * 100) / 100));
-      const r = area.getBoundingClientRect();
-      anchorRef.current = { cx: start.cx, cy: start.cy, mx: mx - r.left, my: my - r.top };
-      if (next !== zoomRef.current) onZoomChange(next);
-    };
-    const up = (e: PointerEvent) => {
-      pts.delete(e.pointerId);
-      if (pts.size < 2) start = null;
-    };
-    const opts = { capture: true, passive: false } as const;
-    area.addEventListener('pointerdown', down, opts);
-    area.addEventListener('pointermove', move, opts);
-    area.addEventListener('pointerup', up, opts);
-    area.addEventListener('pointercancel', up, opts);
-    return () => {
-      area.removeEventListener('pointerdown', down, opts);
-      area.removeEventListener('pointermove', move, opts);
-      area.removeEventListener('pointerup', up, opts);
-      area.removeEventListener('pointercancel', up, opts);
-    };
-  }, [onZoomChange]);
-  // Depois de ampliar, o ponto entre os dedos fica onde estava.
-  useLayoutEffect(() => {
-    const a = anchorRef.current;
-    const area = areaRef.current;
-    if (!a || !area) return;
-    anchorRef.current = null;
-    area.scrollLeft = a.cx * scale - a.mx;
-    area.scrollTop = a.cy * scale - a.my;
-  }, [scale]);
+  // Pinça com dois dedos (iPad, ecrã tátil, touchpad do PC) muda o zoom à volta dos dedos.
+  usePinchZoom(areaRef, zoom, onZoomChange, ZOOM_MIN, ZOOM_MAX);
 
   const isStroke = tool === 'PEN' || tool === 'HIGHLIGHTER';
   const inks = tool === 'HIGHLIGHTER' ? MARKER_INKS : PEN_INKS;
@@ -794,8 +732,8 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
       <div
         data-scroll
         ref={areaRef}
-        // No iPad a pinça é nossa (amplia a folha), não do Safari (ampliava a página toda).
-        style={layout === 'desktop' ? undefined : { touchAction: 'pan-x pan-y' }}
+        // A pinça é nossa (amplia a folha), não do browser (ampliava a página toda).
+        style={{ touchAction: 'pan-x pan-y' }}
         className={`${c.sheetArea} ${layout === 'phone' ? c.sheetAreaFlush : layout === 'tablet' ? c.sheetAreaTablet : ''}`}
       >
         {/* A caixa ocupa o tamanho já ampliado, para o scroll e o centrar funcionarem. */}
