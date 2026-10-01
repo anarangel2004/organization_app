@@ -323,6 +323,100 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     emit();
   };
 
+  // Estilo do parágrafo (Normal / Título / Subtítulo). Feito à mão em vez de
+  // execCommand('formatBlock'), que no Chrome/Safari às vezes não tira um
+  // título de volta para texto normal (ou deixa o tamanho/negrito em linha).
+  const setBlock = (tag: BlockTag) => {
+    if (!restore()) return;
+    const el = editor();
+    const sel = window.getSelection();
+    if (!el || !sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const BLOCKS = 'h2, h3, p, div, li, blockquote';
+    const blockOf = (node: Node | null): HTMLElement | null => {
+      const elem = node?.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node?.parentElement ?? null;
+      const b = elem?.closest<HTMLElement>(BLOCKS) ?? null;
+      return b && b !== el && el.contains(b) ? b : null;
+    };
+
+    // Parágrafos tocados pela seleção (por ordem).
+    const blocks: HTMLElement[] = [];
+    const add = (b: HTMLElement | null) => {
+      if (b && !blocks.includes(b)) blocks.push(b);
+    };
+    add(blockOf(range.startContainer));
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (range.intersectsNode(n) && n.textContent?.trim()) add(blockOf(n));
+    }
+    add(blockOf(range.endContainer));
+
+    // Texto solto na raiz do editor ou listas: deixa o browser tratar.
+    if (blocks.length === 0 || blocks.some((b) => b.tagName === 'LI' || b.tagName === 'BLOCKQUOTE')) {
+      document.execCommand('formatBlock', false, `<${tag}>`);
+      emit();
+      return;
+    }
+
+    // Guarda a posição do cursor/seleção em caracteres para a repor depois.
+    const offsetIn = (block: HTMLElement, node: Node, offset: number) => {
+      const r = document.createRange();
+      r.setStart(block, 0);
+      try {
+        r.setEnd(node, offset);
+      } catch {
+        return 0;
+      }
+      return r.toString().length;
+    };
+    const first = blocks[0];
+    const last = blocks[blocks.length - 1];
+    const startOff = first.contains(range.startContainer) ? offsetIn(first, range.startContainer, range.startOffset) : 0;
+    const endOff = last.contains(range.endContainer) ? offsetIn(last, range.endContainer, range.endOffset) : (last.textContent || '').length;
+
+    // Normal = <div>, como as linhas que o editor cria ao carregar Enter.
+    const newTag = tag === 'p' ? 'div' : tag;
+    const replaced = blocks.map((b) => {
+      if (b.tagName.toLowerCase() === newTag) return b;
+      const nb = document.createElement(newTag);
+      while (b.firstChild) nb.appendChild(b.firstChild);
+      // Tamanho e negrito "presos" em linha (de colar ou do browser) deixam de valer.
+      nb.querySelectorAll<HTMLElement>('[style]').forEach((x) => {
+        x.style.removeProperty('font-size');
+        x.style.removeProperty('font-weight');
+        x.style.removeProperty('line-height');
+        if (!x.getAttribute('style')?.trim()) x.removeAttribute('style');
+        if (x.tagName === 'SPAN' && x.attributes.length === 0) x.replaceWith(...Array.from(x.childNodes));
+      });
+      if (!nb.firstChild) nb.appendChild(document.createElement('br'));
+      b.replaceWith(nb);
+      return nb;
+    });
+
+    const pointAt = (block: HTMLElement, chars: number): [Node, number] => {
+      const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      let left = chars;
+      let lastText: Node | null = null;
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const len = n.textContent?.length ?? 0;
+        if (left <= len) return [n, left];
+        left -= len;
+        lastText = n;
+      }
+      return lastText ? [lastText, lastText.textContent?.length ?? 0] : [block, 0];
+    };
+    const r = document.createRange();
+    const [sn, so] = pointAt(replaced[0], startOff);
+    const [en, eo] = pointAt(replaced[replaced.length - 1], endOff);
+    r.setStart(sn, so);
+    r.setEnd(en, eo);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    savedRange.current = r.cloneRange();
+    setBlockTag(tag);
+    emit();
+  };
+
   const selectedText = () => {
     const sel = window.getSelection();
     return sel && !sel.isCollapsed ? sel.toString().trim() : '';
@@ -397,7 +491,7 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
 
   useImperativeHandle(ref, () => ({
     exec,
-    block: (tag) => exec('formatBlock', `<${tag}>`),
+    block: setBlock,
     insertRef,
     insertChecklist,
     insertLink,
@@ -598,7 +692,7 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
               className={c.select}
               style={{ marginRight: 6 }}
               value={blockTag}
-              onChange={(e) => exec('formatBlock', `<${e.target.value}>`)}
+              onChange={(e) => setBlock(e.target.value as BlockTag)}
             >
               <option value="p">Normal</option>
               <option value="h2">Título</option>
