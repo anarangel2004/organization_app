@@ -104,7 +104,8 @@ export function TabletBars({
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, opacity: editable ? 1 : 0.4 }}>
-          <select aria-label="Estilo" className={c.tSelect} value={format.block} disabled={!editable} onChange={(e) => onBlock(e.target.value as BlockTag)}>
+          <select aria-label="Estilo" className={c.tSelect} value={format.styled ? 'custom' : format.block} disabled={!editable} onChange={(e) => onBlock(e.target.value as BlockTag)}>
+            <option value="custom" hidden>Personalizado</option>
             <option value="p">Normal</option>
             <option value="h2">Título</option>
             <option value="h3">Subtítulo</option>
@@ -214,7 +215,7 @@ export function PhoneFormatBar({
   );
   return (
     <div role="toolbar" aria-label="Formatação" className={`${c.pFormat} no-print`} style={{ opacity: editable ? 1 : 0.5 }}>
-      {btn(`Estilo: ${BLOCK_NAME[format.block]}`, format.block === 'p' ? 'Aa' : format.block === 'h2' ? 'H1' : 'H2', () => onBlock(NEXT_BLOCK[format.block]))}
+      {btn(`Estilo: ${BLOCK_NAME[format.block]}`, format.block === 'p' ? 'Aa' : format.block === 'h2' ? 'H1' : 'H2', () => onBlock(format.styled ? 'p' : NEXT_BLOCK[format.block]))}
       {btn('Negrito', 'B', () => onExec('bold'), { fontWeight: 700 }, format.bold)}
       {btn('Itálico', 'I', () => onExec('italic'), { fontFamily: "var(--font-newsreader), 'Newsreader', Georgia, serif", fontStyle: 'italic', fontSize: 18 }, format.italic)}
       {btn('Lista', '•—', () => onExec('insertUnorderedList'))}
