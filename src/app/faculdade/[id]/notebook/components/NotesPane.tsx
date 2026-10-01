@@ -5,6 +5,8 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -55,6 +57,8 @@ export interface NotesPaneRef {
   isEditorFocused: () => boolean;
   // Transforma as referências ao PDF em texto normal e devolve o HTML final.
   unwrapPageRefs: () => string | null;
+  // Grava já os traços que ainda esperavam a caneta parar.
+  flushInk: () => void;
 }
 
 interface NotesPaneProps {
@@ -63,7 +67,8 @@ interface NotesPaneProps {
   onModeChange: (mode: NoteMode) => void;
   paperStyle: PaperStyle;
   zoom: number;
-  pageWidth: number | string;
+  // Mudar o zoom (pinça com dois dedos no iPad).
+  onZoomChange?: (zoom: number) => void;
   layout?: NotesLayout;
   onFormatState?: (state: FormatState) => void;
   pdfName?: string;
@@ -75,6 +80,8 @@ interface NotesPaneProps {
   onCaretRef: (page: number) => void;
   onStats: (stats: EditorStats) => void;
   onOutline: (items: OutlineItem[]) => void;
+  // Muda quando o caderno é atualizado do servidor: a folha volta a ler o capítulo.
+  revision?: number;
 }
 
 const PAPER_CLASS: Record<PaperStyle, string> = {
@@ -82,6 +89,12 @@ const PAPER_CLASS: Record<PaperStyle, string> = {
   QUADRICULA: c.paperQuadricula,
   LISO: '',
 };
+
+// Largura fixa da folha (px) e margem lateral do papel (igual em todos os aparelhos).
+const PAGE_W = 900;
+const PAPER_PAD_X = 36;
+export const ZOOM_MIN = 0.5;
+export const ZOOM_MAX = 3;
 
 const TOOL_KEYS: Record<string, Tool> = { t: 'TEXT', p: 'PEN', m: 'HIGHLIGHTER', e: 'ERASER', l: 'LASSO' };
 
@@ -99,7 +112,7 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     onModeChange,
     paperStyle,
     zoom,
-    pageWidth,
+    onZoomChange,
     pdfName,
     pdfPage,
     onUpdateContent,
@@ -111,6 +124,7 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     onOutline,
     layout = 'desktop',
     onFormatState,
+    revision = 0,
   },
   ref
 ) {
@@ -126,6 +140,23 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
   const [markerWidth, setMarkerWidth] = useState(1);
   const [eraserType, setEraserType] = useState<EraserType>('OBJECT');
   const [selectedCount, setSelectedCount] = useState(0);
+  // Há traços para desfazer / refazer (o texto usa o desfazer do browser).
+  const [inkHistory, setInkHistory] = useState({ undo: false, redo: false });
+
+  // A folha tem sempre a mesma largura (em todos os aparelhos e com qualquer
+  // zoom): o texto parte as linhas nos mesmos sítios e os desenhos não ficam
+  // cortados. Capítulos antigos desenhados mais à direita alargam a folha.
+  const inkRight = useMemo(() => {
+    try {
+      const strokes = chapter.drawingData ? (JSON.parse(chapter.drawingData) as { points?: { x: number }[] }[]) : [];
+      let max = 0;
+      for (const st of Array.isArray(strokes) ? strokes : []) for (const pt of st.points ?? []) if (pt.x > max) max = pt.x;
+      return max;
+    } catch {
+      return 0;
+    }
+  }, [chapter.drawingData]);
+  const pageW = Math.max(PAGE_W, Math.ceil(inkRight + PAPER_PAD_X * 2 + 16));
 
   // Zoom por escala: largura disponível na área e altura da folha (sem escala).
   const areaRef = useRef<HTMLDivElement>(null);
@@ -359,6 +390,11 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     window.alert(n > 0 ? `${n} substituição${n === 1 ? '' : 'ões'}.` : 'Sem ocorrências.');
   };
 
+  const undo = () => (tool === 'TEXT' ? exec('undo') : inkRef.current?.undo());
+  const redo = () => (tool === 'TEXT' ? exec('redo') : inkRef.current?.redo());
+  const canUndo = tool === 'TEXT' || inkHistory.undo;
+  const canRedo = tool === 'TEXT' || inkHistory.redo;
+
   useImperativeHandle(ref, () => ({
     exec,
     block: (tag) => exec('formatBlock', `<${tag}>`),
@@ -366,8 +402,9 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     insertChecklist,
     insertLink,
     insertImage,
-    undo: () => (tool === 'TEXT' ? exec('undo') : inkRef.current?.undo()),
-    redo: () => (tool === 'TEXT' ? exec('redo') : inkRef.current?.redo()),
+    undo,
+    redo,
+    flushInk: () => inkRef.current?.flush(),
     replace: replaceAll,
     scrollToHeading: (index) => {
       const el = editor();
@@ -438,7 +475,72 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
   // RENDER
   // ==========================================
   const scaled = availW > 0;
-  const paperW = scaled ? (typeof pageWidth === 'number' ? Math.min(pageWidth, availW / zoom) : availW / zoom) : 0;
+  // 100% = a folha ocupa a largura disponível; o zoom amplia a partir daí.
+  const scale = scaled ? (availW / pageW) * zoom : zoom;
+  const scaleRef = useRef(scale);
+  const zoomRef = useRef(zoom);
+  useEffect(() => {
+    scaleRef.current = scale;
+    zoomRef.current = zoom;
+  });
+
+  // Pinça com dois dedos (iPad): muda o zoom à volta do ponto entre os dedos.
+  const anchorRef = useRef<{ cx: number; cy: number; mx: number; my: number } | null>(null);
+  useEffect(() => {
+    const area = areaRef.current;
+    if (!area || !onZoomChange) return;
+    const pts = new Map<number, { x: number; y: number }>();
+    let start: { dist: number; zoom: number; cx: number; cy: number } | null = null;
+    const pair = () => {
+      const [a, b] = Array.from(pts.values());
+      return { dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    };
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2) {
+        const { dist, mx, my } = pair();
+        const r = area.getBoundingClientRect();
+        const sc = scaleRef.current;
+        start = { dist: Math.max(dist, 1), zoom: zoomRef.current, cx: (mx - r.left + area.scrollLeft) / sc, cy: (my - r.top + area.scrollTop) / sc };
+      }
+    };
+    const move = (e: PointerEvent) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!start || pts.size < 2) return;
+      e.preventDefault();
+      const { dist, mx, my } = pair();
+      const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(start.zoom * (dist / start.dist) * 100) / 100));
+      const r = area.getBoundingClientRect();
+      anchorRef.current = { cx: start.cx, cy: start.cy, mx: mx - r.left, my: my - r.top };
+      if (next !== zoomRef.current) onZoomChange(next);
+    };
+    const up = (e: PointerEvent) => {
+      pts.delete(e.pointerId);
+      if (pts.size < 2) start = null;
+    };
+    const opts = { capture: true, passive: false } as const;
+    area.addEventListener('pointerdown', down, opts);
+    area.addEventListener('pointermove', move, opts);
+    area.addEventListener('pointerup', up, opts);
+    area.addEventListener('pointercancel', up, opts);
+    return () => {
+      area.removeEventListener('pointerdown', down, opts);
+      area.removeEventListener('pointermove', move, opts);
+      area.removeEventListener('pointerup', up, opts);
+      area.removeEventListener('pointercancel', up, opts);
+    };
+  }, [onZoomChange]);
+  // Depois de ampliar, o ponto entre os dedos fica onde estava.
+  useLayoutEffect(() => {
+    const a = anchorRef.current;
+    const area = areaRef.current;
+    if (!a || !area) return;
+    anchorRef.current = null;
+    area.scrollLeft = a.cx * scale - a.mx;
+    area.scrollTop = a.cy * scale - a.my;
+  }, [scale]);
 
   const isStroke = tool === 'PEN' || tool === 'HIGHLIGHTER';
   const inks = tool === 'HIGHLIGHTER' ? MARKER_INKS : PEN_INKS;
@@ -482,6 +584,10 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
           onDeleteSelection={() => inkRef.current?.deleteSelection()}
           onRecolorSelection={(i) => inkRef.current?.recolorSelection(i)}
           onDuplicateSelection={() => inkRef.current?.duplicateSelection()}
+          onUndo={undo}
+          onRedo={redo}
+          canUndo={canUndo}
+          canRedo={canRedo}
         />
       )}
       <div className={`${c.toolbar} no-print`} style={layout === 'desktop' ? undefined : { display: 'none' }}>
@@ -535,6 +641,15 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
               <ellipse cx="8" cy="7" rx="6" ry="4.5" />
             </svg>
           )}
+        </div>
+        <span className={c.vsep} />
+        <div style={{ display: "flex", gap: 2, opacity: editable ? 1 : 0.4 }}>
+          <button type="button" className={c.icon} title="Desfazer (Ctrl+Z)" aria-label="Desfazer" disabled={!editable || !canUndo} onMouseDown={keepSelection} onClick={undo}>
+            {UNDO_ICON}
+          </button>
+          <button type="button" className={c.icon} title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer" disabled={!editable || !canRedo} onMouseDown={keepSelection} onClick={redo}>
+            {REDO_ICON}
+          </button>
         </div>
         <span className={c.vsep} />
 
@@ -679,20 +794,22 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
       <div
         data-scroll
         ref={areaRef}
+        // No iPad a pinça é nossa (amplia a folha), não do Safari (ampliava a página toda).
+        style={layout === 'desktop' ? undefined : { touchAction: 'pan-x pan-y' }}
         className={`${c.sheetArea} ${layout === 'phone' ? c.sheetAreaFlush : layout === 'tablet' ? c.sheetAreaTablet : ''}`}
       >
         {/* A caixa ocupa o tamanho já ampliado, para o scroll e o centrar funcionarem. */}
         <div
           className={c.zoomBox}
-          style={scaled ? { width: paperW * zoom, height: paperH ? paperH * zoom : undefined } : undefined}
+          style={scaled ? { width: pageW * scale, height: paperH ? paperH * scale : undefined } : undefined}
         >
         <article
           ref={paperRef}
           className={`${c.paper} ${PAPER_CLASS[paperStyle]} ${layout === 'phone' ? c.paperPhone : ''} printable-editor`}
           style={
             scaled
-              ? { width: paperW, maxWidth: 'none', margin: 0, transform: zoom === 1 ? undefined : `scale(${zoom})`, transformOrigin: '0 0' }
-              : { width: pageWidth }
+              ? { width: pageW, maxWidth: 'none', margin: 0, transform: scale === 1 ? undefined : `scale(${scale})`, transformOrigin: '0 0' }
+              : { width: pageW, maxWidth: 'none', visibility: 'hidden' }
           }
           onMouseLeave={() => setRefPop(null)}
         >
@@ -748,8 +865,10 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
             eraserType={eraserType}
             penOnly={layout !== 'desktop'}
             onSelectionChange={setSelectedCount}
+            onHistoryChange={(u, r) => setInkHistory((h) => (h.undo === u && h.redo === r ? h : { undo: u, redo: r }))}
+            revision={revision}
             onPenDetected={() => setTool('PEN')}
-            zoom={zoom}
+            zoom={scale}
             placeholder="Continua a escrever, ou pega na caneta…"
             onUpdateContent={(html) => {
               onUpdateContent(html);
@@ -816,6 +935,19 @@ const PENCIL_TOOLS: [Tool, string, ReactNode][] = [
   ['TEXT', 'Texto', <span key="t" style={{ fontSize: 17, fontWeight: 600 }}>T</span>],
 ];
 
+const UNDO_ICON = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6.5 4L3 7.5 6.5 11" />
+    <path d="M3 7.5h7.5a4.5 4.5 0 010 9H8" />
+  </svg>
+);
+const REDO_ICON = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11.5 4L15 7.5 11.5 11" />
+    <path d="M15 7.5H7.5a4.5 4.5 0 000 9H10" />
+  </svg>
+);
+
 function PencilBar({
   tool,
   onTool,
@@ -831,6 +963,10 @@ function PencilBar({
   onDeleteSelection,
   onRecolorSelection,
   onDuplicateSelection,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
 }: {
   tool: Tool;
   onTool: (t: Tool) => void;
@@ -846,10 +982,22 @@ function PencilBar({
   onDeleteSelection: () => void;
   onRecolorSelection: (inkIndex: number) => void;
   onDuplicateSelection: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }) {
   const stroke = tool === 'PEN' || tool === 'HIGHLIGHTER';
   return (
     <div role="toolbar" aria-label="Ferramentas do Apple Pencil" className={`${c.pencilBar} no-print`}>
+      {/* Desfazer / refazer, como no OneNote: sempre à mão, à esquerda. */}
+      <button type="button" aria-label="Desfazer" title="Desfazer" className={c.pencilTool} disabled={!canUndo} onMouseDown={keepSelection} onClick={onUndo}>
+        {UNDO_ICON}
+      </button>
+      <button type="button" aria-label="Refazer" title="Refazer" className={c.pencilTool} disabled={!canRedo} onMouseDown={keepSelection} onClick={onRedo}>
+        {REDO_ICON}
+      </button>
+      <span className={c.pencilSep} />
       {PENCIL_TOOLS.map(([id, label, icon]) => (
         <button
           key={id}

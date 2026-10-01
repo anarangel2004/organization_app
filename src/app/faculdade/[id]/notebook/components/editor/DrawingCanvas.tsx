@@ -37,6 +37,8 @@ export interface DrawingCanvasRef {
   recolorSelection: (inkIndex: number) => void;
   // Laço: duplica a seleção um pouco ao lado e passa a selecionar a cópia.
   duplicateSelection: () => void;
+  // Grava já os traços que esperavam a caneta parar.
+  flush: () => void;
 }
 
 interface DrawingCanvasProps {
@@ -63,6 +65,8 @@ interface DrawingCanvasProps {
   onPenDetected?: () => void;
   // Zoom da folha, para ajustar a resolução do canvas.
   zoom?: number;
+  // Muda quando o caderno é atualizado do servidor: volta a ler o capítulo.
+  revision?: number;
 }
 
 const MIN_HEIGHT = 640;
@@ -103,9 +107,6 @@ function boundsOf(strokes: Stroke[]) {
   }
   return Number.isFinite(x0) ? { x0, y0, x1, y1 } : null;
 }
-
-const cloneStrokes = (strokes: Stroke[]): Stroke[] =>
-  strokes.map((s) => ({ ...s, points: s.points.map((p) => ({ ...p })) }));
 
 function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   const pts = stroke.points;
@@ -169,6 +170,13 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   ctx.restore();
 }
 
+// Folga à volta de um traço (para limpar a camada do traço atual).
+const padOf = (s: Stroke) => (s.tool === 'HIGHLIGHTER' ? s.size * 3 : s.size * 1.6) / 2 + 4;
+// Quantos passos o "desfazer" guarda.
+const MAX_UNDO = 300;
+// Gravar só quando a caneta pára (não a cada traço).
+const SAVE_IDLE_MS = 900;
+
 export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(function DrawingCanvas(
   {
     chapterId,
@@ -190,6 +198,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     onSelectionChange,
     onPenDetected,
     zoom = 1,
+    revision = 0,
   },
   ref
 ) {
@@ -197,10 +206,17 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   const forcedPenRef = useRef(false);
   // Arrastar com o dedo quando só a caneta desenha: desliza o contentor da folha.
   const fingerRef = useRef<{ id: number; x: number; y: number; box: HTMLElement | null } | null>(null);
+  // Dedos na folha: com dois, é pinça (zoom), não deslizar.
+  const touchIdsRef = useRef<Set<number>>(new Set());
   const editorRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Camada só do traço que está a ser escrito: redesenhá-la é barato, a folha
+  // inteira só se redesenha ao desfazer, mover ou mudar de tamanho.
+  const liveRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Os traços nunca são alterados no sítio: cada mudança cria uma lista nova.
+  // Assim o "desfazer" guarda só a lista anterior, sem copiar pontos.
   const strokesRef = useRef<Stroke[]>([]);
   const currentStrokeRef = useRef<Stroke | null>(null);
   const preStrokeSnapshotRef = useRef<Stroke[] | null>(null);
@@ -208,20 +224,63 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   const redoStackRef = useRef<Stroke[][]>([]);
   const isDrawingRef = useRef(false);
   const loadedChapterIdRef = useRef<string | null>(null);
+  const loadedRevisionRef = useRef(-1);
   // Laço: contorno a ser desenhado, traços selecionados e arrasto da seleção.
   const lassoPathRef = useRef<Point[] | null>(null);
   const selectedRef = useRef<Set<string>>(new Set());
-  const dragRef = useRef<{ last: Point; snapshot: Stroke[]; moved: boolean } | null>(null);
+  const dragRef = useRef<{ start: Point; base: Stroke[]; moved: boolean } | null>(null);
   // Tamanho lógico da folha (px sem zoom) em que os pontos são guardados.
   const logicalRef = useRef({ w: 0, h: 0 });
   // Pixels do canvas por px lógico da folha.
   const ratioRef = useRef(1);
+  // Desenho a um fotograma de cada vez.
+  const liveFrameRef = useRef(0);
+  const fullFrameRef = useRef(0);
+  const liveBoxRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  // Borracha de área: pontos já aplicados na folha.
+  const erasedUpToRef = useRef(0);
+  // Borracha de traço inteiro: houve algo apagado neste gesto.
+  const objectErasedRef = useRef(false);
+  // Gravação adiada: a função e a lista do capítulo em que se escreveu.
+  const saveTimerRef = useRef<number | null>(null);
+  const pendingSaveRef = useRef<{ fn: (json: string) => void; strokes: Stroke[] } | null>(null);
 
   const updateHistoryStatus = useCallback(() => {
     onHistoryChange?.(undoStackRef.current.length > 0, redoStackRef.current.length > 0);
   }, [onHistoryChange]);
 
+  const pushUndo = (snapshot: Stroke[]) => {
+    undoStackRef.current.push(snapshot);
+    if (undoStackRef.current.length > MAX_UNDO) undoStackRef.current.shift();
+    redoStackRef.current = [];
+  };
+
+  const mainCtx = () => {
+    const ctx = canvasRef.current?.getContext('2d');
+    if (!ctx) return null;
+    const r = ratioRef.current;
+    ctx.setTransform(r, 0, 0, r, 0, 0);
+    return ctx;
+  };
+  const liveCtx = () => {
+    const ctx = liveRef.current?.getContext('2d', { desynchronized: true }) as CanvasRenderingContext2D | null | undefined;
+    if (!ctx) return null;
+    const r = ratioRef.current;
+    ctx.setTransform(r, 0, 0, r, 0, 0);
+    return ctx;
+  };
+  const clearLive = () => {
+    const box = liveBoxRef.current;
+    liveBoxRef.current = null;
+    const ctx = box ? liveCtx() : null;
+    if (ctx && box) ctx.clearRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+  };
+
   const redrawCanvas = useCallback(() => {
+    if (fullFrameRef.current) {
+      cancelAnimationFrame(fullFrameRef.current);
+      fullFrameRef.current = 0;
+    }
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
@@ -229,7 +288,12 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, logicalRef.current.w, logicalRef.current.h);
     strokesRef.current.forEach((s) => drawStroke(ctx, s));
-    if (currentStrokeRef.current) drawStroke(ctx, currentStrokeRef.current);
+    // A borracha de área a meio do gesto apaga diretamente na folha.
+    const cur = currentStrokeRef.current;
+    if (cur?.tool === 'ERASER') {
+      drawStroke(ctx, cur);
+      erasedUpToRef.current = cur.points.length;
+    }
 
     const selected = strokesRef.current.filter((s) => selectedRef.current.has(s.id));
     const box = selected.length ? boundsOf(selected) : null;
@@ -258,6 +322,49 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     }
   }, []);
 
+  // Redesenhar a folha no próximo fotograma (laço, borracha de traço inteiro).
+  const scheduleRedraw = () => {
+    if (!fullFrameRef.current) fullFrameRef.current = requestAnimationFrame(() => {
+      fullFrameRef.current = 0;
+      redrawCanvas();
+    });
+  };
+
+  // Traço atual: caneta e marcador na camada de cima; a borracha de área
+  // apaga logo na folha, só os pontos novos.
+  const renderLive = () => {
+    liveFrameRef.current = 0;
+    const s = currentStrokeRef.current;
+    if (!s) return;
+    if (s.tool === 'ERASER') {
+      const ctx = mainCtx();
+      if (!ctx) return;
+      const from = Math.max(0, erasedUpToRef.current - 1);
+      if (from < s.points.length) drawStroke(ctx, { ...s, points: s.points.slice(from) });
+      erasedUpToRef.current = s.points.length;
+      return;
+    }
+    const ctx = liveCtx();
+    if (!ctx) return;
+    clearLive();
+    const pad = padOf(s);
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const pt of s.points) {
+      if (pt.x < x0) x0 = pt.x;
+      if (pt.y < y0) y0 = pt.y;
+      if (pt.x > x1) x1 = pt.x;
+      if (pt.y > y1) y1 = pt.y;
+    }
+    liveBoxRef.current = { x0: x0 - pad, y0: y0 - pad, x1: x1 + pad, y1: y1 + pad };
+    drawStroke(ctx, s);
+  };
+  const scheduleLive = () => {
+    if (!liveFrameRef.current) liveFrameRef.current = requestAnimationFrame(renderLive);
+  };
+
   const setSelection = useCallback(
     (ids: Set<string>) => {
       selectedRef.current = ids;
@@ -269,8 +376,9 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   // Ajusta o canvas à área escrita; cresce para caber os traços mais abaixo.
   const setupCanvas = useCallback(() => {
     const canvas = canvasRef.current;
+    const live = liveRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!canvas || !live || !container) return;
 
     let maxY = 0;
     for (const s of strokesRef.current) for (const p of s.points) if (p.y > maxY) maxY = p.y;
@@ -293,39 +401,81 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
 
     logicalRef.current = { w, h };
     ratioRef.current = ratio;
-    canvas.width = Math.round(w * ratio);
-    canvas.height = Math.round(h * ratio);
+    canvas.width = live.width = Math.round(w * ratio);
+    canvas.height = live.height = Math.round(h * ratio);
+    liveBoxRef.current = null;
     redrawCanvas();
+    if (currentStrokeRef.current) renderLive();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- renderLive só lê refs
   }, [redrawCanvas]);
 
+  // A folha só cresce quando um traço passa perto do fundo.
+  const growIfNeeded = (stroke: Stroke) => {
+    const container = containerRef.current;
+    if (!container) return;
+    let maxY = 0;
+    for (const p of stroke.points) if (p.y > maxY) maxY = p.y;
+    if (maxY + 120 > (parseFloat(container.style.minHeight) || MIN_HEIGHT)) setupCanvas();
+  };
+
+  const flushSave = useCallback(() => {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const pending = pendingSaveRef.current;
+    pendingSaveRef.current = null;
+    if (pending) pending.fn(JSON.stringify(pending.strokes));
+  }, []);
+
+  // Guarda a função deste capítulo e a lista atual; grava quando a caneta pára.
   const saveDrawingToCloud = useCallback(() => {
-    onUpdateDrawing?.(JSON.stringify(strokesRef.current));
-  }, [onUpdateDrawing]);
+    if (!onUpdateDrawing) return;
+    pendingSaveRef.current = { fn: onUpdateDrawing, strokes: strokesRef.current };
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(flushSave, SAVE_IDLE_MS);
+  }, [onUpdateDrawing, flushSave]);
+
+  // Sair, esconder a app ou fechar o capítulo: grava já o que falta.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushSave();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flushSave);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flushSave);
+      flushSave();
+    };
+  }, [flushSave]);
 
   const undo = useCallback(() => {
     const prev = undoStackRef.current.pop();
     if (!prev) return;
-    redoStackRef.current.push(cloneStrokes(strokesRef.current));
+    redoStackRef.current.push(strokesRef.current);
     strokesRef.current = prev;
+    setSelection(new Set());
     redrawCanvas();
     saveDrawingToCloud();
     updateHistoryStatus();
-  }, [redrawCanvas, saveDrawingToCloud, updateHistoryStatus]);
+  }, [redrawCanvas, saveDrawingToCloud, setSelection, updateHistoryStatus]);
 
   const redo = useCallback(() => {
     const next = redoStackRef.current.pop();
     if (!next) return;
-    undoStackRef.current.push(cloneStrokes(strokesRef.current));
+    undoStackRef.current.push(strokesRef.current);
     strokesRef.current = next;
+    setSelection(new Set());
     redrawCanvas();
     saveDrawingToCloud();
     updateHistoryStatus();
-  }, [redrawCanvas, saveDrawingToCloud, updateHistoryStatus]);
+    setupCanvas();
+  }, [redrawCanvas, saveDrawingToCloud, setSelection, setupCanvas, updateHistoryStatus]);
 
   const deleteSelection = useCallback(() => {
     if (selectedRef.current.size === 0) return;
-    undoStackRef.current.push(cloneStrokes(strokesRef.current));
-    redoStackRef.current = [];
+    pushUndo(strokesRef.current);
     strokesRef.current = strokesRef.current.filter((st) => !selectedRef.current.has(st.id));
     setSelection(new Set());
     updateHistoryStatus();
@@ -339,9 +489,9 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       const pen = PEN_INKS[inkIndex]?.[1];
       const marker = MARKER_INKS[inkIndex]?.[1];
       if (!pen || !marker) return;
-      const snapshot = cloneStrokes(strokesRef.current);
+      const before = strokesRef.current;
       let changed = false;
-      strokesRef.current = strokesRef.current.map((st) => {
+      const next = before.map((st) => {
         if (!selectedRef.current.has(st.id)) return st;
         const color = st.tool === 'HIGHLIGHTER' ? marker : pen;
         if (st.color === color) return st;
@@ -349,8 +499,8 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
         return { ...st, color };
       });
       if (!changed) return;
-      undoStackRef.current.push(snapshot);
-      redoStackRef.current = [];
+      pushUndo(before);
+      strokesRef.current = next;
       updateHistoryStatus();
       redrawCanvas();
       saveDrawingToCloud();
@@ -369,8 +519,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
         id: `${stamp}-${i}-${Math.random().toString(36).slice(2, 7)}`,
         points: st.points.map((pt) => ({ ...pt, x: pt.x + OFFSET, y: pt.y + OFFSET })),
       }));
-    undoStackRef.current.push(cloneStrokes(strokesRef.current));
-    redoStackRef.current = [];
+    pushUndo(strokesRef.current);
     strokesRef.current = [...strokesRef.current, ...copies];
     setSelection(new Set(copies.map((st) => st.id)));
     updateHistoryStatus();
@@ -381,8 +530,8 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
 
   useImperativeHandle(
     ref,
-    () => ({ undo, redo, getEditor: () => editorRef.current, deleteSelection, recolorSelection, duplicateSelection }),
-    [undo, redo, deleteSelection, recolorSelection, duplicateSelection]
+    () => ({ undo, redo, getEditor: () => editorRef.current, deleteSelection, recolorSelection, duplicateSelection, flush: flushSave }),
+    [undo, redo, deleteSelection, recolorSelection, duplicateSelection, flushSave]
   );
 
   // Sair do laço (ou mudar de capítulo) larga a seleção.
@@ -438,8 +587,11 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
 
   // Carregar texto e traços quando muda o capítulo.
   useEffect(() => {
-    if (loadedChapterIdRef.current === chapterId) return;
+    if (loadedChapterIdRef.current === chapterId && loadedRevisionRef.current === revision) return;
+    // O que ficou por gravar é do capítulo anterior: grava-o antes de trocar.
+    flushSave();
     loadedChapterIdRef.current = chapterId;
+    loadedRevisionRef.current = revision;
 
     if (editorRef.current && editorRef.current.innerHTML !== (chapterContent || '')) {
       editorRef.current.innerHTML = chapterContent || '';
@@ -452,12 +604,13 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     } catch {
       strokesRef.current = [];
     }
+    currentStrokeRef.current = null;
     undoStackRef.current = [];
     redoStackRef.current = [];
     updateHistoryStatus();
     logicalRef.current = { w: 0, h: 0 };
     setupCanvas();
-  }, [chapterId, chapterContent, drawingDataRaw, setupCanvas, updateHistoryStatus]);
+  }, [chapterId, revision, chapterContent, drawingDataRaw, setupCanvas, updateHistoryStatus, flushSave]);
 
   // Zoom do browser ou com dois dedos: a resolução acompanha.
   useEffect(() => {
@@ -470,9 +623,11 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     };
   }, [setupCanvas]);
 
-  // Zoom da folha (−/+): o tamanho em CSS não muda, só a escala; volta a medir.
+  // Zoom da folha (−/+ ou pinça): o tamanho em CSS não muda, só a escala.
+  // A nitidez acerta-se quando o zoom pára (refazer o canvas a cada passo da pinça era lento).
   useEffect(() => {
-    setupCanvas();
+    const t = window.setTimeout(setupCanvas, 160);
+    return () => window.clearTimeout(t);
   }, [zoom, setupCanvas]);
 
   // O texto cresce, a janela muda, o split abre: o canvas acompanha.
@@ -484,13 +639,22 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     return () => ro.disconnect();
   }, [setupCanvas]);
 
+  // Não deixar fotogramas pendentes ao sair.
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(liveFrameRef.current);
+      cancelAnimationFrame(fullFrameRef.current);
+    },
+    []
+  );
+
   // Ponto do ponteiro em coordenadas da folha (independente do zoom).
-  const localPoint = (e: { clientX: number; clientY: number; pointerType?: string; pressure?: number }): Point | null => {
+  const localPoint = (e: { clientX: number; clientY: number; pointerType?: string; pressure?: number }, rect?: DOMRect): Point | null => {
     const canvas = canvasRef.current;
     if (!canvas || logicalRef.current.w === 0) return null;
-    const rect = canvas.getBoundingClientRect();
-    const scale = rect.width / logicalRef.current.w || 1;
-    const pt: Point = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+    const r = rect ?? canvas.getBoundingClientRect();
+    const scale = r.width / logicalRef.current.w || 1;
+    const pt: Point = { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
     if (e.pointerType === 'pen' && typeof e.pressure === 'number' && e.pressure > 0) pt.p = Math.round(e.pressure * 100) / 100;
     return pt;
   };
@@ -505,11 +669,11 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     stroke.points.push(p);
   };
 
+  // Borracha de traço inteiro: tira os traços tocados (um "desfazer" por gesto).
   const checkObjectErase = (p: Point) => {
     const thresholdSq = 12 * 12;
-    const before = strokesRef.current.length;
-    const snapshot = cloneStrokes(strokesRef.current);
-    strokesRef.current = strokesRef.current.filter((s) => {
+    const before = strokesRef.current;
+    const next = before.filter((s) => {
       if (s.tool === 'ERASER') return true;
       if (s.points.length === 1) return (s.points[0].x - p.x) ** 2 + (s.points[0].y - p.y) ** 2 >= thresholdSq;
       for (let i = 0; i < s.points.length - 1; i++) {
@@ -517,12 +681,10 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       }
       return true;
     });
-    if (strokesRef.current.length !== before) {
-      undoStackRef.current.push(snapshot);
-      redoStackRef.current = [];
-      updateHistoryStatus();
-      redrawCanvas();
-      saveDrawingToCloud();
+    if (next.length !== before.length) {
+      strokesRef.current = next;
+      objectErasedRef.current = true;
+      scheduleRedraw();
     }
   };
 
@@ -552,6 +714,11 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     if (e.pointerType === 'pen') e.preventDefault();
     const tool = toolNow();
     if (penOnly && e.pointerType === 'touch') {
+      touchIdsRef.current.add(e.pointerId);
+      if (touchIdsRef.current.size > 1) {
+        fingerRef.current = null;
+        return;
+      }
       e.currentTarget.setPointerCapture?.(e.pointerId);
       fingerRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY, box: e.currentTarget.closest('[data-scroll]') };
       return;
@@ -565,32 +732,38 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       const selected = strokesRef.current.filter((st) => selectedRef.current.has(st.id));
       const box = selected.length ? boundsOf(selected) : null;
       if (box && p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1) {
-        dragRef.current = { last: p, snapshot: cloneStrokes(strokesRef.current), moved: false };
+        dragRef.current = { start: p, base: strokesRef.current, moved: false };
       } else {
         setSelection(new Set());
         lassoPathRef.current = [p];
-        redrawCanvas();
+        scheduleRedraw();
       }
       return;
     }
 
+    preStrokeSnapshotRef.current = strokesRef.current;
     if (tool === 'ERASER' && eraserType === 'OBJECT') {
+      objectErasedRef.current = false;
       checkObjectErase(p);
       return;
     }
-    preStrokeSnapshotRef.current = cloneStrokes(strokesRef.current);
+    const kind = tool === 'ERASER' ? 'ERASER' : tool === 'HIGHLIGHTER' ? 'HIGHLIGHTER' : 'PEN';
     currentStrokeRef.current = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      tool: tool === 'ERASER' ? 'ERASER' : tool === 'HIGHLIGHTER' ? 'HIGHLIGHTER' : 'PEN',
+      tool: kind,
       color,
       size: tool === 'ERASER' ? 24 : size,
       points: [p],
     };
-    redrawCanvas();
+    erasedUpToRef.current = 0;
+    // O marcador mistura-se com o que está por baixo, como na folha.
+    if (liveRef.current) liveRef.current.style.mixBlendMode = kind === 'HIGHLIGHTER' ? 'multiply' : 'normal';
+    scheduleLive();
   };
 
   const draw = (e: ReactPointerEvent<HTMLElement>) => {
     const finger = fingerRef.current;
+    if (e.pointerType === 'touch' && touchIdsRef.current.size > 1) return;
     if (finger && finger.id === e.pointerId) {
       finger.box?.scrollBy(finger.x - e.clientX, finger.y - e.clientY);
       finger.x = e.clientX;
@@ -604,36 +777,33 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       if (!p) return;
       const drag = dragRef.current;
       if (drag) {
-        const dx = p.x - drag.last.x;
-        const dy = p.y - drag.last.y;
-        if (dx === 0 && dy === 0) return;
-        for (const st of strokesRef.current) {
-          if (!selectedRef.current.has(st.id)) continue;
-          for (const pt of st.points) {
-            pt.x += dx;
-            pt.y += dy;
-          }
-        }
-        drag.last = p;
-        drag.moved = true;
+        const dx = p.x - drag.start.x;
+        const dy = p.y - drag.start.y;
+        const sel = selectedRef.current;
+        strokesRef.current = drag.base.map((st) =>
+          sel.has(st.id) ? { ...st, points: st.points.map((pt) => ({ ...pt, x: pt.x + dx, y: pt.y + dy })) } : st
+        );
+        drag.moved = dx !== 0 || dy !== 0;
       } else {
         lassoPathRef.current?.push(p);
       }
-      redrawCanvas();
+      scheduleRedraw();
       return;
     }
     const native = e.nativeEvent as PointerEvent;
     const events = native.getCoalescedEvents ? native.getCoalescedEvents() : [native];
+    const rect = canvasRef.current?.getBoundingClientRect();
     for (const ev of events.length ? events : [native]) {
-      const p = localPoint(ev);
+      const p = localPoint(ev, rect);
       if (!p) continue;
       if (tool === 'ERASER' && eraserType === 'OBJECT') checkObjectErase(p);
       else if (currentStrokeRef.current) pushPoint(currentStrokeRef.current, p);
     }
-    if (currentStrokeRef.current) redrawCanvas();
+    if (currentStrokeRef.current) scheduleLive();
   };
 
-  const stopDrawing = () => {
+  const stopDrawing = (e?: ReactPointerEvent<HTMLElement>) => {
+    if (e?.pointerType === 'touch') touchIdsRef.current.delete(e.pointerId);
     fingerRef.current = null;
     const tool = toolNow();
     forcedPenRef.current = false;
@@ -645,8 +815,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       dragRef.current = null;
       if (drag) {
         if (drag.moved) {
-          undoStackRef.current.push(drag.snapshot);
-          redoStackRef.current = [];
+          pushUndo(drag.base);
           updateHistoryStatus();
           saveDrawingToCloud();
           setupCanvas();
@@ -668,18 +837,38 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       redrawCanvas();
       return;
     }
-    const stroke = currentStrokeRef.current;
-    if (stroke && stroke.points.length > 0) {
-      if (preStrokeSnapshotRef.current) undoStackRef.current.push(preStrokeSnapshotRef.current);
-      redoStackRef.current = [];
-      strokesRef.current.push(stroke);
-      updateHistoryStatus();
-      currentStrokeRef.current = null;
+
+    if (tool === 'ERASER' && eraserType === 'OBJECT') {
+      if (objectErasedRef.current && preStrokeSnapshotRef.current) {
+        pushUndo(preStrokeSnapshotRef.current);
+        updateHistoryStatus();
+        saveDrawingToCloud();
+      }
+      objectErasedRef.current = false;
       preStrokeSnapshotRef.current = null;
-      redrawCanvas();
-      saveDrawingToCloud();
-      setupCanvas();
+      return;
     }
+
+    const stroke = currentStrokeRef.current;
+    if (liveFrameRef.current) {
+      cancelAnimationFrame(liveFrameRef.current);
+      liveFrameRef.current = 0;
+    }
+    if (stroke && stroke.points.length > 0) {
+      // A borracha já está quase toda aplicada; aplica o resto. A caneta passa
+      // da camada de cima para a folha, só este traço.
+      if (stroke.tool === 'ERASER') renderLive();
+      else {
+        const ctx = mainCtx();
+        if (ctx) drawStroke(ctx, stroke);
+      }
+      pushUndo(preStrokeSnapshotRef.current ?? strokesRef.current);
+      strokesRef.current = [...strokesRef.current, stroke];
+      updateHistoryStatus();
+      saveDrawingToCloud();
+      growIfNeeded(stroke);
+    }
+    clearLive();
     currentStrokeRef.current = null;
     preStrokeSnapshotRef.current = null;
   };
@@ -730,6 +919,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
         onPointerCancel={stopDrawing}
         className={`${c.canvas} ${drawingActive ? c.canvasLive : ''}`}
       />
+      <canvas ref={liveRef} aria-hidden="true" className={c.canvasInk} />
     </div>
   );
 });

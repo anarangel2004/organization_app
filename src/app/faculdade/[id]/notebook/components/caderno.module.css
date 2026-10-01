@@ -1217,8 +1217,7 @@
   background: #ffffff;
 }
 .paperPhone {
-  padding: 28px 18px 84px;
-  min-height: 980px;
+  /* Mesmas margens dos outros aparelhos: a folha é a mesma, só em ponto pequeno. */
   box-shadow: none;
 }
 .sheetAreaTablet {
@@ -1354,4 +1353,26 @@
 .zoomBox {
   position: relative;
   margin: 0 auto;
+}
+
+/* Camada do traço que está a ser escrito (por cima da folha, sem toques). */
+.canvasInk {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 21;
+  pointer-events: none;
+}
+.pencilTool:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.spin {
+  animation: cadernoSpin 0.9s linear infinite;
+}
+@keyframes cadernoSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }

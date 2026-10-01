@@ -40,7 +40,7 @@ import { ContextBar, MenuBar, MenuDef, StatusBar, StudyInfo, SubjectChip } from 
 import { ManualSessionDialog } from './components/ManualSessionDialog';
 import { fmtStudy, useStudyTimer } from '@/lib/study';
 import { ChapterSidebar } from './components/ChapterSidebar';
-import { FormatState, NotesLayout, NotesPane, NotesPaneRef } from './components/NotesPane';
+import { FormatState, NotesLayout, NotesPane, NotesPaneRef, ZOOM_MAX, ZOOM_MIN } from './components/NotesPane';
 import { PdfPane } from './components/PdfPane';
 import { OptionsSheet, PdfSheet, PhoneBar, PhoneFormatBar, TabletBars, syncText } from './components/TouchBars';
 
@@ -378,6 +378,71 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   }, [flush]);
 
   // ==========================================
+  // ATUALIZAR: grava o que falta e volta a ler o caderno do servidor
+  // (o que foi escrito noutro aparelho aparece aqui).
+  // ==========================================
+  const [revision, setRevision] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  });
+
+  const refresh = useCallback(async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try {
+      notesRef.current?.flushInk();
+      await flush();
+      const [chaps, assess, fileRows] = await Promise.all([
+        supabase.from('chapters').select('*').eq('subject_id', subjectId).order('created_at', { ascending: true }),
+        supabase.from('assessments').select('*').eq('subject_id', subjectId),
+        supabase.from('subject_files').select('*').eq('subject_id', subjectId).order('created_at', { ascending: false }),
+      ]);
+      if (chaps.error) throw chaps.error;
+      const fresh = ((chaps.data ?? []) as ChapterDbRow[]).filter(isNotebookRow).map(toChapter);
+      // O que se escreveu durante o pedido ainda não foi gravado: fica o local.
+      const pending = pendingRef.current;
+      setChapters((prev) =>
+        fresh
+          .map((ch) => (pending.has(ch.id) ? (prev.find((p) => p.id === ch.id) ?? ch) : ch))
+          .concat(prev.filter((p) => p.id.startsWith('temp-')))
+      );
+      if (!assess.error) setAssessments((assess.data ?? []) as AssessmentItem[]);
+      if (!fileRows.error) setFiles((fileRows.data ?? []) as FileRow[]);
+      // A folha aberta só volta a ser lida se mudou noutro sítio (assim não se perde o desfazer).
+      const local = activeRef.current;
+      const server = local ? fresh.find((ch) => ch.id === local.id) : undefined;
+      if (local && server && !pending.has(local.id) && (server.content !== local.content || server.drawingData !== local.drawingData)) {
+        setRevision((r) => r + 1);
+      }
+      setSync(pendingRef.current.size ? 'saving' : 'synced');
+    } catch (err) {
+      console.error('Erro ao atualizar o caderno:', err);
+      setSync('error');
+    } finally {
+      refreshingRef.current = false;
+      setRefreshing(false);
+    }
+  }, [flush, subjectId]);
+
+  // Voltar à app (ou à rede): atualiza sozinho.
+  useEffect(() => {
+    const onShow = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    const onOnline = () => void refresh();
+    document.addEventListener('visibilitychange', onShow);
+    window.addEventListener('online', onOnline);
+    return () => {
+      document.removeEventListener('visibilitychange', onShow);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [refresh]);
+
+  // ==========================================
   // AÇÕES
   // ==========================================
   const selectChapter = useCallback(
@@ -542,7 +607,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   );
 
   const changeZoom = useCallback(
-    (delta: number) => setZoom((z) => Math.min(1.6, Math.max(0.6, Math.round((z + delta) * 10) / 10))),
+    (delta: number) => setZoom((z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + delta) * 10) / 10))),
     [setZoom]
   );
 
@@ -781,7 +846,6 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   // PEÇAS PARTILHADAS PELOS ARRANJOS
   // ==========================================
   const notesLayout: NotesLayout = device === 'phone' ? 'phone' : tablet ? 'tablet' : 'desktop';
-  const pageWidth: number | string = device === 'phone' ? '100%' : tablet ? (showSplit ? '100%' : 820) : showSplit ? 600 : 820;
   const chapterLabel = active ? `${active.number} · ${active.title || 'Sem título'}` : tabLabel;
   const editable = !!active && mode === 'EDIT';
 
@@ -829,12 +893,13 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     ) : active ? (
       <NotesPane
         ref={notesRef}
+        revision={revision}
         chapter={active}
         mode={mode}
         onModeChange={setMode}
         paperStyle={paper}
         zoom={zoom}
-        pageWidth={pageWidth}
+        onZoomChange={setZoom}
         layout={notesLayout}
         onFormatState={setFormat}
         pdfName={active.pdfName}
@@ -887,6 +952,8 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
       next={nextAssessment}
       deviceLabel={deviceLabel}
       sync={sync}
+      onRefresh={refresh}
+      refreshing={refreshing}
       zoom={zoom}
       onZoom={changeZoom}
       study={study}

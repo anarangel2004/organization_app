@@ -279,6 +279,8 @@ export function StatusBar({
   next,
   deviceLabel,
   sync,
+  onRefresh,
+  refreshing = false,
   zoom,
   onZoom,
   study,
@@ -291,6 +293,9 @@ export function StatusBar({
   next: NextAssessment | null;
   deviceLabel: string;
   sync: SyncStatus;
+  // Grava o que falta e volta a ler o caderno (sincronizar com outros aparelhos).
+  onRefresh?: () => void;
+  refreshing?: boolean;
   zoom: number;
   onZoom: (delta: number) => void;
   study?: StudyInfo;
@@ -329,7 +334,24 @@ export function StatusBar({
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className={c.led} style={{ background: syncColor }} />
-          {syncLabel}
+          {refreshing ? 'A atualizar…' : syncLabel}
+          {onRefresh && (
+            <button
+              type="button"
+              className={c.zoomBtn}
+              onClick={onRefresh}
+              disabled={refreshing}
+              title="Atualizar: grava o que falta e traz o que foi escrito noutro aparelho"
+              aria-label="Atualizar o caderno"
+              style={{ width: 'auto', height: 22, padding: '0 8px', gap: 5, display: 'inline-flex', alignItems: 'center' }}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={refreshing ? c.spin : undefined}>
+                <path d="M13.5 8a5.5 5.5 0 11-1.6-3.9" />
+                <path d="M13.5 2.5v3.6H9.9" />
+              </svg>
+              Atualizar
+            </button>
+          )}
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button type="button" className={c.zoomBtn} aria-label="Diminuir zoom" onClick={() => onZoom(-0.1)}>
