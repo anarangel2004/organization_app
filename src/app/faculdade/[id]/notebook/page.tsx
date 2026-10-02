@@ -612,7 +612,8 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
   const exportPdf = useCallback(() => {
     flush();
-    window.print();
+    // A folha é cortada em páginas por nós; sem folha aberta, impressão normal.
+    if (!notesRef.current?.printPages()) window.print();
   }, [flush]);
 
   const setPdf = useCallback(

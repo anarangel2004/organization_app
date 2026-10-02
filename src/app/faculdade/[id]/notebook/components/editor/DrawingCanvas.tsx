@@ -39,6 +39,8 @@ export interface DrawingCanvasRef {
   duplicateSelection: () => void;
   // Grava já os traços que esperavam a caneta parar.
   flush: () => void;
+  // Imagem dos traços em alta resolução (para imprimir / exportar PDF).
+  snapshot: (ratio?: number) => string | null;
 }
 
 interface DrawingCanvasProps {
@@ -535,10 +537,32 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     setupCanvas();
   }, [redrawCanvas, saveDrawingToCloud, setSelection, setupCanvas, updateHistoryStatus]);
 
+  // Pinta os traços numa folha à parte, com mais resolução do que a do ecrã
+  // (sem a caixa da seleção do laço).
+  const snapshot = useCallback((target = 3) => {
+    const { w, h } = logicalRef.current;
+    if (!w || !h) return null;
+    let r = target;
+    const MAX_PIXELS = 16_000_000;
+    if (w * h * r * r > MAX_PIXELS) r = Math.sqrt(MAX_PIXELS / (w * h));
+    const off = document.createElement('canvas');
+    off.width = Math.round(w * r);
+    off.height = Math.round(h * r);
+    const ctx = off.getContext('2d');
+    if (!ctx) return null;
+    ctx.setTransform(r, 0, 0, r, 0, 0);
+    strokesRef.current.forEach((s) => drawStroke(ctx, s));
+    try {
+      return off.toDataURL('image/png');
+    } catch {
+      return null;
+    }
+  }, []);
+
   useImperativeHandle(
     ref,
-    () => ({ undo, redo, getEditor: () => editorRef.current, deleteSelection, recolorSelection, duplicateSelection, flush: flushSave }),
-    [undo, redo, deleteSelection, recolorSelection, duplicateSelection, flushSave]
+    () => ({ undo, redo, getEditor: () => editorRef.current, deleteSelection, recolorSelection, duplicateSelection, flush: flushSave, snapshot }),
+    [undo, redo, deleteSelection, recolorSelection, duplicateSelection, flushSave, snapshot]
   );
 
   // Sair do laço (ou mudar de capítulo) larga a seleção.

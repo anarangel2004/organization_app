@@ -15,6 +15,7 @@ import c from './caderno.module.css';
 import { DrawingCanvas, DrawingCanvasRef } from './editor/DrawingCanvas';
 import { usePinchZoom } from './usePinchZoom';
 import { TableMenu, type TableAction } from './TableMenu';
+import { printPaper } from './printPaper';
 import {
   Chapter,
   EditorStats,
@@ -67,6 +68,8 @@ export interface NotesPaneRef {
   unwrapPageRefs: () => string | null;
   // Grava já os traços que ainda esperavam a caneta parar.
   flushInk: () => void;
+  // Exportar PDF: imprime a folha cortada em páginas A4 (texto e desenho alinhados).
+  printPages: () => boolean;
 }
 
 interface NotesPaneProps {
@@ -758,6 +761,12 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     undo,
     redo,
     flushInk: () => inkRef.current?.flush(),
+    printPages: () => {
+      const paper = paperRef.current;
+      if (!paper) return false;
+      printPaper(paper, inkRef.current?.snapshot(3) ?? null);
+      return true;
+    },
     replace: replaceAll,
     scrollToHeading: (index) => {
       const el = editor();

@@ -107,3 +107,18 @@ main a[href^="#"]:hover {
 .ticker-track:hover {
   animation-play-state: paused;
 }
+
+/* ===================================================
+   EXPORTAR PDF DO CADERNO (páginas cortadas em printPaper.ts)
+   =================================================== */
+#nb-print {
+  display: none;
+}
+@media print {
+  body.nb-printing > *:not(#nb-print) {
+    display: none !important;
+  }
+  body.nb-printing #nb-print {
+    display: block !important;
+  }
+}
