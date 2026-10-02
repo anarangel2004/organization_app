@@ -1386,3 +1386,25 @@
     transform: rotate(360deg);
   }
 }
+
+/* tabelas (inseridas com o botão Tabela) */
+.editor table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin: 0;
+}
+.editor td,
+.editor th {
+  border: 1px solid #b9b3a8;
+  padding: 0 6px;
+  line-height: 27px;
+  vertical-align: top;
+  text-align: left;
+  overflow-wrap: anywhere;
+  min-width: 32px;
+}
+.editor th {
+  font-weight: 600;
+  background: rgba(47, 95, 120, 0.08);
+}

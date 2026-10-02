@@ -7,6 +7,7 @@ import type { SubjectChip, MenuDef } from './CadernoBars';
 import type { BlockTag, FormatState } from './NotesPane';
 import { NotebookTab, PAPER_LABEL, PaperStyle, PdfDoc, SyncStatus, TABS } from './types';
 import { PdfSlides } from './PdfSlides';
+import { TableMenu, type TableAction } from './TableMenu';
 
 const keepSelection = (e: { preventDefault: () => void }) => e.preventDefault();
 
@@ -34,6 +35,8 @@ export function TabletBars({
   onBold,
   onItalic,
   onRef,
+  onInsertTable,
+  onTableAction,
   split,
   onToggleSplit,
 }: {
@@ -53,6 +56,8 @@ export function TabletBars({
   onBold: () => void;
   onItalic: () => void;
   onRef: () => void;
+  onInsertTable: (rows: number, cols: number) => void;
+  onTableAction: (action: TableAction) => void;
   split: boolean;
   onToggleSplit: () => void;
 }) {
@@ -125,6 +130,17 @@ export function TabletBars({
           >
             I
           </button>
+          <TableMenu
+            inTable={!!format.table}
+            header={!!format.table?.header}
+            disabled={!editable}
+            onInsert={onInsertTable}
+            onAction={onTableAction}
+            buttonClass={format.table ? c.tBtn : c.tIcon}
+            buttonStyle={format.table ? { gap: 6, color: 'var(--sky)' } : undefined}
+            alignRight
+            label={format.table ? 'Tabela ▾' : undefined}
+          />
           <button
             type="button"
             className={c.tBtn}
@@ -199,6 +215,8 @@ export function PhoneFormatBar({
   onChecklist,
   onLink,
   onRef,
+  onInsertTable,
+  onTableAction,
 }: {
   format: FormatState;
   editable: boolean;
@@ -207,6 +225,8 @@ export function PhoneFormatBar({
   onChecklist: () => void;
   onLink: () => void;
   onRef: () => void;
+  onInsertTable: (rows: number, cols: number) => void;
+  onTableAction: (action: TableAction) => void;
 }) {
   const btn = (label: string, content: ReactNode, onClick: () => void, extra?: CSSProperties, pressed?: boolean) => (
     <button type="button" aria-label={label} title={label} aria-pressed={pressed} disabled={!editable} onMouseDown={keepSelection} onClick={onClick} style={extra}>
@@ -220,6 +240,16 @@ export function PhoneFormatBar({
       {btn('Itálico', 'I', () => onExec('italic'), { fontFamily: "var(--font-newsreader), 'Newsreader', Georgia, serif", fontStyle: 'italic', fontSize: 18 }, format.italic)}
       {btn('Lista', '•—', () => onExec('insertUnorderedList'))}
       {btn('Checklist', '☐', onChecklist)}
+      <TableMenu
+        inTable={!!format.table}
+        header={!!format.table?.header}
+        disabled={!editable}
+        onInsert={onInsertTable}
+        onAction={onTableAction}
+        docked
+        buttonStyle={{ minWidth: 40, height: 40, padding: '0 8px', background: format.table ? '#dcd9d2' : 'transparent', border: 0, color: '#1b1b1b', fontSize: 15, flexShrink: 0 }}
+        label={format.table ? '⊞ ▾' : '⊞'}
+      />
       {btn('Link', '⌁', onLink)}
       {btn('Referência ao PDF', '↗ Ref.', onRef, { color: '#2f5f78', fontWeight: 600 })}
       {btn('Marcador', '▬', () => onExec('hiliteColor', '#f6e27f'), { color: '#d9b92f' })}

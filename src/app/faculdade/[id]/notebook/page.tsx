@@ -43,6 +43,7 @@ import { classSlots, isInClass, type ClassRange } from '@/lib/studyPath';
 import { planPeriod } from '@/lib/studyPlan';
 import { ChapterSidebar } from './components/ChapterSidebar';
 import { FormatState, NotesLayout, NotesPane, NotesPaneRef, ZOOM_MAX, ZOOM_MIN } from './components/NotesPane';
+import { TableSizeDialog } from './components/TableMenu';
 import { PdfPane } from './components/PdfPane';
 import { OptionsSheet, PdfSheet, PhoneBar, PhoneFormatBar, TabletBars, syncText } from './components/TouchBars';
 
@@ -235,6 +236,8 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const [zoom, setZoom] = useLocalState('caderno:zoom', 1);
 
   const notesRef = useRef<NotesPaneRef>(null);
+  // Janela "Inserir → Tabela…" (computador).
+  const [tableDialog, setTableDialog] = useState(false);
   const globalSearchRef = useRef<HTMLInputElement>(null);
   const chapterSearchRef = useRef<HTMLInputElement>(null);
   const pdfSelectRef = useRef<HTMLSelectElement>(null);
@@ -809,6 +812,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
         { label: 'PDF de consulta…', onClick: openPdfPicker, disabled: noChapter },
         { label: 'Referência a página do PDF', keys: keys('mod+R'), onClick: () => notesRef.current?.insertRef(), disabled: textOnly },
         { label: 'Checklist', onClick: () => notesRef.current?.insertChecklist(), disabled: textOnly },
+        { label: 'Tabela…', onClick: () => setTableDialog(true), disabled: textOnly },
         { label: 'Link', keys: keys('mod+K'), onClick: () => notesRef.current?.insertLink(), disabled: textOnly },
         { label: 'Imagem', onClick: () => notesRef.current?.insertImage(), disabled: textOnly },
       ],
@@ -1066,6 +1070,8 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
             onBold={() => notesRef.current?.exec('bold')}
             onItalic={() => notesRef.current?.exec('italic')}
             onRef={() => notesRef.current?.insertRef()}
+            onInsertTable={(r, k) => notesRef.current?.insertTable(r, k)}
+            onTableAction={(a) => notesRef.current?.tableAction(a)}
             split={showSplit}
             onToggleSplit={toggleSplit}
           />
@@ -1117,6 +1123,8 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
             onBlock={(tag) => notesRef.current?.block(tag)}
             onExec={(cmd, value) => notesRef.current?.exec(cmd, value)}
             onChecklist={() => notesRef.current?.insertChecklist()}
+            onInsertTable={(r, k) => notesRef.current?.insertTable(r, k)}
+            onTableAction={(a) => notesRef.current?.tableAction(a)}
             onLink={() => notesRef.current?.insertLink()}
             onRef={() => notesRef.current?.insertRef()}
           />
@@ -1210,6 +1218,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
         onToggleSplit={toggleSplit}
         splitKeys={keys('mod+\\')}
       />
+      <TableSizeDialog open={tableDialog} onClose={() => setTableDialog(false)} onPick={(r, k) => notesRef.current?.insertTable(r, k)} />
 
       <div ref={bodyRef} className={c.body} style={bodyStyle}>
         {sidebar}

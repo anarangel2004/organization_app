@@ -14,6 +14,7 @@ import {
 import c from './caderno.module.css';
 import { DrawingCanvas, DrawingCanvasRef } from './editor/DrawingCanvas';
 import { usePinchZoom } from './usePinchZoom';
+import { TableMenu, type TableAction } from './TableMenu';
 import {
   Chapter,
   EditorStats,
@@ -44,6 +45,8 @@ export interface FormatState {
   styled?: boolean;
   bold: boolean;
   italic: boolean;
+  // Cursor dentro de uma tabela (header = primeira linha é cabeçalho).
+  table?: { header: boolean } | null;
 }
 
 export interface NotesPaneRef {
@@ -51,6 +54,8 @@ export interface NotesPaneRef {
   block: (tag: BlockTag) => void;
   insertRef: () => void;
   insertChecklist: () => void;
+  insertTable: (rows: number, cols: number) => void;
+  tableAction: (action: TableAction) => void;
   insertLink: () => void;
   insertImage: () => void;
   undo: () => void;
@@ -184,6 +189,74 @@ function pointAt(root: Node, chars: number): [Node, number] {
   return lastText ? [lastText, lastText.textContent?.length ?? 0] : [root, 0];
 }
 
+// ==========================================
+// TABELAS (linhas, colunas, cabeçalho)
+// ==========================================
+function newTableCell(tag: 'td' | 'th'): HTMLTableCellElement {
+  const cell = document.createElement(tag);
+  cell.appendChild(document.createElement('br'));
+  return cell;
+}
+
+// Aplica uma ação à tabela da célula e diz onde pôr o cursor depois.
+function applyTableAction(cell: HTMLTableCellElement, action: TableAction): { target: Element | null; table: HTMLTableElement } {
+  const tr = cell.parentElement as HTMLTableRowElement;
+  const tbl = cell.closest('table') as HTMLTableElement;
+  const idx = cell.cellIndex;
+  const rows = Array.from(tbl.rows);
+  let target: Element | null = cell;
+
+  const removeTable = () => {
+    let next = tbl.nextElementSibling;
+    if (!next) {
+      next = document.createElement('div');
+      next.appendChild(document.createElement('br'));
+      tbl.after(next);
+    }
+    tbl.remove();
+    target = next;
+  };
+
+  if (action === 'rowAbove' || action === 'rowBelow') {
+    const nr = document.createElement('tr');
+    Array.from(tr.cells).forEach(() => nr.appendChild(newTableCell('td')));
+    tr.parentNode!.insertBefore(nr, action === 'rowAbove' ? tr : tr.nextSibling);
+    target = nr.cells[idx] ?? nr.cells[0];
+  } else if (action === 'colLeft' || action === 'colRight') {
+    rows.forEach((row) => {
+      const ref = row.cells[Math.min(idx, row.cells.length - 1)];
+      const nc = newTableCell(ref?.tagName === 'TH' ? 'th' : 'td');
+      row.insertBefore(nc, action === 'colLeft' ? ref ?? null : ref?.nextSibling ?? null);
+    });
+    target = tr.cells[action === 'colLeft' ? idx : idx + 1];
+  } else if (action === 'delRow') {
+    if (rows.length === 1) removeTable();
+    else {
+      const next = rows[tr.rowIndex + 1] ?? rows[tr.rowIndex - 1];
+      tr.remove();
+      target = next.cells[Math.min(idx, next.cells.length - 1)];
+    }
+  } else if (action === 'delCol') {
+    if (tr.cells.length === 1) removeTable();
+    else {
+      rows.forEach((row) => row.cells[idx]?.remove());
+      target = tr.cells[Math.min(idx, tr.cells.length - 1)];
+    }
+  } else if (action === 'header') {
+    const first = rows[0];
+    const toTh = first.cells[0]?.tagName !== 'TH';
+    Array.from(first.cells).forEach((old) => {
+      const n = document.createElement(toTh ? 'th' : 'td');
+      while (old.firstChild) n.appendChild(old.firstChild);
+      old.replaceWith(n);
+    });
+    target = tr === first ? first.cells[idx] : cell;
+  } else if (action === 'delTable') {
+    removeTable();
+  }
+  return { target, table: tbl };
+}
+
 export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function NotesPane(
   {
     chapter,
@@ -259,6 +332,7 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
 
   const [blockTag, setBlockTag] = useState<BlockTag>('p');
   const [styled, setStyled] = useState(false);
+  const [table, setTable] = useState<{ header: boolean } | null>(null);
   const [bold, setBold] = useState(false);
   const [italic, setItalic] = useState(false);
 
@@ -270,8 +344,8 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
 
   // As barras táteis ficam fora deste componente: avisa-as do estado do texto.
   useEffect(() => {
-    onFormatState?.({ block: blockTag, styled, bold, italic });
-  }, [blockTag, styled, bold, italic, onFormatState]);
+    onFormatState?.({ block: blockTag, styled, bold, italic, table });
+  }, [blockTag, styled, bold, italic, table, onFormatState]);
 
   // ==========================================
   // ÍNDICE, PALAVRAS, LINHA/COLUNA
@@ -353,6 +427,10 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
         big = parseFloat(window.getComputedStyle(elem).fontSize) > base + 0.5;
       }
       setStyled(big);
+      const cell = elem?.closest('td, th');
+      const tbl = cell && el.contains(cell) ? cell.closest('table') : null;
+      const header = !!tbl && tbl.rows[0]?.cells[0]?.tagName === 'TH';
+      setTable((prev) => (!tbl ? null : prev && prev.header === header ? prev : { header }));
       try {
         setBold(document.queryCommandState('bold'));
         setItalic(document.queryCommandState('italic'));
@@ -438,7 +516,7 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     };
     // Primeiro tira as linhas de dentro de títulos que as engoliram.
     const range = liftOutOfHeadings(el) ? select() : r0;
-    const BLOCKS = 'h2, h3, p, div, li, blockquote';
+    const BLOCKS = 'h2, h3, p, div, li, blockquote, td, th';
     const blockOf = (node: Node | null): HTMLElement | null => {
       const elem = node?.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node?.parentElement ?? null;
       const b = elem?.closest<HTMLElement>(BLOCKS) ?? null;
@@ -458,7 +536,7 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     add(blockOf(range.endContainer));
 
     // Texto solto na raiz do editor ou listas: deixa o browser tratar.
-    if (blocks.length === 0 || blocks.some((b) => b.tagName === 'LI' || b.tagName === 'BLOCKQUOTE')) {
+    if (blocks.length === 0 || blocks.some((b) => ['LI', 'BLOCKQUOTE', 'TD', 'TH'].includes(b.tagName))) {
       document.execCommand('formatBlock', false, `<${tag}>`);
       emit();
       return;
@@ -543,6 +621,106 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
 
   const insertChecklist = () => exec('insertHTML', '<div><input type="checkbox">&nbsp;</div>');
 
+  // ==========================================
+  // TABELAS
+  // ==========================================
+  const caretInto = (cell: Element, atEnd = false) => {
+    const sel = window.getSelection();
+    if (!sel) return;
+    const r = document.createRange();
+    r.selectNodeContents(cell);
+    r.collapse(!atEnd);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    savedRange.current = r.cloneRange();
+  };
+
+  const insertTable = (rows: number, cols: number) => {
+    if (!restore()) return;
+    const el = editor();
+    if (!el) return;
+    const tbl = document.createElement('table');
+    const body = document.createElement('tbody');
+    for (let r = 0; r < rows; r++) {
+      const tr = document.createElement('tr');
+      for (let k = 0; k < cols; k++) tr.appendChild(newTableCell('td'));
+      body.appendChild(tr);
+    }
+    tbl.appendChild(body);
+
+    // Entra a seguir à linha onde está o cursor (ou no lugar dela, se estiver vazia).
+    // Se o cursor estiver noutra tabela, a nova fica depois dessa tabela.
+    const range = savedRange.current;
+    let top: Node | null = range && el.contains(range.startContainer) ? range.startContainer : null;
+    while (top && top.parentNode !== el) top = top.parentNode;
+    const isEmptyLine =
+      !!top &&
+      top.nodeType === Node.ELEMENT_NODE &&
+      (top as Element).tagName !== 'TABLE' &&
+      !(top.textContent || '').trim() &&
+      !(top as Element).querySelector('img, input, table');
+    if (top && isEmptyLine) el.replaceChild(tbl, top);
+    else if (top) el.insertBefore(tbl, top.nextSibling);
+    else el.appendChild(tbl);
+    // Uma linha por baixo para continuar a escrever.
+    const after = tbl.nextSibling;
+    if (!after || (after as Element).tagName === 'TABLE') {
+      const line = document.createElement('div');
+      line.appendChild(document.createElement('br'));
+      el.insertBefore(line, tbl.nextSibling);
+    }
+    caretInto(tbl.rows[0].cells[0]);
+    setTable({ header: false });
+    emit();
+  };
+
+  const tableAction = (action: TableAction) => {
+    if (!restore()) return;
+    const el = editor();
+    const start = savedRange.current?.startContainer;
+    const elem = start?.nodeType === Node.ELEMENT_NODE ? (start as Element) : start?.parentElement;
+    const cell = elem?.closest<HTMLTableCellElement>('td, th');
+    if (!el || !cell || !el.contains(cell)) return;
+    const res = applyTableAction(cell, action);
+    if (res.target) caretInto(res.target, action === 'header');
+    setTable(res.table && res.table.isConnected ? { header: res.table.rows[0]?.cells[0]?.tagName === 'TH' } : null);
+    emit();
+  };
+
+  // Tab / Shift+Tab: célula seguinte / anterior. Tab na última célula cria uma linha.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey || mode !== 'EDIT') return;
+      const el = editor();
+      const sel = window.getSelection();
+      const node = sel && sel.rangeCount ? sel.anchorNode : null;
+      const elem = node?.nodeType === Node.ELEMENT_NODE ? (node as Element) : node?.parentElement;
+      const cell = elem?.closest<HTMLTableCellElement>('td, th');
+      if (!el || !cell || !el.contains(cell)) return;
+      e.preventDefault();
+      const tbl = cell.closest('table') as HTMLTableElement;
+      const cells = Array.from(tbl.querySelectorAll<HTMLTableCellElement>('td, th')).filter((x) => x.closest('table') === tbl);
+      const i = cells.indexOf(cell) + (e.shiftKey ? -1 : 1);
+      let target: Element | undefined = cells[i];
+      if (!target && !e.shiftKey) {
+        const lastRow = tbl.rows[tbl.rows.length - 1];
+        target = applyTableAction(lastRow.cells[0], 'rowBelow').target ?? undefined;
+        const r = target?.parentElement as HTMLTableRowElement | undefined;
+        target = r?.cells[0];
+        onUpdateContent(el.innerHTML);
+      }
+      if (!target) return;
+      const r = document.createRange();
+      r.selectNodeContents(target);
+      r.collapse(false);
+      sel!.removeAllRanges();
+      sel!.addRange(r);
+      savedRange.current = r.cloneRange();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [editor, mode, onUpdateContent]);
+
   const replaceAll = () => {
     const el = editor();
     if (!el || mode !== 'EDIT') return;
@@ -573,6 +751,8 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     block: setBlock,
     insertRef,
     insertChecklist,
+    insertTable,
+    tableAction,
     insertLink,
     insertImage,
     undo,
@@ -809,6 +989,25 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
                 <path d="M4.5 8.2l2.3 2.3 4.7-5" />
               </svg>
             </button>
+            <TableMenu
+              inTable={!!table}
+              header={!!table?.header}
+              onInsert={insertTable}
+              onAction={tableAction}
+              buttonClass={c.icon}
+              buttonStyle={{ width: table ? 'auto' : 26, padding: table ? '0 6px' : undefined, gap: 4, color: table ? 'var(--sky)' : undefined }}
+              label={
+                table ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+                      <rect x="1.5" y="2.5" width="13" height="11" />
+                      <path d="M1.5 6.2h13M1.5 9.8h13M5.8 2.5v11M10.2 2.5v11" />
+                    </svg>
+                    <span style={{ fontSize: 12 }}>Tabela ▾</span>
+                  </>
+                ) : undefined
+              }
+            />
             <button type="button" className={c.icon} title="Link" aria-label="Link" onMouseDown={keepSelection} onClick={insertLink} style={{ width: 26 }}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
                 <path d="M6.5 9.5l3-3" />
