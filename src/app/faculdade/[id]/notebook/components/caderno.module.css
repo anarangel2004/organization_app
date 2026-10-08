@@ -1408,3 +1408,16 @@
   font-weight: 600;
   background: rgba(47, 95, 120, 0.08);
 }
+
+/* Folha dos traços em blocos (DrawingCanvas): por baixo da superfície da caneta */
+.inkTiles {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+/* Camada do traço em curso: só do tamanho do ecrã, posta onde se escreve */
+.canvasInk.canvasInk {
+  bottom: auto;
+  right: auto;
+}

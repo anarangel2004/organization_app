@@ -3,6 +3,7 @@
 import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { isNetworkError, queueMutation } from '@/lib/offline/sync';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { formatRelativeDate, getItemEffectiveGrade } from '@/lib/utils';
 import type { AssessmentItem } from '@/types';
@@ -206,6 +207,9 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const [creating, setCreating] = useState(false);
   const [mode, setMode] = useState<NoteMode>('EDIT');
   const [sync, setSync] = useState<SyncStatus>('synced');
+  // Mensagem do último erro ao gravar (à vista na barra, para se perceber o que falhou).
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const retryRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [pdfPage, setPdfPage] = useState(1);
   const [focusMode, setFocusMode] = useState(false);
@@ -401,6 +405,8 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   const pendingRef = useRef<Map<string, Record<string, unknown>>>(new Map());
   const timerRef = useRef<number | null>(null);
 
+  // Para o "tentar de novo" chamar sempre a versão atual do flush.
+  const flushRef = useRef<() => void>(() => undefined);
   const flush = useCallback(async () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
     timerRef.current = null;
@@ -409,12 +415,47 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     if (entries.length === 0) return;
     const now = new Date().toISOString();
     const results = await Promise.all(
-      entries.map(([id, patch]) => supabase.from('chapters').update({ ...patch, updated_at: now }).eq('id', id))
+      entries.map(async ([id, patch]) => {
+        try {
+          const { error } = await supabase.from('chapters').update({ ...patch, updated_at: now }).eq('id', id);
+          return { id, patch, error: error as unknown };
+        } catch (err) {
+          return { id, patch, error: err };
+        }
+      })
     );
-    const failed = results.find((r) => r.error);
-    if (failed?.error) console.error('Erro ao guardar o capítulo:', failed.error);
-    setSync(failed ? 'error' : pendingRef.current.size ? 'saving' : 'synced');
+    const failed = results.filter((r) => r.error);
+    for (const f of failed) {
+      if (isNetworkError(f.error)) {
+        // Sem rede: fica na fila do aparelho e grava quando a ligação voltar.
+        await queueMutation({ table: 'chapters', op: 'update', targetId: f.id, payload: { ...f.patch, updated_at: now } });
+      } else {
+        // Outro erro: o que falhou volta para a fila (sem tapar o que foi escrito entretanto).
+        pendingRef.current.set(f.id, { ...f.patch, ...(pendingRef.current.get(f.id) || {}) });
+      }
+    }
+    const hard = failed.filter((f) => !isNetworkError(f.error));
+    if (hard.length) {
+      const f = hard[0];
+      const err = f.error as { message?: string; code?: string; details?: string } | null;
+      const kb = Math.round(JSON.stringify(f.patch).length / 1024);
+      const msg = `${err?.message || String(f.error)}${err?.code ? ` (${err.code})` : ''} · ${kb} KB`;
+      console.error('Erro ao guardar o capítulo:', f.error, `tamanho: ${kb} KB`);
+      setSyncError(msg);
+      setSync('error');
+      // Volta a tentar sozinho, cada vez com mais tempo de intervalo.
+      const wait = [3000, 8000, 20000, 60000][Math.min(retryRef.current, 3)];
+      retryRef.current += 1;
+      timerRef.current = window.setTimeout(() => flushRef.current(), wait);
+      return;
+    }
+    retryRef.current = 0;
+    setSyncError(null);
+    setSync(pendingRef.current.size ? 'saving' : 'synced');
   }, []);
+  useEffect(() => {
+    flushRef.current = flush;
+  }, [flush]);
 
   const queueSave = useCallback(
     (id: string, patch: Record<string, unknown>, local: Partial<Chapter>) => {
@@ -1044,6 +1085,31 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   // ==========================================
   // ARRANJOS TÁTEIS: iPhone, iPad vertical, iPad horizontal
   // ==========================================
+
+  // Erro ao gravar: faixa com a mensagem real e "Tentar agora" (o texto fica guardado na fila).
+  const saveErrorBar = sync === 'error' && syncError ? (
+    <div
+      role="alert"
+      className="no-print"
+      style={{ position: 'fixed', left: 12, right: 12, bottom: 44, zIndex: 900, display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: '#2a1714', border: '1px solid #6b3a33', color: '#f3d6cf', fontSize: 13 }}
+    >
+      <span style={{ flexGrow: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+        Não foi possível guardar no servidor (o que escreveste continua aqui e é tentado de novo sozinho). Erro: {syncError}
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          retryRef.current = 0;
+          setSync('saving');
+          flush();
+        }}
+        style={{ height: 32, padding: '0 12px', background: '#f3d6cf', color: '#2a1714', border: 0, fontSize: 13, fontWeight: 600, flexShrink: 0 }}
+      >
+        Tentar agora
+      </button>
+    </div>
+  ) : null;
+
   if (touch) {
     const touchBody = !showSplit
       ? { gridTemplateColumns: 'minmax(0, 1fr)' }
@@ -1053,6 +1119,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
     return (
       <div className={`${d.root} ${c.shell}`}>
+        {saveErrorBar}
         {tablet ? (
           <TabletBars
             subjectId={subjectId}
@@ -1181,6 +1248,7 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
   return (
     <div className={`${d.root} ${c.shell}`}>
+      {saveErrorBar}
       <div className={`${c.chrome} no-print`}>
         <DensoHeader
           compact

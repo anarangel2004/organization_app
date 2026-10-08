@@ -176,8 +176,21 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 const padOf = (s: Stroke) => (s.tool === 'HIGHLIGHTER' ? s.size * 3 : s.size * 1.6) / 2 + 4;
 // Quantos passos o "desfazer" guarda.
 const MAX_UNDO = 300;
-// Gravar só quando a caneta pára (não a cada traço).
-const SAVE_IDLE_MS = 900;
+// Gravar só quando a caneta pára (não a cada traço nem em pausas curtas).
+const SAVE_IDLE_MS = 2000;
+// Altura de cada bloco da folha dos traços (px da folha).
+const TILE_H = 1024;
+
+// Limites de cada traço, calculados uma vez (os traços nunca mudam no sítio).
+const strokeBounds = new WeakMap<Stroke, { x0: number; y0: number; x1: number; y1: number } | null>();
+function boundsOfStroke(s: Stroke) {
+  let b = strokeBounds.get(s);
+  if (b === undefined) {
+    b = boundsOf([s]);
+    strokeBounds.set(s, b);
+  }
+  return b;
+}
 
 export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(function DrawingCanvas(
   {
@@ -215,6 +228,10 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   // Camada só do traço que está a ser escrito: redesenhá-la é barato, a folha
   // inteira só se redesenha ao desfazer, mover ou mudar de tamanho.
   const liveRef = useRef<HTMLCanvasElement>(null);
+  // Blocos da folha dos traços e zona da folha coberta pela camada do traço em curso.
+  const tilesBoxRef = useRef<HTMLDivElement>(null);
+  const tilesRef = useRef<{ el: HTMLCanvasElement; y0: number; h: number }[]>([]);
+  const liveBandRef = useRef<{ y0: number; h: number }>({ y0: -1, h: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Os traços nunca são alterados no sítio: cada mudança cria uma lista nova.
@@ -257,18 +274,31 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     redoStackRef.current = [];
   };
 
-  const mainCtx = () => {
-    const ctx = canvasRef.current?.getContext('2d');
-    if (!ctx) return null;
+  // ==========================================
+  // CAMADAS DE DESENHO
+  // ==========================================
+  // Folha dos traços em blocos de TILE_H px: um traço novo só atualiza o bloco
+  // onde cai (num caderno grande, mexer num canvas do tamanho de tudo era lento).
+  // O traço em curso vive numa camada do tamanho do ecrã, posta onde se escreve.
+
+  // Desenha um traço (ou um bocado dele) nos blocos que ele toca.
+  const drawOnTiles = (stroke: Stroke) => {
     const r = ratioRef.current;
-    ctx.setTransform(r, 0, 0, r, 0, 0);
-    return ctx;
+    const b = boundsOfStroke(stroke);
+    for (const t of tilesRef.current) {
+      if (b && (b.y1 < t.y0 || b.y0 > t.y0 + t.h)) continue;
+      const ctx = t.el.getContext('2d');
+      if (!ctx) continue;
+      ctx.setTransform(r, 0, 0, r, 0, -t.y0 * r);
+      drawStroke(ctx, stroke);
+    }
   };
+
   const liveCtx = () => {
     const ctx = liveRef.current?.getContext('2d', { desynchronized: true }) as CanvasRenderingContext2D | null | undefined;
     if (!ctx) return null;
     const r = ratioRef.current;
-    ctx.setTransform(r, 0, 0, r, 0, 0);
+    ctx.setTransform(r, 0, 0, r, 0, -liveBandRef.current.y0 * r);
     return ctx;
   };
   const clearLive = () => {
@@ -278,50 +308,91 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     if (ctx && box) ctx.clearRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
   };
 
+  // Põe a camada do traço em curso sobre a zona visível da folha (à volta de y).
+  const placeLive = (y: number) => {
+    const live = liveRef.current;
+    const canvas = canvasRef.current;
+    const { w, h } = logicalRef.current;
+    if (!live || !canvas || !w || !h) return;
+    const rect = canvas.getBoundingClientRect();
+    const scale = rect.width / w || 1;
+    const viewH = (window.innerHeight || 800) / scale;
+    const bandH = Math.min(h, Math.ceil(viewH * 1.6));
+    const visTop = Math.max(0, -rect.top / scale);
+    let y0 = visTop - (bandH - viewH) / 2;
+    // O ponto onde a caneta tocou tem de estar dentro, com folga.
+    if (y < y0 + 60 || y > y0 + bandH - 60) y0 = y - bandH / 2;
+    y0 = Math.round(Math.max(0, Math.min(h - bandH, y0)));
+    const r = ratioRef.current;
+    const band = liveBandRef.current;
+    const pxW = Math.round(w * r);
+    const pxH = Math.round(bandH * r);
+    if (live.width !== pxW || live.height !== pxH) {
+      live.width = pxW;
+      live.height = pxH;
+      live.style.width = `${w}px`;
+      live.style.height = `${bandH}px`;
+      liveBoxRef.current = null;
+    } else if (band.y0 !== y0) {
+      liveBoxRef.current = null;
+      live.getContext('2d')?.clearRect(0, 0, live.width, live.height);
+    }
+    if (band.y0 !== y0 || band.h !== bandH) {
+      live.style.top = `${y0}px`;
+      liveBandRef.current = { y0, h: bandH };
+    }
+  };
+
   const redrawCanvas = useCallback(() => {
     if (fullFrameRef.current) {
       cancelAnimationFrame(fullFrameRef.current);
       fullFrameRef.current = 0;
     }
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    const dpr = ratioRef.current;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, logicalRef.current.w, logicalRef.current.h);
-    strokesRef.current.forEach((s) => drawStroke(ctx, s));
-    // A borracha de área a meio do gesto apaga diretamente na folha.
+    const r = ratioRef.current;
+    const strokes = strokesRef.current;
     const cur = currentStrokeRef.current;
-    if (cur?.tool === 'ERASER') {
-      drawStroke(ctx, cur);
-      erasedUpToRef.current = cur.points.length;
-    }
-
-    const selected = strokesRef.current.filter((s) => selectedRef.current.has(s.id));
+    const selected = strokes.filter((s) => selectedRef.current.has(s.id));
     const box = selected.length ? boundsOf(selected) : null;
-    if (box) {
-      ctx.save();
-      ctx.setLineDash([5, 4]);
-      ctx.strokeStyle = '#5b93b0';
-      ctx.lineWidth = 1.5;
-      ctx.fillStyle = 'rgba(91, 147, 176, 0.08)';
-      ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
-      ctx.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
-      ctx.restore();
-    }
     const path = lassoPathRef.current;
-    if (path && path.length > 1) {
-      ctx.save();
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = '#22324a';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(path[0].x, path[0].y);
-      for (const pt of path.slice(1)) ctx.lineTo(pt.x, pt.y);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.restore();
+    for (const t of tilesRef.current) {
+      const ctx = t.el.getContext('2d');
+      if (!ctx) continue;
+      ctx.setTransform(r, 0, 0, r, 0, -t.y0 * r);
+      ctx.clearRect(0, t.y0, logicalRef.current.w, t.h);
+      const top = t.y0;
+      const bottom = t.y0 + t.h;
+      for (const s of strokes) {
+        const b = boundsOfStroke(s);
+        if (b && (b.y1 < top || b.y0 > bottom)) continue;
+        drawStroke(ctx, s);
+      }
+      // A borracha de área a meio do gesto apaga diretamente na folha.
+      if (cur?.tool === 'ERASER') drawStroke(ctx, cur);
+
+      if (box && box.y1 >= top && box.y0 <= bottom) {
+        ctx.save();
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = '#5b93b0';
+        ctx.lineWidth = 1.5;
+        ctx.fillStyle = 'rgba(91, 147, 176, 0.08)';
+        ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+        ctx.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+        ctx.restore();
+      }
+      if (path && path.length > 1) {
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = '#22324a';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(path[0].x, path[0].y);
+        for (const pt of path.slice(1)) ctx.lineTo(pt.x, pt.y);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      }
     }
+    if (cur?.tool === 'ERASER') erasedUpToRef.current = cur.points.length;
   }, []);
 
   // Redesenhar a folha no próximo fotograma (laço, borracha de traço inteiro).
@@ -339,10 +410,8 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     const s = currentStrokeRef.current;
     if (!s) return;
     if (s.tool === 'ERASER') {
-      const ctx = mainCtx();
-      if (!ctx) return;
       const from = Math.max(0, erasedUpToRef.current - 1);
-      if (from < s.points.length) drawStroke(ctx, { ...s, points: s.points.slice(from) });
+      if (from < s.points.length) drawOnTiles({ ...s, points: s.points.slice(from) });
       erasedUpToRef.current = s.points.length;
       return;
     }
@@ -375,12 +444,13 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     [onSelectionChange]
   );
 
-  // Ajusta o canvas à área escrita; cresce para caber os traços mais abaixo.
+  // Ajusta os blocos à área escrita; crescem para caber os traços mais abaixo.
   const setupCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const live = liveRef.current;
     const container = containerRef.current;
-    if (!canvas || !live || !container) return;
+    const tilesBox = tilesBoxRef.current;
+    if (!canvas || !live || !container || !tilesBox) return;
 
     let maxY = 0;
     for (const s of strokesRef.current) for (const p of s.points) if (p.y > maxY) maxY = p.y;
@@ -396,26 +466,59 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     const shown = canvas.getBoundingClientRect().width / w || 1;
     const pinch = window.visualViewport?.scale || 1;
     let ratio = (window.devicePixelRatio || 1) * shown * Math.min(pinch, 3);
-    // O Safari do iPad recusa canvas acima de ~16,7 M pixels: baixa a resolução se for preciso.
+    // Memória do iPad: o total dos blocos não passa dos ~16 M pixels de antes.
     const MAX_PIXELS = 16_000_000;
     if (w * h * ratio * ratio > MAX_PIXELS) ratio = Math.sqrt(MAX_PIXELS / (w * h));
     ratio = Math.round(ratio * 100) / 100;
 
-    if (logicalRef.current.w === w && logicalRef.current.h === h && ratioRef.current === ratio) return;
+    if (logicalRef.current.w === w && logicalRef.current.h === h && ratioRef.current === ratio && tilesRef.current.length) return;
 
     logicalRef.current = { w, h };
     ratioRef.current = ratio;
-    canvas.width = live.width = Math.round(w * ratio);
-    canvas.height = live.height = Math.round(h * ratio);
-    // Tamanho fixo em px (igual ao da folha): ao imprimir, o canvas não estica nem esmaga.
-    for (const el of [canvas, live]) {
-      el.style.width = `${w}px`;
-      el.style.height = `${h}px`;
+
+    // A superfície que recebe a caneta: tamanho da folha, sem pixels (os traços estão nos blocos).
+    canvas.width = 1;
+    canvas.height = 1;
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+
+    const count = Math.max(1, Math.ceil(h / TILE_H));
+    const tiles = tilesRef.current;
+    while (tiles.length > count) tiles.pop()!.el.remove();
+    for (let i = 0; i < count; i++) {
+      const y0 = i * TILE_H;
+      const th = Math.min(TILE_H, h - y0);
+      let t = tiles[i];
+      if (!t) {
+        const el = document.createElement('canvas');
+        el.setAttribute('aria-hidden', 'true');
+        el.style.position = 'absolute';
+        el.style.left = '0';
+        el.style.pointerEvents = 'none';
+        tilesBox.appendChild(el);
+        t = { el, y0, h: th };
+        tiles.push(t);
+      }
+      t.y0 = y0;
+      t.h = th;
+      t.el.width = Math.round(w * ratio);
+      t.el.height = Math.round(th * ratio);
+      t.el.style.top = `${y0}px`;
+      t.el.style.width = `${w}px`;
+      t.el.style.height = `${th}px`;
     }
+
+    // A camada do traço em curso volta a ser posta no próximo traço.
+    live.width = 0;
+    live.height = 0;
+    liveBandRef.current = { y0: -1, h: 0 };
     liveBoxRef.current = null;
     redrawCanvas();
-    if (currentStrokeRef.current) renderLive();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- renderLive só lê refs
+    if (currentStrokeRef.current) {
+      placeLive(currentStrokeRef.current.points[0]?.y ?? 0);
+      renderLive();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- placeLive/renderLive só leem refs
   }, [redrawCanvas]);
 
   // A folha só cresce quando um traço passa perto do fundo.
@@ -685,7 +788,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     if (!canvas || logicalRef.current.w === 0) return null;
     const r = rect ?? canvas.getBoundingClientRect();
     const scale = r.width / logicalRef.current.w || 1;
-    const pt: Point = { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
+    const pt: Point = { x: Math.round(((e.clientX - r.left) / scale) * 10) / 10, y: Math.round(((e.clientY - r.top) / scale) * 10) / 10 };
     if (e.pointerType === 'pen' && typeof e.pressure === 'number' && e.pressure > 0) pt.p = Math.round(e.pressure * 100) / 100;
     return pt;
   };
@@ -801,6 +904,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       points: [p],
     };
     erasedUpToRef.current = 0;
+    if (kind !== 'ERASER') placeLive(p.y);
     // O marcador mistura-se com o que está por baixo, como na folha.
     if (liveRef.current) liveRef.current.style.mixBlendMode = kind === 'HIGHLIGHTER' ? 'multiply' : 'normal';
     scheduleLive();
@@ -903,10 +1007,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
       // A borracha já está quase toda aplicada; aplica o resto. A caneta passa
       // da camada de cima para a folha, só este traço.
       if (stroke.tool === 'ERASER') renderLive();
-      else {
-        const ctx = mainCtx();
-        if (ctx) drawStroke(ctx, stroke);
-      }
+      else drawOnTiles(stroke);
       pushUndo(preStrokeSnapshotRef.current ?? strokesRef.current);
       strokesRef.current = [...strokesRef.current, stroke];
       updateHistoryStatus();
@@ -956,6 +1057,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
         onMouseLeave={onEditorMouseLeave}
         className={`${c.editor} ${mode === 'PREVIEW' ? c.editorReadonly : ''}`}
       />
+      <div ref={tilesBoxRef} className={c.inkTiles} aria-hidden="true" />
       <canvas
         ref={canvasRef}
         onPointerDown={startDrawing}
