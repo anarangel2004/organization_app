@@ -8,13 +8,15 @@ import c from './caderno.module.css';
 import { usePinchZoom } from './usePinchZoom';
 
 // O pdf.js só existe no browser: carrega-se uma vez, quando é preciso.
+// Versão "legacy": a normal (v5) usa JavaScript que só o Safari mais recente
+// tem; no iPad/iPhone com iOS mais antigo lia o PDF mas desenhava páginas brancas.
 type PdfJs = typeof import('pdfjs-dist');
 let pdfjsPromise: Promise<PdfJs> | null = null;
 function loadPdfJs(): Promise<PdfJs> {
   if (!pdfjsPromise) {
-    pdfjsPromise = import('pdfjs-dist').then((lib) => {
+    pdfjsPromise = (import('pdfjs-dist/legacy/build/pdf.mjs') as Promise<PdfJs>).then((lib) => {
       // Worker da mesma versão, servido pelo jsDelivr (o pdf.js embrulha-o para outra origem).
-      lib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${lib.version}/build/pdf.worker.min.mjs`;
+      lib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${lib.version}/legacy/build/pdf.worker.min.mjs`;
       return lib;
     });
   }
@@ -50,6 +52,10 @@ export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onErr
   const [width, setWidth] = useState(0);
   const [visible, setVisible] = useState<[number, number]>([1, 3]);
   const [loading, setLoading] = useState(true);
+  // Páginas que não se conseguiram desenhar (mensagem à vista no cartão, com "Tentar outra vez").
+  const [failed, setFailed] = useState<Map<number, string>>(new Map());
+  const [retry, setRetry] = useState(0);
+  const failedRef = useRef<Set<number>>(new Set());
   // Zoom: os cartões crescem logo; a nitidez acompanha quando a pinça pára.
   const [zoom, setZoom] = useState(1);
   const [sharpZoom, setSharpZoom] = useState(1);
@@ -68,6 +74,8 @@ export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onErr
     setLoading(true);
     setDoc(null);
     setRatios([]);
+    setFailed(new Map());
+    failedRef.current.clear();
     renderedWidth.current.clear();
     cardRefs.current = [];
     canvasRefs.current = [];
@@ -195,6 +203,7 @@ export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onErr
     const dpr = window.devicePixelRatio || 1;
     for (let n = visible[0]; n <= visible[1]; n++) {
       if (renderedWidth.current.get(n) === renderWidth) continue;
+      if (failedRef.current.has(n)) continue;
       const canvas = canvasRefs.current[n - 1];
       if (!canvas) continue;
       renderedWidth.current.set(n, renderWidth);
@@ -217,16 +226,25 @@ export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onErr
             canvas.height = off.height;
             canvas.getContext('2d')?.drawImage(off, 0, 0);
             tasks.current.delete(n);
+            setFailed((prev) => {
+              if (!prev.has(n)) return prev;
+              const next = new Map(prev);
+              next.delete(n);
+              return next;
+            });
           });
         })
         .catch((err: unknown) => {
           if ((err as { name?: string })?.name !== 'RenderingCancelledException') {
             renderedWidth.current.delete(n);
             console.error(`Erro ao desenhar a página ${n}:`, err);
+            const msg = err instanceof Error ? err.message : String(err);
+            failedRef.current.add(n);
+            setFailed((prev) => new Map(prev).set(n, msg));
           }
         });
     }
-  }, [doc, visible, renderWidth]);
+  }, [doc, visible, renderWidth, retry]);
 
   return (
     <div ref={scrollerRef} className={c.slides} style={{ touchAction: 'pan-x pan-y' }}>
@@ -260,6 +278,27 @@ export function PdfSlides({ url, page, onPageChange, onCount, linkedPages, onErr
               }}
               className={c.slideCanvas}
             />
+            {failed.has(n) && (
+              <span
+                style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, textAlign: 'center', fontSize: 12, color: '#4b4842' }}
+              >
+                Não foi possível mostrar esta página.
+                <span style={{ fontSize: 11, color: '#8a857d', wordBreak: 'break-word' }}>{failed.get(n)}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFailed(new Map());
+                    failedRef.current.clear();
+                    renderedWidth.current.clear();
+                    setRetry((r) => r + 1);
+                  }}
+                  style={{ height: 30, padding: '0 12px', border: '1px solid #b9b3a8', background: '#fff', color: '#1b1b1b', fontSize: 12 }}
+                >
+                  Tentar outra vez
+                </button>
+              </span>
+            )}
             {linked && <span className={c.slideBadge}>LIGADO ÀS NOTAS</span>}
             <span className={c.slideNum}>{n}</span>
           </div>
