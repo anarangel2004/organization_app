@@ -70,6 +70,8 @@ export interface AssessmentItem {
   // Hora de início ("HH:MM") e duração em minutos (testes e exames).
   due_time?: string | null;
   duration_minutes?: number | null;
+  // Capítulos do caderno a fazer para este teste (coluna jsonb; ver supabase-assessments-chapters.sql).
+  chapter_ids?: string[] | null;
   grade: number | null;
   has_defense: boolean;
   defense_grade: number | null;

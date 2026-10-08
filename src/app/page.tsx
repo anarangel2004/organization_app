@@ -15,6 +15,7 @@ import {
   WorkShift,
   WorkTask,
 } from '@/lib/workData';
+import { testPrep, type TestPrep } from '@/lib/testPrep';
 import ProfileModal from '@/components/ui/ProfileModal';
 import { SubjectLite, collectClasses, dayOfYear, parseDueDate, parseMinutes } from './components/homeAgenda';
 import d from './components/denso/denso.module.css';
@@ -53,7 +54,6 @@ import type { HeroClass, HeroNextClass, HeroTile } from './components/painel/Pai
 import { useLocalState, useNow } from './components/painel/useLocalState';
 import {
   MOCK_BILLABLE_HOURS,
-  MOCK_DEADLINE_PREP,
   MOCK_EXPENSES,
   MOCK_LOCATION,
   MOCK_QUOTE,
@@ -88,6 +88,12 @@ import { loadSavedBlocks, loadSessionsSince, loadStudySettings, publishReminders
 import { classSlots, withoutClassTime } from '@/lib/studyPath';
 import { DEFAULT_SETTINGS, buildWeekPlan, computePlan, planPeriod, reminderItems, resolveWeekPlan, type SavedBlock, type StudySettings } from '@/lib/studyPlan';
 import { SETTINGS_EVENT } from './estudo/EstudoView';
+
+// Estado e barra de um prazo da faculdade a partir dos capítulos escolhidos.
+function prepFields(prep: TestPrep | null): { status: string; pct: number | null; needsChapters?: boolean } {
+  if (!prep) return { status: 'Matéria por escolher', pct: null, needsChapters: true };
+  return { status: `${prep.done} de ${prep.total} ${prep.total === 1 ? 'capítulo' : 'capítulos'}`, pct: prep.pct };
+}
 
 // "TESTE 1" → "Teste 1" (títulos todos em maiúsculas, como os gravados pelo editor antigo).
 function niceTitle(title: string): string {
@@ -158,7 +164,7 @@ export default function HomePage() {
       const studySince = new Date(mondayOf(new Date()).getTime() - 12 * 7 * 86400000);
       const [subjectsRes, assessmentsRes, chaptersRes, projects, tasks, shiftRows, sessions, sett] = await Promise.all([
         supabase.from('subjects').select('id, name, code, schedules, ects, theoretical_weight, practical_weight'),
-        supabase.from('assessments').select('id, subject_id, title, due_date, due_time, duration_minutes, weight_percent, category, grade, has_defense, defense_grade'),
+        supabase.from('assessments').select('*'),
         supabase.from('chapters').select('id, subject_id, category, title, updated_at, number, is_completed, created_at'),
         getWorkProjects(),
         getWorkTasks(),
@@ -422,7 +428,7 @@ export default function HomePage() {
   // PRAZOS (os 3 mais próximos: avaliações por classificar + tarefas)
   // ==========================================
   const deadlines = useMemo<DeadlineB[]>(() => {
-    const items: Omit<DeadlineB, 'pct' | 'status'>[] = [];
+    const items: DeadlineB[] = [];
     assessments.forEach((a) => {
       const due = parseDueDate(a.due_date);
       if (!due || due < today || typeof a.grade === 'number') return;
@@ -435,7 +441,10 @@ export default function HomePage() {
         title: `${niceTitle(a.title || 'Avaliação')}${subj?.code ? ` - ${subj.code}` : ''}`,
         meta: `Faculdade · ${dueLabel(a, due)}`,
         area: `Faculdade · ${subjectLongName(subj)}${a.duration_minutes ? ` · ${fmtDuration(a.duration_minutes)}` : ''}${typeof a.weight_percent === 'number' ? ` · peso ${a.weight_percent}%` : ''}`,
-        href: `/faculdade/${a.subject_id}#avaliacao`,
+        // Abre o teste no editor da cadeira (para escolher ou ver os capítulos).
+        href: `/faculdade/${a.subject_id}?teste=${a.id}#avaliacao`,
+        // Preparação: capítulos escolhidos na avaliação que já estão concluídos no caderno.
+        ...prepFields(testPrep(a.chapter_ids, chapters)),
       });
     });
     workTasks
@@ -452,13 +461,12 @@ export default function HomePage() {
           meta: `${project?.name || 'Trabalho'} · ${shortDate(due)}`,
           area: `Trabalho · ${project?.name || 'sem projeto'}`,
           href: '/trabalho',
+          status: 'Por fazer',
+          pct: null,
         });
       });
-    return items
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .slice(0, 3)
-      .map((x, i) => ({ ...x, pct: MOCK_DEADLINE_PREP[i]?.prep ?? 0, status: MOCK_DEADLINE_PREP[i]?.state ?? '—' }));
-  }, [assessments, workTasks, today, subjectLookup, projectLookup]);
+    return items.sort((a, b) => a.date.getTime() - b.date.getTime()).slice(0, 3);
+  }, [assessments, workTasks, today, subjectLookup, projectLookup, chapters]);
 
   // ==========================================
   // PLANO DE AÇÃO

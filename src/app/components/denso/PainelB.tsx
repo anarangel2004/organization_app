@@ -874,8 +874,12 @@ export interface DeadlineB {
   title: string;
   meta: string;
   area: string;
+  // "3 de 5 capítulos", "Matéria por escolher", "Por fazer"…
   status: string;
-  pct: number;
+  // Preparação (capítulos concluídos ÷ escolhidos); null = sem barra.
+  pct: number | null;
+  // Teste sem capítulos escolhidos: convida a escolher a matéria.
+  needsChapters?: boolean;
   href: string;
 }
 
@@ -893,11 +897,11 @@ export function DeadlinesB({ items, today, bind }: { items: DeadlineB[]; today: 
           lines: [
             ['Quando', `${WEEKDAY_SHORT_PT[p.date.getDay()]}, ${shortDate(p.date)}`],
             ['Área', p.area],
-            ['Estado', `${p.status}*`],
+            ['Preparação', p.status],
           ],
           pct: p.pct,
-          pctLabel: `${p.pct}% preparado*`,
-          action: { label: 'Abrir →', href: p.href },
+          pctLabel: p.pct !== null ? `${p.pct}% preparado` : undefined,
+          action: p.needsChapters ? { label: 'Escolher capítulos →', href: p.href } : { label: 'Abrir →', href: p.href },
         };
         return (
           <div key={p.id} className={d.hoverable} data-hoverpin style={{ zIndex: b.open ? 50 : 'auto' }}>
@@ -917,21 +921,25 @@ export function DeadlinesB({ items, today, bind }: { items: DeadlineB[]; today: 
                 </span>
                 <span className={d.muted} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, whiteSpace: 'nowrap', gap: 10 }}>
                   <span className={d.ellipsis}>{p.meta}</span>
-                  <span>{p.status}*</span>
+                  <span>{p.status}</span>
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ flexGrow: 1, display: 'flex', height: 3, background: '#262626' }}>
-                    <span style={{ width: `${p.pct}%`, background: 'var(--amber)' }} />
+                {p.pct !== null ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ flexGrow: 1, display: 'flex', height: 3, background: '#262626' }}>
+                      <span style={{ width: `${p.pct}%`, background: 'var(--amber)' }} />
+                    </span>
+                    <span style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{p.pct}% preparado</span>
                   </span>
-                  <span style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{p.pct}% preparado*</span>
-                </span>
+                ) : p.needsChapters ? (
+                  <span style={{ fontSize: 12, color: 'var(--sky)' }}>Escolhe os capítulos do teste na avaliação da cadeira →</span>
+                ) : null}
               </span>
             </button>
             {b.open && <HoverPop data={pop} hint={b.hint} style={{ width: 360, top: 'calc(100% - 4px)', left: 56 }} />}
           </div>
         );
       })}
-      {items.length > 0 && <p className={d.muted} style={{ margin: '10px 0 0', fontSize: 11 }}>* Preparação e estado são valores de exemplo.</p>}
+      {items.length > 0 && <p className={d.muted} style={{ margin: '10px 0 0', fontSize: 11 }}>Preparação = capítulos escolhidos para o teste que já marcaste como concluídos no caderno.</p>}
     </section>
   );
 }

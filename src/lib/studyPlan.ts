@@ -276,6 +276,7 @@ export function computePlan({
       // Orçamento do teste: a base das semanas desta matéria + a preparação pelo peso.
       const budget = baseWeek * weeks + selfStudy * PREP_SHARE * (weight / 100);
       path = buildTestPath({
+        chapterIds: a.chapter_ids,
         subjectId: s.id,
         schedules: s.schedules,
         chapters,

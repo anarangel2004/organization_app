@@ -27,6 +27,7 @@ export interface ChapterRow {
   subject_id: string;
   category: string | null;
   title: string | null;
+  number?: string | number | null;
   is_completed?: boolean | null;
   updated_at?: string | null;
 }

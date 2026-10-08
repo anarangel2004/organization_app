@@ -24,6 +24,17 @@ function timeFields(dr: Draft, before?: AssessmentItem): Partial<AssessmentItem>
   return out;
 }
 import { DeleteButton, Field, SaveStatus, errorMessage, updateSubject, type SaveState } from './shared';
+import { chapterIdsOf, testPrep } from '@/lib/testPrep';
+import type { ChapterRow } from '../disciplinaData';
+import { ChapterPicker } from './ChapterPicker';
+
+// Os capítulos só vão para a base de dados quando mudam (a coluna pode ainda não existir).
+function chapterField(dr: Draft, before?: AssessmentItem): Partial<AssessmentItem> {
+  const prev = chapterIdsOf(before?.chapter_ids);
+  const same = prev.length === dr.chapterIds.length && prev.every((id) => dr.chapterIds.includes(id));
+  if (same) return {};
+  return { chapter_ids: dr.chapterIds.length ? dr.chapterIds : null };
+}
 
 // Editor da avaliação: pesos dos ramos, notas (escritas direto na linha) e
 // componentes de cada ramo (testes, trabalhos), editáveis no sítio.
@@ -40,6 +51,7 @@ interface Draft {
   hasDefense: boolean;
   defenseDate: string;
   defenseGrade: string;
+  chapterIds: string[];
 }
 
 const toDraft = (a: AssessmentItem): Draft => ({
@@ -52,6 +64,7 @@ const toDraft = (a: AssessmentItem): Draft => ({
   hasDefense: !!a.has_defense,
   defenseDate: a.defense_date ? a.defense_date.split('T')[0] : '',
   defenseGrade: a.defense_grade !== null && a.defense_grade !== undefined ? String(a.defense_grade).replace('.', ',') : '',
+  chapterIds: chapterIdsOf(a.chapter_ids),
 });
 
 // "14,5" → 14.5; vazio → null; fora de 0–20 → undefined (inválido).
@@ -99,7 +112,13 @@ export function AvaliacaoEditor({
   practice,
   onItemsChange,
   onWeightsSaved,
+  chapters = [],
+  focusId = null,
 }: {
+  // Capítulos do caderno desta cadeira (para escolher a matéria de cada teste).
+  chapters?: ChapterRow[];
+  // Teste a abrir logo (vindo da tabela de avaliação ou da Visão Geral).
+  focusId?: string | null;
   subjectId: string;
   items: AssessmentItem[];
   theory: number;
@@ -109,8 +128,11 @@ export function AvaliacaoEditor({
 }) {
   const [status, setStatus] = useState<SaveState>({ kind: 'idle' });
   const [weightT, setWeightT] = useState(String(theory));
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [openId, setOpenId] = useState<string | null>(() => (focusId && items.some((a) => a.id === focusId) ? focusId : null));
+  const [draft, setDraft] = useState<Draft | null>(() => {
+    const a = focusId ? items.find((x) => x.id === focusId) : undefined;
+    return a ? toDraft(a) : null;
+  });
   const [adding, setAdding] = useState<Cat | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -168,6 +190,7 @@ export function AvaliacaoEditor({
       weight_percent: Number(dr.weight) || 0,
       due_date: dr.date || null,
       ...timeFields(dr),
+      ...chapterField(dr),
       volume_ref: dr.notes.trim() || null,
       file_name: null,
       file_url: null,
@@ -258,6 +281,7 @@ export function AvaliacaoEditor({
       hasDefense: false,
       defenseDate: '',
       defenseGrade: '',
+      chapterIds: [],
     });
   };
 
@@ -279,6 +303,7 @@ export function AvaliacaoEditor({
       weight_percent: draftWeight,
       due_date: draft.date || null,
       ...timeFields(draft, a),
+      ...chapterField(draft, a),
       volume_ref: draft.notes.trim() || null,
       has_defense: draft.hasDefense,
       defense_date: draft.hasDefense ? draft.defenseDate || null : null,
@@ -337,6 +362,7 @@ export function AvaliacaoEditor({
             Das {assessmentTimeRange({ due_time: draft.time, duration_minutes: Number(draft.duration) })?.replace('–', ' às ')}
           </span>
         )}
+        <ChapterPicker chapters={chapters} value={draft.chapterIds} onChange={(chapterIds) => setDraft({ ...draft, chapterIds })} />
         {cat === 'PRATICA' && a && (
           <>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer' }}>
@@ -496,6 +522,10 @@ export function AvaliacaoEditor({
                       {a.duration_minutes ? ` (${fmtDuration(a.duration_minutes)})` : ''}
                       {a.has_defense ? ` · defesa${a.defense_grade !== null ? ` ${fmtGrade(a.defense_grade)}` : ''}` : ''}
                       {a.file_url ? ' · ficheiro' : ''}
+                      {(() => {
+                        const prep = testPrep(a.chapter_ids, chapters);
+                        return prep ? ` · ${prep.pct}% preparado (${prep.done}/${prep.total})` : '';
+                      })()}
                     </span>
                   </button>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

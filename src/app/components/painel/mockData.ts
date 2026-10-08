@@ -14,14 +14,6 @@ export const MOCK_QUOTE = 'O rigor é uma forma de liberdade.';
 // Cabeçalho: localização editorial (não há morada/perfil com cidade).
 export const MOCK_LOCATION = 'Lisboa';
 
-// Prazos: não existe "% preparado" nem estado de preparação nas
-// avaliações/tarefas. Aplicado por ordem aos cartões de prazo.
-export const MOCK_DEADLINE_PREP: { prep: number; state: string }[] = [
-  { prep: 80, state: 'Revisto' },
-  { prep: 35, state: 'Rascunho' },
-  { prep: 60, state: 'Em curso' },
-];
-
 // Balanço: não há registo de horas nem de despesas.
 export const MOCK_BILLABLE_HOURS = { done: 24.5, target: 30 };
 export const MOCK_STUDY_HOURS = { done: 17.8, target: 20 };

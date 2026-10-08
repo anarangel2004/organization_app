@@ -38,6 +38,7 @@ export interface AssessmentFull extends AssessmentLite {
   grade?: number | null;
   due_time?: string | null;
   duration_minutes?: number | null;
+  chapter_ids?: string[] | null;
 }
 
 export interface ChapterLite {

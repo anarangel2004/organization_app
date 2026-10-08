@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { AssessmentItem } from '@/types';
 import { getItemEffectiveGrade } from '@/lib/utils';
 import { parseDueDate } from '@/app/components/homeAgenda';
+import { testPrep } from '@/lib/testPrep';
 import d from '@/app/components/denso/denso.module.css';
 import { BottomSheet, SheetLine, type DensoLayout } from '@/app/components/denso/DensoTouch';
 import { assessmentTag } from '../notebook/components/types';
@@ -498,6 +499,8 @@ export function AssessmentTable({
   today,
   onEditWeights,
   onAddGrade,
+  chapters = [],
+  onOpenItem,
   layout = 'desktop',
 }: {
   items: AssessmentItem[];
@@ -506,6 +509,9 @@ export function AssessmentTable({
   today: Date;
   onEditWeights: () => void;
   onAddGrade: () => void;
+  // Capítulos do caderno (para a preparação de cada teste) e abrir um teste no editor.
+  chapters?: { id: string; is_completed?: boolean | null }[];
+  onOpenItem?: (id: string) => void;
   layout?: DensoLayout;
 }) {
   const touch = layout !== 'desktop';
@@ -545,6 +551,36 @@ export function AssessmentTable({
     return { grade, due, theoretical, state, stateColor };
   };
 
+  // Preparação: capítulos escolhidos concluídos (só para o que ainda não tem nota).
+  const prepCell = (a: AssessmentItem, compact = false) => {
+    if (getItemEffectiveGrade(a) !== null) return compact ? null : <span style={{ color: 'var(--faint)' }}>—</span>;
+    const prep = testPrep(a.chapter_ids, chapters);
+    if (!prep) {
+      return (
+        <button
+          type="button"
+          onClick={() => onOpenItem?.(a.id)}
+          style={{ background: 'none', border: 0, padding: 0, color: 'var(--sky)', fontSize: 12, whiteSpace: 'nowrap' }}
+        >
+          Escolher capítulos
+        </button>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => onOpenItem?.(a.id)}
+        title={`${prep.done} de ${prep.total} capítulos concluídos`}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 0, padding: 0, color: 'var(--ink)', fontSize: 12, whiteSpace: 'nowrap', width: '100%' }}
+      >
+        <span style={{ flexGrow: 1, minWidth: 40, display: 'flex', height: 3, background: 'var(--line)' }}>
+          <span style={{ width: `${prep.pct}%`, background: 'var(--amber, #e3a857)' }} />
+        </span>
+        {prep.pct}% <span className={d.muted}>{prep.done}/{prep.total}</span>
+      </button>
+    );
+  };
+
   return (
     <section id="avaliacao" style={{ display: 'flex', flexDirection: 'column', scrollMarginTop: 16, minWidth: 0 }}>
       <div className={d.sectionHead}>
@@ -577,6 +613,7 @@ export function AssessmentTable({
                   {r.due ? ` · ${dueLabel(a, r.due)}` : ''}
                 </span>
                 <span style={{ fontSize: 12, textAlign: 'right', color: r.stateColor }}>{r.state}</span>
+                {r.grade === null && <span style={{ gridColumn: '1 / -1', display: 'flex', paddingTop: 2 }}>{prepCell(a, true)}</span>}
               </div>
             );
           })}
@@ -591,6 +628,7 @@ export function AssessmentTable({
                 <th style={th} title="Peso na nota final (peso no ramo × peso do ramo)">PESO</th>
                 <th style={th}>DATA</th>
                 <th style={th}>ESTADO</th>
+                <th style={{ ...th, width: 130 }} title="Capítulos escolhidos para o teste que já estão concluídos no caderno">PREPARAÇÃO</th>
                 <th style={{ ...th, textAlign: 'right', paddingRight: 0 }}>NOTA</th>
               </tr>
             </thead>
@@ -618,6 +656,7 @@ export function AssessmentTable({
                       {assessmentTimeRange(a) && <span style={{ display: 'block', fontSize: 11, color: 'var(--mut)' }}>{assessmentTimeRange(a)}</span>}
                     </td>
                     <td style={{ ...td, whiteSpace: 'nowrap', color: stateColor }}>{state}</td>
+                    <td style={td}>{prepCell(a)}</td>
                     <td
                       className={grade !== null ? d.serif : undefined}
                       style={{ ...td, paddingRight: 0, textAlign: 'right', color: grade !== null ? 'var(--ink)' : 'var(--faint)', fontSize: grade !== null ? 17 : 13 }}

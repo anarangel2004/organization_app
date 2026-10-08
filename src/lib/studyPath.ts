@@ -8,6 +8,7 @@
 // durante a aula da própria disciplina) e o juntar de sessões seguidas.
 
 import { parseMinutes, parseSchedulesRaw, normalizeDayNum } from '@/app/components/homeAgenda';
+import { chapterIdsOf } from './testPrep';
 
 const DAY_MS = 86400000;
 
@@ -227,7 +228,10 @@ export function buildTestPath({
   semester,
   budget,
   now,
+  chapterIds,
 }: {
+  // Capítulos escolhidos na avaliação: se houver, são eles a matéria do teste.
+  chapterIds?: unknown;
   subjectId: string;
   schedules: unknown;
   chapters: PathChapter[];
@@ -271,7 +275,33 @@ export function buildTestPath({
     };
   };
 
-  if (semester.start && slots.length) {
+  const chosen = new Set(chapterIdsOf(chapterIds));
+  const chosenTests = tests.filter((c) => chosen.has(String(c.id)));
+  if (chosen.size > 0) {
+    // Matéria escolhida à mão: os capítulos teóricos e práticos escolhidos, por número (T1, P1, T2…).
+    const picked = [...theory, ...practice]
+      .filter((c) => chosen.has(String(c.id)))
+      .sort(
+        (a, b) =>
+          (chapterNumber(a.number) ?? 999) - (chapterNumber(b.number) ?? 999) ||
+          (chapterTab(a.category) === 'TEORICAS' ? 0 : 1) - (chapterTab(b.category) === 'TEORICAS' ? 0 : 1)
+      );
+    for (const ch of picked) {
+      const kind: 'T' | 'P' = chapterTab(ch.category) === 'TEORICAS' ? 'T' : 'P';
+      const index = chapterNumber(ch.number) ?? 0;
+      raw.push({
+        key: `${kind}${index}-${ch.id}`,
+        kind,
+        index,
+        label: `${kind === 'T' ? 'Teórica' : 'Prática'}${index ? ` ${index}` : ''}`,
+        chapterId: String(ch.id),
+        chapterTitle: ch.title || '',
+        category: kind === 'T' ? 'TEORICAS' : 'PRATICAS',
+        given: true,
+        done: !!ch.is_completed,
+      });
+    }
+  } else if (semester.start && slots.length) {
     // Pelo horário: conta as aulas desde o início do semestre; entram as deste teste.
     const end = semester.end && semester.end < due ? new Date(semester.end.getTime() + DAY_MS) : due;
     const tAll = weeklyOccurrences(slots, 'T', semester.start, end);
@@ -305,8 +335,9 @@ export function buildTestPath({
     const studied = r.chapterId ? studiedOn(r.chapterId) : 0;
     return { ...r, budget: per, studied, left: r.done ? 0 : Math.max(0, per - studied) };
   });
-  const trainingStudied = tests.reduce((n, c) => n + studiedOn(String(c.id)), 0);
-  const nextTest = [...tests].sort((a, b) => (chapterNumber(a.number) ?? 0) - (chapterNumber(b.number) ?? 0)).find((c) => !c.is_completed) ?? null;
+  const trainTests = chosenTests.length ? chosenTests : tests;
+  const trainingStudied = trainTests.reduce((n, c) => n + studiedOn(String(c.id)), 0);
+  const nextTest = [...trainTests].sort((a, b) => (chapterNumber(a.number) ?? 0) - (chapterNumber(b.number) ?? 0)).find((c) => !c.is_completed) ?? null;
   const training: PathStep = {
     key: 'TESTES',
     kind: 'TESTES',
@@ -316,7 +347,7 @@ export function buildTestPath({
     chapterTitle: nextTest?.title || '',
     category: 'TESTES',
     given: true,
-    done: tests.length > 0 && tests.every((c) => c.is_completed),
+    done: trainTests.length > 0 && trainTests.every((c) => c.is_completed),
     budget: raw.length ? trainingBudget : budget,
     studied: trainingStudied,
     left: Math.max(0, (raw.length ? trainingBudget : budget) - trainingStudied),

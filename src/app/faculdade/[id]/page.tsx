@@ -136,6 +136,8 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
   const [helpOpen, setHelpOpen] = useState(false);
   const [libFull, setLibFull] = useState(false);
   const [manage, setManage] = useState<ManagePanel | null>(null);
+  // Teste aberto no editor de avaliação (para escolher os capítulos).
+  const [manageItem, setManageItem] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -180,7 +182,7 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
           supabase.from('assessments').select('*').eq('subject_id', id).order('created_at', { ascending: true })
         ),
         readSubjectRows<ChapterRow>('chapters', id, () =>
-          supabase.from('chapters').select('id, subject_id, category, title, is_completed, updated_at').eq('subject_id', id)
+          supabase.from('chapters').select('id, subject_id, category, title, number, is_completed, updated_at').eq('subject_id', id)
         ),
         readSubjectRows<FileRow>('subject_files', id, () =>
           supabase.from('subject_files').select('*').eq('subject_id', id).order('created_at', { ascending: false })
@@ -310,8 +312,26 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
 
   const openManage = useCallback((panel: ManagePanel) => {
     setLibFull(false);
+    setManageItem(null);
     setManage(panel);
   }, []);
+
+  // Abre um teste no editor (a partir da tabela ou de ?teste=<id> vindo da Visão Geral).
+  const openTest = useCallback((id: string) => {
+    setLibFull(false);
+    setManageItem(id);
+    setManage('avaliacao');
+  }, []);
+  useEffect(() => {
+    if (loading) return;
+    const id = new URLSearchParams(window.location.search).get('teste');
+    if (!id || !assessments.some((a) => String(a.id) === id)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- abrir o teste pedido no endereço
+    openTest(id);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('teste');
+    window.history.replaceState(null, '', url.toString());
+  }, [loading, assessments, openTest]);
 
   // Os editores atualizam o estado da página diretamente: não é preciso recarregar.
   const closeManage = useCallback(() => setManage(null), []);
@@ -502,6 +522,8 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
       today={today}
       onEditWeights={() => openManage('avaliacao')}
       onAddGrade={() => openManage('avaliacao')}
+      chapters={chapters}
+      onOpenItem={openTest}
       layout={layout}
     />
   );
@@ -550,6 +572,9 @@ export default function SubjectDetailPage({ params }: { params: Promise<{ id: st
       )}
       {manage === 'avaliacao' && (
         <AvaliacaoEditor
+          key={manageItem ?? 'todos'}
+          focusId={manageItem}
+          chapters={chapters}
           subjectId={subjectId}
           items={assessments}
           theory={theory}
