@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from 'react';
 import c from './caderno.module.css';
-import { DrawingCanvas, DrawingCanvasRef } from './editor/DrawingCanvas';
+import { DrawingCanvas, DrawingCanvasRef, type Stroke } from './editor/DrawingCanvas';
 import { usePinchZoom } from './usePinchZoom';
 import { TableMenu, type TableAction } from './TableMenu';
 import { printPaper } from './printPaper';
@@ -87,6 +87,11 @@ interface NotesPaneProps {
   onUpdateContent: (html: string) => void;
   onUpdateTitle: (title: string) => void;
   onUpdateDrawing: (json: string) => void;
+  // Traços carregados por zonas e gravação por zonas (ver editor/inkStore.ts).
+  inkStrokes?: Stroke[] | null;
+  // O desenho deste capítulo ainda está a ser lido: não deixar desenhar.
+  inkPending?: boolean;
+  onUpdateStrokes?: (strokes: Stroke[]) => void;
   onOpenRef: (page: number) => void;
   onCaretRef: (page: number) => void;
   onStats: (stats: EditorStats) => void;
@@ -273,6 +278,9 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
     onUpdateContent,
     onUpdateTitle,
     onUpdateDrawing,
+    inkStrokes = null,
+    inkPending = false,
+    onUpdateStrokes,
     onOpenRef,
     onCaretRef,
     onStats,
@@ -1178,6 +1186,9 @@ export const NotesPane = forwardRef<NotesPaneRef, NotesPaneProps>(function Notes
             chapterId={chapter.id}
             chapterContent={chapter.content}
             drawingDataRaw={chapter.drawingData}
+            strokes={inkStrokes}
+            inkPending={inkPending}
+            onUpdateStrokes={onUpdateStrokes}
             mode={mode}
             tool={tool}
             color={strokeColor}

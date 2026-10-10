@@ -12,14 +12,14 @@ import {
 import c from '../caderno.module.css';
 import { EraserType, MARKER_INKS, NoteMode, PEN_INKS, Tool } from '../types';
 
-interface Point {
+export interface Point {
   x: number;
   y: number;
   // Pressão da caneta (0–1); ausente em traços de rato e nos antigos.
   p?: number;
 }
 
-interface Stroke {
+export interface Stroke {
   id: string;
   tool: 'PEN' | 'HIGHLIGHTER' | 'ERASER';
   color: string;
@@ -47,6 +47,12 @@ interface DrawingCanvasProps {
   chapterId: string;
   chapterContent?: string;
   drawingDataRaw?: string;
+  // Traços já carregados (tabela chapter_ink); se vier, substitui drawingDataRaw.
+  strokes?: Stroke[] | null;
+  // O desenho ainda está a ser lido do servidor: mostra o texto, não deixa desenhar.
+  inkPending?: boolean;
+  // Gravar por zonas: recebe a lista de traços (sem a passar a texto aqui).
+  onUpdateStrokes?: (strokes: Stroke[]) => void;
   mode: NoteMode;
   tool: Tool;
   color: string;
@@ -197,6 +203,9 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     chapterId,
     chapterContent,
     drawingDataRaw,
+    strokes: initialStrokes = null,
+    inkPending = false,
+    onUpdateStrokes,
     mode,
     tool,
     color,
@@ -244,6 +253,8 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   const isDrawingRef = useRef(false);
   const loadedChapterIdRef = useRef<string | null>(null);
   const loadedRevisionRef = useRef(-1);
+  // Capítulo aberto mas com o desenho ainda a caminho.
+  const waitingInkRef = useRef(false);
   // Laço: contorno a ser desenhado, traços selecionados e arrasto da seleção.
   const lassoPathRef = useRef<Point[] | null>(null);
   const selectedRef = useRef<Set<string>>(new Set());
@@ -262,7 +273,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
   const objectErasedRef = useRef(false);
   // Gravação adiada: a função e a lista do capítulo em que se escreveu.
   const saveTimerRef = useRef<number | null>(null);
-  const pendingSaveRef = useRef<{ fn: (json: string) => void; strokes: Stroke[] } | null>(null);
+  const pendingSaveRef = useRef<{ fn: (strokes: Stroke[]) => void; strokes: Stroke[] } | null>(null);
 
   const updateHistoryStatus = useCallback(() => {
     onHistoryChange?.(undoStackRef.current.length > 0, redoStackRef.current.length > 0);
@@ -537,16 +548,17 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     }
     const pending = pendingSaveRef.current;
     pendingSaveRef.current = null;
-    if (pending) pending.fn(JSON.stringify(pending.strokes));
+    if (pending) pending.fn(pending.strokes);
   }, []);
 
   // Guarda a função deste capítulo e a lista atual; grava quando a caneta pára.
   const saveDrawingToCloud = useCallback(() => {
-    if (!onUpdateDrawing) return;
-    pendingSaveRef.current = { fn: onUpdateDrawing, strokes: strokesRef.current };
+    const fn = onUpdateStrokes ?? (onUpdateDrawing ? (list: Stroke[]) => onUpdateDrawing(JSON.stringify(list)) : null);
+    if (!fn) return;
+    pendingSaveRef.current = { fn, strokes: strokesRef.current };
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(flushSave, SAVE_IDLE_MS);
-  }, [onUpdateDrawing, flushSave]);
+  }, [onUpdateStrokes, onUpdateDrawing, flushSave]);
 
   // Sair, esconder a app ou fechar o capítulo: grava já o que falta.
   useEffect(() => {
@@ -721,17 +733,21 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
 
   // Carregar texto e traços quando muda o capítulo.
   useEffect(() => {
-    if (loadedChapterIdRef.current === chapterId && loadedRevisionRef.current === revision) return;
-    // O que ficou por gravar é do capítulo anterior: grava-o antes de trocar.
-    flushSave();
-    loadedChapterIdRef.current = chapterId;
-    loadedRevisionRef.current = revision;
-
-    if (editorRef.current && editorRef.current.innerHTML !== (chapterContent || '')) {
-      editorRef.current.innerHTML = chapterContent || '';
+    const same = loadedChapterIdRef.current === chapterId && loadedRevisionRef.current === revision;
+    // Mesmo capítulo: só volta a ler se estava à espera do desenho e ele chegou.
+    if (same && !(waitingInkRef.current && !inkPending)) return;
+    if (!same) {
+      // O que ficou por gravar é do capítulo anterior: grava-o antes de trocar.
+      flushSave();
+      loadedChapterIdRef.current = chapterId;
+      loadedRevisionRef.current = revision;
+      if (editorRef.current && editorRef.current.innerHTML !== (chapterContent || '')) {
+        editorRef.current.innerHTML = chapterContent || '';
+      }
     }
+    waitingInkRef.current = inkPending;
     try {
-      const parsed = drawingDataRaw ? JSON.parse(drawingDataRaw) : [];
+      const parsed = inkPending ? [] : initialStrokes ?? (drawingDataRaw ? JSON.parse(drawingDataRaw) : []);
       strokesRef.current = Array.isArray(parsed)
         ? parsed.map((st: Stroke, i: number) => (st.id ? st : { ...st, id: `old-${i}` }))
         : [];
@@ -744,7 +760,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     updateHistoryStatus();
     logicalRef.current = { w: 0, h: 0 };
     setupCanvas();
-  }, [chapterId, revision, chapterContent, drawingDataRaw, setupCanvas, updateHistoryStatus, flushSave]);
+  }, [chapterId, revision, chapterContent, drawingDataRaw, initialStrokes, inkPending, setupCanvas, updateHistoryStatus, flushSave]);
 
   // Zoom do browser ou com dois dedos: a resolução acompanha.
   useEffect(() => {
@@ -822,7 +838,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasRef, DrawingCanvasProps>(fu
     }
   };
 
-  const drawingActive = mode === 'EDIT' && tool !== 'TEXT';
+  const drawingActive = mode === 'EDIT' && tool !== 'TEXT' && !inkPending;
   const toolNow = (): Tool => (forcedPenRef.current ? 'PEN' : tool);
 
   // Scribble do iPad: se a página trava o toque da caneta, o iPad não converte a letra em texto.

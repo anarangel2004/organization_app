@@ -25,7 +25,15 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // Se o Supabase estiver lento, não bloquear a página (o Vercel desiste ao fim de
+  // alguns segundos com 504 MIDDLEWARE_INVOCATION_TIMEOUT). Sem resposta em 4 s,
+  // deixa passar: as próprias páginas voltam a confirmar a sessão no browser.
+  const result = await Promise.race([
+    supabase.auth.getUser().catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+  ]);
+  if (!result) return response;
+  const user = result.data.user;
 
   const isProtectedRoute =
     request.nextUrl.pathname === '/' ||

@@ -45,6 +45,8 @@ import { planPeriod } from '@/lib/studyPlan';
 import { ChapterSidebar } from './components/ChapterSidebar';
 import { FormatState, NotesLayout, NotesPane, NotesPaneRef, ZOOM_MAX, ZOOM_MIN } from './components/NotesPane';
 import { TableSizeDialog } from './components/TableMenu';
+import type { Stroke } from './components/editor/DrawingCanvas';
+import { InkSaver, clearInkBackup, inkSignature, loadInk, putInkBackup, readInkBackup, sortStrokes } from './components/editor/inkStore';
 import { PdfPane } from './components/PdfPane';
 import { OptionsSheet, PdfSheet, PhoneBar, PhoneFormatBar, TabletBars, syncText } from './components/TouchBars';
 
@@ -165,6 +167,10 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   // ==========================================
   const [subjects, setSubjects] = useState<SubjectRow[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const chaptersRef = useRef<Chapter[]>([]);
+  useEffect(() => {
+    chaptersRef.current = chapters;
+  }, [chapters]);
   const [assessments, setAssessments] = useState<AssessmentItem[]>([]);
   const [files, setFiles] = useState<FileRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -304,6 +310,29 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
 
   const inTab = useMemo(() => chapters.filter((ch) => ch.category === tab), [chapters, tab]);
   const active = inTab.find((ch) => ch.id === selectedId) ?? inTab[0];
+  const activeId = active?.id;
+
+  // ==========================================
+  // DESENHO GRAVADO POR ZONAS (tabela chapter_ink; ver editor/inkStore.ts)
+  // ==========================================
+  // ink: traços do capítulo aberto, já lidos do servidor (ou da cópia do aparelho).
+  const [ink, setInk] = useState<{ chapterId: string; strokes: Stroke[] | null; available: boolean } | null>(null);
+  const [inkLoadTick, setInkLoadTick] = useState(0);
+  const [inkError, setInkError] = useState<string | null>(null);
+  const saversRef = useRef<Map<string, InkSaver>>(new Map());
+  const inkSigRef = useRef('');
+  const inkLatestRef = useRef<{ chapterId: string; strokes: Stroke[] } | null>(null);
+  const inkBusyRef = useRef(false);
+  const inkRetryRef = useRef(0);
+  const inkTimerRef = useRef<number | null>(null);
+  const legacyClearedRef = useRef<Set<string>>(new Set());
+  // Para os temporizadores chamarem sempre a versão atual da gravação.
+  const runInkSaveRef = useRef<() => void>(() => undefined);
+  const inkReady = !!active && ink?.chapterId === active.id;
+  const activeIdRef = useRef(activeId);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   // Abrir no último capítulo usado nesta disciplina (guardado neste aparelho),
   // a não ser que o endereço diga outro (links da pesquisa, do /estudo…).
@@ -483,6 +512,119 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
     };
   }, [flush]);
 
+  // Grava o desenho mais recente: por zonas se a tabela existe; senão como antes
+  // (mas um desenho grande demais não é enviado — fica a cópia no aparelho).
+  const runInkSave = useCallback(async () => {
+    if (inkBusyRef.current) return;
+    const job = inkLatestRef.current;
+    if (!job) return;
+    inkBusyRef.current = true;
+    if (inkTimerRef.current) window.clearTimeout(inkTimerRef.current);
+    inkTimerRef.current = null;
+    setSync('saving');
+    let retry = false;
+    try {
+      const saver = saversRef.current.get(job.chapterId);
+      if (saver) {
+        const sent = await saver.save(job.strokes);
+        // As zonas mudaram por nossa causa: não é preciso recarregar ao voltar à app.
+        if (sent && job.chapterId === activeIdRef.current) {
+          const sig = await inkSignature(job.chapterId);
+          if (sig !== null) inkSigRef.current = sig;
+        }
+        // O desenho antigo (inteiro) já está nas zonas: limpa-o da tabela chapters.
+        if (!legacyClearedRef.current.has(job.chapterId)) {
+          legacyClearedRef.current.add(job.chapterId);
+          const ch = chaptersRef.current.find((x) => x.id === job.chapterId);
+          if (ch?.drawingData) queueSave(job.chapterId, { drawing_data: '' }, { drawingData: '' });
+        }
+        if (inkLatestRef.current === job) {
+          inkLatestRef.current = null;
+          await clearInkBackup(job.chapterId);
+        }
+      } else {
+        const json = JSON.stringify(job.strokes);
+        if (json.length > 2_000_000) {
+          throw new Error(
+            `o desenho deste capítulo tem ${Math.round(json.length / 1024)} KB, grande demais para gravar de uma vez. Corre o ficheiro supabase-chapter-ink.sql no Supabase (SQL Editor) para gravar por zonas; até lá fica guardado neste aparelho.`
+          );
+        }
+        queueSave(job.chapterId, { drawing_data: json }, { drawingData: json });
+        if (inkLatestRef.current === job) inkLatestRef.current = null;
+      }
+      inkRetryRef.current = 0;
+      setInkError(null);
+      setSync(pendingRef.current.size ? 'saving' : 'synced');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('Erro ao guardar o desenho:', err);
+      setInkError(msg);
+      setSync('error');
+      retry = !/grande demais/.test(msg);
+    } finally {
+      inkBusyRef.current = false;
+    }
+    if (retry) {
+      const wait = [5000, 15000, 30000, 60000][Math.min(inkRetryRef.current, 3)];
+      inkRetryRef.current += 1;
+      inkTimerRef.current = window.setTimeout(() => runInkSaveRef.current(), wait);
+    } else if (inkLatestRef.current && inkLatestRef.current !== job) {
+      runInkSaveRef.current();
+    }
+  }, [queueSave]);
+  useEffect(() => {
+    runInkSaveRef.current = () => void runInkSave();
+  }, [runInkSave]);
+
+  const saveInk = useCallback(
+    (chapterId: string, strokes: Stroke[]) => {
+      inkLatestRef.current = { chapterId, strokes };
+      // Cópia no aparelho até o servidor confirmar (recarregar não perde nada).
+      void putInkBackup(chapterId, strokes).then(() => runInkSave());
+    },
+    [runInkSave]
+  );
+
+  // Ao abrir um capítulo: lê as zonas do servidor e a cópia do aparelho (se ficou algo por gravar).
+  useEffect(() => {
+    if (!activeId) return;
+    let cancelled = false;
+    if (activeId.startsWith('temp-')) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- capítulo ainda sem id no servidor
+      setInk({ chapterId: activeId, strokes: null, available: false });
+      return;
+    }
+    (async () => {
+      try {
+        const [res, backup] = await Promise.all([loadInk(activeId), readInkBackup(activeId)]);
+        if (cancelled) return;
+        inkSigRef.current = res.signature;
+        if (res.available) {
+          if (!saversRef.current.has(activeId)) saversRef.current.set(activeId, new InkSaver(activeId, res.strokes));
+        } else {
+          saversRef.current.delete(activeId);
+        }
+        let strokes = res.strokes;
+        if (backup && backup.strokes.length) {
+          // Trabalho que não chegou ao servidor: a cópia do aparelho ganha, e volta a ser enviada.
+          strokes = sortStrokes(backup.strokes);
+          inkLatestRef.current = { chapterId: activeId, strokes: backup.strokes };
+          window.setTimeout(() => void runInkSave(), 800);
+        }
+        setInkError(null);
+        setInk({ chapterId: activeId, strokes, available: res.available });
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Erro ao ler o desenho:', err);
+        setInkError(`não foi possível ler o desenho deste capítulo (${err instanceof Error ? err.message : String(err)}).`);
+        setSync('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, inkLoadTick, runInkSave]);
+
   // ==========================================
   // ATUALIZAR: grava o que falta e volta a ler o caderno do servidor
   // (o que foi escrito noutro aparelho aparece aqui).
@@ -523,6 +665,16 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
       const server = local ? fresh.find((ch) => ch.id === local.id) : undefined;
       if (local && server && !pending.has(local.id) && (server.content !== local.content || server.drawingData !== local.drawingData)) {
         setRevision((r) => r + 1);
+      }
+      // Desenho por zonas: se mudou noutro aparelho (e não há nada nosso por gravar), volta a ler.
+      if (local && saversRef.current.has(local.id) && !inkLatestRef.current) {
+        const res = await loadInk(local.id).catch(() => null);
+        if (res && res.available && res.signature !== inkSigRef.current) {
+          inkSigRef.current = res.signature;
+          saversRef.current.set(local.id, new InkSaver(local.id, res.strokes));
+          setInk({ chapterId: local.id, strokes: res.strokes, available: true });
+          setRevision((r) => r + 1);
+        }
       }
       setSync(pendingRef.current.size ? 'saving' : 'synced');
     } catch (err) {
@@ -1016,6 +1168,9 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
         onUpdateContent={(html) => queueSave(active.id, { content: html }, { content: html })}
         onUpdateTitle={(title) => queueSave(active.id, { title }, { title })}
         onUpdateDrawing={(json) => queueSave(active.id, { drawing_data: json }, { drawingData: json })}
+        inkStrokes={inkReady ? ink!.strokes : null}
+        inkPending={!inkReady}
+        onUpdateStrokes={(strokes) => saveInk(active.id, strokes)}
         onOpenRef={openRef}
         onCaretRef={caretRef}
         onStats={setStats}
@@ -1087,21 +1242,25 @@ function NotebookContent({ subjectId }: { subjectId: string }) {
   // ==========================================
 
   // Erro ao gravar: faixa com a mensagem real e "Tentar agora" (o texto fica guardado na fila).
-  const saveErrorBar = sync === 'error' && syncError ? (
+  const shownError = inkError || syncError;
+  const saveErrorBar = sync === 'error' && shownError ? (
     <div
       role="alert"
       className="no-print"
       style={{ position: 'fixed', left: 12, right: 12, bottom: 44, zIndex: 900, display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: '#2a1714', border: '1px solid #6b3a33', color: '#f3d6cf', fontSize: 13 }}
     >
       <span style={{ flexGrow: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
-        Não foi possível guardar no servidor (o que escreveste continua aqui e é tentado de novo sozinho). Erro: {syncError}
+        Não foi possível guardar no servidor (o que escreveste fica guardado neste aparelho e é tentado de novo sozinho). Erro: {shownError}
       </span>
       <button
         type="button"
         onClick={() => {
           retryRef.current = 0;
+          inkRetryRef.current = 0;
           setSync('saving');
           flush();
+          if (!inkReady) setInkLoadTick((t) => t + 1);
+          else void runInkSave();
         }}
         style={{ height: 32, padding: '0 12px', background: '#f3d6cf', color: '#2a1714', border: 0, fontSize: 13, fontWeight: 600, flexShrink: 0 }}
       >
